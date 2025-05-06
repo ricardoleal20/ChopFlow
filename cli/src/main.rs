@@ -10,12 +10,6 @@ The CLI provides tools for:
 - Managing workers and brokers
 - Testing and debugging the system
 
-This MVP implementation provides:
-- Command-line argument parsing via clap
-- Task creation with configurable properties
-- Task status checking
-- Basic system statistics
-
 In a full implementation, the CLI would offer more advanced features like
 worker management, task cancellation, and queue introspection tools.
 */
