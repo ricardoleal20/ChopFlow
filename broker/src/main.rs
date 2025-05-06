@@ -10,13 +10,6 @@ The broker serves as the central coordination point for the system:
 - Handles task acknowledgments and retries
 - Exposes HTTP/gRPC APIs for clients and workers
 
-This MVP implementation provides:
-- Command-line configuration via clap
-- In-memory queue for task storage
-- Basic task dispatching logic
-- Signal handling for graceful shutdown
-- gRPC server for client and worker communication
-
 Future enhancements will include persistent storage, authentication,
 metrics reporting, and cluster coordination.
 */
@@ -34,11 +27,12 @@ use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 // Generate code from protobuf definitions
 pub mod chopflow {
+    // The generated code from the build script will be in OUT_DIR
     tonic::include_proto!("chopflow");
 }
 
@@ -170,7 +164,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn enqueue_task(
         &self,
         request: Request<EnqueueTaskRequest>,
-    ) -> Result<Response<EnqueueTaskResponse>, Status> {
+    ) -> std::result::Result<Response<EnqueueTaskResponse>, Status> {
         let req = request.into_inner();
 
         // Convert request to Task
@@ -218,7 +212,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn get_task_status(
         &self,
         request: Request<GetTaskStatusRequest>,
-    ) -> Result<Response<GetTaskStatusResponse>, Status> {
+    ) -> std::result::Result<Response<GetTaskStatusResponse>, Status> {
         let req = request.into_inner();
 
         // Parse task ID
@@ -244,7 +238,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn cancel_task(
         &self,
         request: Request<CancelTaskRequest>,
-    ) -> Result<Response<CancelTaskResponse>, Status> {
+    ) -> std::result::Result<Response<CancelTaskResponse>, Status> {
         let req = request.into_inner();
 
         // Parse task ID
@@ -272,7 +266,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn register_worker(
         &self,
         request: Request<RegisterWorkerRequest>,
-    ) -> Result<Response<RegisterWorkerResponse>, Status> {
+    ) -> std::result::Result<Response<RegisterWorkerResponse>, Status> {
         let req = request.into_inner();
 
         // Create worker
@@ -304,7 +298,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn worker_heartbeat(
         &self,
         request: Request<WorkerHeartbeatRequest>,
-    ) -> Result<Response<WorkerHeartbeatResponse>, Status> {
+    ) -> std::result::Result<Response<WorkerHeartbeatResponse>, Status> {
         let req = request.into_inner();
 
         // Parse worker ID
@@ -329,7 +323,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn acknowledge_task(
         &self,
         request: Request<AcknowledgeTaskRequest>,
-    ) -> Result<Response<AcknowledgeTaskResponse>, Status> {
+    ) -> std::result::Result<Response<AcknowledgeTaskResponse>, Status> {
         let req = request.into_inner();
 
         // Parse IDs
@@ -367,7 +361,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn get_queue_stats(
         &self,
         _: Request<GetQueueStatsRequest>,
-    ) -> Result<Response<GetQueueStatsResponse>, Status> {
+    ) -> std::result::Result<Response<GetQueueStatsResponse>, Status> {
         // Get queue length
         let queue_length = self
             .queue
@@ -404,7 +398,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
     async fn list_tasks(
         &self,
         request: Request<ListTasksRequest>,
-    ) -> Result<Response<ListTasksResponse>, Status> {
+    ) -> std::result::Result<Response<ListTasksResponse>, Status> {
         // Not implemented in MVP
         // Would require a way to scan all tasks in the queue
         Ok(Response::new(ListTasksResponse {
@@ -415,8 +409,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
     async fn list_workers(
         &self,
-        _: Request<prost::google::protobuf::Empty>,
-    ) -> Result<Response<ListWorkersResponse>, Status> {
+        _: Request<()>,
+    ) -> std::result::Result<Response<ListWorkersResponse>, Status> {
         let dispatcher = self.dispatcher.lock().await;
 
         let workers = dispatcher
