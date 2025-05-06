@@ -80,7 +80,7 @@ enum Commands {
         config: String,
 
         /// Host to bind to
-        #[arg(long, short, default_value = "127.0.0.1")]
+        #[arg(long, short = 'H', default_value = "127.0.0.1")]
         host: String,
 
         /// Port to listen on
@@ -245,18 +245,65 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         let task_id = Uuid::parse_str(&req.task_id)
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
-        // In a real implementation, we would mark the task as cancelled
-        // For MVP, we'll just check if it exists
-        let task_exists = self
+        // Get the task from the queue
+        let task_result = self
             .queue
             .get(&task_id)
             .await
-            .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
-            .is_some();
+            .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?;
 
-        if task_exists {
-            info!("Cancelled task {}", task_id);
-            Ok(Response::new(CancelTaskResponse { success: true }))
+        // Check if the task exists
+        if let Some(mut task) = task_result {
+            // Check if the task is in a cancellable state (not completed, failed, or already cancelled)
+            if task.status != TaskStatus::Completed
+                && task.status != TaskStatus::Failed
+                && task.status != TaskStatus::DeadLettered
+            {
+                // Mark task as cancelled by setting it to Failed status with a special tag
+                // In a production system, we might have a dedicated Cancelled status
+                task.status = TaskStatus::Failed;
+                task.tags.push("cancelled".to_string());
+
+                // Update the task in the queue
+                self.queue
+                    .update(task.clone())
+                    .await
+                    .map_err(|e| Status::internal(format!("Failed to update task: {}", e)))?;
+
+                // If the task is currently assigned to a worker, we need to handle that
+                if task.status == TaskStatus::Running {
+                    let mut dispatcher = self.dispatcher.lock().await;
+
+                    // Manually handle task cancellation for workers
+                    // In a production implementation, this would be part of the dispatcher trait
+                    let workers_result = dispatcher.list_workers().await;
+                    if let Ok(workers) = workers_result {
+                        for worker in workers {
+                            if worker.assigned_tasks.contains(&task_id) {
+                                // In a real impl, we would notify the worker about the cancellation
+                                // For now, we'll just unassign the task in the internal state
+                                // This is simplified - in production, we'd have a better mechanism
+                                if let Err(e) =
+                                    dispatcher.ack_task(&worker.id, &task_id, false).await
+                                {
+                                    warn!("Failed to unassign cancelled task from worker: {}", e);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                info!("Cancelled task {}", task_id);
+                Ok(Response::new(CancelTaskResponse { success: true }))
+            } else {
+                // Task exists but is in a state that cannot be cancelled
+                warn!(
+                    "Task {} cannot be cancelled due to its status: {:?}",
+                    task_id, task.status
+                );
+                Ok(Response::new(CancelTaskResponse { success: false }))
+            }
         } else {
             warn!("Attempted to cancel non-existent task {}", task_id);
             Ok(Response::new(CancelTaskResponse { success: false }))

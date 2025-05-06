@@ -191,6 +191,32 @@ impl InMemoryDispatcher {
             config,
         }
     }
+
+    /// Handle task cancellation
+    /// Unassigns the task from any worker and updates worker resources
+    pub async fn handle_task_cancellation(&mut self, task_id: &Uuid) -> Result<()> {
+        let mut workers = self.workers.lock().await;
+
+        // Find any worker that has this task assigned
+        for (worker_id, worker) in workers.iter_mut() {
+            if let Some(pos) = worker.assigned_tasks.iter().position(|id| id == task_id) {
+                // Remove the task from the worker's assigned tasks
+                worker.assigned_tasks.remove(pos);
+
+                // In a real implementation, we would also:
+                // 1. Update the worker's available resources
+                // 2. Send a cancellation notification to the worker
+                // 3. Handle any cleanup required
+
+                info!(
+                    "Removed cancelled task {} from worker {}",
+                    task_id, worker_id
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]

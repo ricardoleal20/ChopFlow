@@ -20,14 +20,26 @@ use chopflow_core::task::Task;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tonic::transport::Channel;
 use tracing::{error, info, warn};
+
+// Generate code from protobuf definitions
+pub mod chopflow {
+    // The generated code from the build script will be in OUT_DIR
+    tonic::include_proto!("chopflow");
+}
+
+use chopflow::{
+    chop_flow_broker_client::ChopFlowBrokerClient, EnqueueTaskRequest, EnqueueTaskResponse,
+    GetQueueStatsRequest, GetQueueStatsResponse, GetTaskStatusRequest, GetTaskStatusResponse,
+};
 
 /// ChopFlow CLI - Task Queue Client
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Broker address
-    #[arg(long, short, default_value = "http://localhost:7575")]
+    #[arg(long, short, default_value = "http://localhost:8000")]
     broker: String,
 
     #[command(subcommand)]
@@ -39,7 +51,7 @@ enum Commands {
     /// Enqueue a task
     Enqueue {
         /// Path to task JSON file
-        #[arg(long, short)]
+        #[arg(long, short = 'f')]
         task: PathBuf,
 
         /// Task name
@@ -47,7 +59,7 @@ enum Commands {
         name: Option<String>,
 
         /// Tags (comma-separated)
-        #[arg(long, short)]
+        #[arg(long, short = 'g')]
         tags: Option<String>,
 
         /// ETA (earliest time of arrival) in ISO 8601 format
@@ -126,9 +138,8 @@ async fn enqueue_task(
         task = task.with_eta(eta_time);
     }
 
-    // In a real implementation, we would send the task to the broker here
-    // For the MVP, we'll just print the task details
-    info!("Task would be enqueued:");
+    // Show the task details
+    info!("Enqueueing task:");
     println!("Task ID: {}", task.id);
     println!("Name: {}", task.name);
     println!("Tags: {:?}", task.tags);
@@ -136,33 +147,116 @@ async fn enqueue_task(
         println!("ETA: {}", eta);
     }
 
-    Ok(())
+    // Connect to the broker and send the task
+    info!("Connecting to broker at {}", broker_address);
+    let mut client = connect_to_broker(&broker_address).await?;
+
+    // Prepare the request
+    let mut request = EnqueueTaskRequest {
+        name: task.name,
+        tags: task.tags,
+        payload: serde_json::to_string(&task.payload).unwrap_or_default(),
+        max_retries: task.max_retries,
+        resources: task.resources,
+        eta: None,
+    };
+
+    // Add ETA if present
+    if let Some(eta) = task.eta {
+        request.eta = Some(prost_types::Timestamp {
+            seconds: eta.timestamp(),
+            nanos: eta.timestamp_subsec_nanos() as i32,
+        });
+    }
+
+    // Send the request
+    match client.enqueue_task(request).await {
+        Ok(response) => {
+            info!("Task enqueued successfully");
+            println!("Broker assigned task ID: {}", response.get_ref().task_id);
+            Ok(())
+        }
+        Err(status) => {
+            error!("Failed to enqueue task: {}", status);
+            Err(chopflow_core::error::ChopFlowError::Other(status.into()))
+        }
+    }
 }
 
 async fn get_status(broker_address: String, id: Option<String>, all: bool) -> Result<()> {
     if let Some(task_id) = id {
         info!("Getting status for task {}", task_id);
 
-        // In a real implementation, we would fetch the task status from the broker
-        // For the MVP, we'll just print a placeholder
-        println!("Task ID: {}", task_id);
-        println!("Status: Unknown (not implemented)");
+        // Connect to the broker
+        let mut client = connect_to_broker(&broker_address).await?;
+
+        // Get the task status
+        let request = GetTaskStatusRequest {
+            task_id: task_id.clone(),
+        };
+
+        match client.get_task_status(request).await {
+            Ok(response) => {
+                let status_response = response.get_ref();
+                if let Some(task) = &status_response.task {
+                    println!("Task ID: {}", task.id);
+                    println!("Name: {}", task.name);
+                    println!("Status: {:?}", task.status);
+                    println!("Tags: {:?}", task.tags);
+                    if let Some(eta) = &task.eta {
+                        println!("ETA: {}s {}ns", eta.seconds, eta.nanos);
+                    }
+                } else {
+                    println!("Task not found: {}", task_id);
+                }
+                Ok(())
+            }
+            Err(status) => {
+                error!("Failed to get task status: {}", status);
+                Err(chopflow_core::error::ChopFlowError::Other(status.into()))
+            }
+        }
     } else if all {
         info!("Listing all tasks");
 
-        // In a real implementation, we would fetch all tasks from the broker
-        // For the MVP, we'll just print a placeholder
+        // Not implemented yet, would use the list_tasks endpoint
         println!("Task listing not implemented");
+        Ok(())
     } else {
         // Show queue stats
         info!("Getting queue stats");
 
-        // In a real implementation, we would fetch queue stats from the broker
-        // For the MVP, we'll just print a placeholder
-        println!("Queue length: 0 (not implemented)");
-        println!("Processed tasks: 0 (not implemented)");
-        println!("Failed tasks: 0 (not implemented)");
-    }
+        // Connect to the broker
+        let mut client = connect_to_broker(&broker_address).await?;
 
-    Ok(())
+        // Get queue stats
+        let request = GetQueueStatsRequest {};
+
+        match client.get_queue_stats(request).await {
+            Ok(response) => {
+                let stats = response.get_ref();
+                println!("Queue length: {}", stats.queue_length);
+                println!("Tasks processing: {}", stats.tasks_processing);
+                println!("Tasks completed: {}", stats.tasks_completed);
+                println!("Tasks failed: {}", stats.tasks_failed);
+                println!("Active workers: {}", stats.active_workers);
+                Ok(())
+            }
+            Err(status) => {
+                error!("Failed to get queue stats: {}", status);
+                Err(chopflow_core::error::ChopFlowError::Other(status.into()))
+            }
+        }
+    }
+}
+
+// Helper function to connect to the broker
+async fn connect_to_broker(broker_address: &str) -> Result<ChopFlowBrokerClient<Channel>> {
+    match ChopFlowBrokerClient::connect(broker_address.to_string()).await {
+        Ok(client) => Ok(client),
+        Err(e) => {
+            error!("Failed to connect to broker at {}: {}", broker_address, e);
+            Err(chopflow_core::error::ChopFlowError::Other(e.into()))
+        }
+    }
 }
