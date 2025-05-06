@@ -1,0 +1,25 @@
+[package]
+name = "chopflow_broker"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Broker for ChopFlow distributed task queue"
+license.workspace = true
+
+[dependencies]
+chopflow_core = { path = "../core" }
+tokio.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+config.workspace = true
+metrics.workspace = true
+tonic.workspace = true
+prost.workspace = true
+uuid = { workspace = true, features = ["v4", "serde"] }
+
+[build-dependencies]
+tonic-build = "0.10"

@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package chopflow;
+
+// Import Google's timestamp for ETA handling
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// The ChopFlow broker service
+service ChopFlowBroker {
+  // Task management
+  rpc EnqueueTask (EnqueueTaskRequest) returns (EnqueueTaskResponse);
+  rpc GetTaskStatus (GetTaskStatusRequest) returns (GetTaskStatusResponse);
+  rpc CancelTask (CancelTaskRequest) returns (CancelTaskResponse);
+  
+  // Worker management
+  rpc RegisterWorker (RegisterWorkerRequest) returns (RegisterWorkerResponse);
+  rpc WorkerHeartbeat (WorkerHeartbeatRequest) returns (WorkerHeartbeatResponse);
+  rpc AcknowledgeTask (AcknowledgeTaskRequest) returns (AcknowledgeTaskResponse);
+  
+  // Queue stats
+  rpc GetQueueStats (GetQueueStatsRequest) returns (GetQueueStatsResponse);
+  rpc ListTasks (ListTasksRequest) returns (ListTasksResponse);
+  rpc ListWorkers (google.protobuf.Empty) returns (ListWorkersResponse);
+}
+
+// Task object definition
+message Task {
+  string id = 1;
+  string name = 2;
+  string payload = 3; // JSON serialized payload
+  repeated string tags = 4;
+  google.protobuf.Timestamp enqueue_time = 5;
+  google.protobuf.Timestamp eta = 6;
+  uint32 retry_count = 7;
+  uint32 max_retries = 8;
+  TaskStatus status = 9;
+  map<string, uint32> resources = 10; // Resource requirements
+}
+
+// Worker definition
+message Worker {
+  string id = 1;
+  string address = 2;
+  repeated string tags = 3;
+  ResourceAvailability resources = 4;
+  repeated string assigned_tasks = 5;
+  google.protobuf.Timestamp last_heartbeat = 6;
+}
+
+// Resource availability for a worker
+message ResourceAvailability {
+  map<string, uint32> available = 1;
+  map<string, uint32> total = 2;
+}
+
+// Task status enum
+enum TaskStatus {
+  CREATED = 0;
+  QUEUED = 1;
+  RUNNING = 2;
+  COMPLETED = 3;
+  FAILED = 4;
+  DEADLETTERED = 5;
+}
+
+// EnqueueTask RPC
+message EnqueueTaskRequest {
+  string name = 1;
+  string payload = 2; // JSON serialized payload
+  repeated string tags = 3;
+  google.protobuf.Timestamp eta = 4;
+  uint32 max_retries = 5;
+  map<string, uint32> resources = 6; // Resource requirements
+}
+
+message EnqueueTaskResponse {
+  string task_id = 1;
+}
+
+// GetTaskStatus RPC
+message GetTaskStatusRequest {
+  string task_id = 1;
+}
+
+message GetTaskStatusResponse {
+  Task task = 1;
+}
+
+// CancelTask RPC
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+message CancelTaskResponse {
+  bool success = 1;
+}
+
+// RegisterWorker RPC
+message RegisterWorkerRequest {
+  string address = 1;
+  repeated string tags = 2;
+  map<string, uint32> resources = 3;
+}
+
+message RegisterWorkerResponse {
+  string worker_id = 1;
+}
+
+// WorkerHeartbeat RPC
+message WorkerHeartbeatRequest {
+  string worker_id = 1;
+  // Optionally include current resource availability
+  ResourceAvailability resources = 2;
+}
+
+message WorkerHeartbeatResponse {
+  bool success = 1;
+}
+
+// AcknowledgeTask RPC
+message AcknowledgeTaskRequest {
+  string worker_id = 1;
+  string task_id = 2;
+  bool success = 3;
+  string result = 4; // JSON serialized result if success=true, error message if success=false
+}
+
+message AcknowledgeTaskResponse {
+  bool success = 1;
+}
+
+// GetQueueStats RPC
+message GetQueueStatsRequest {}
+
+message GetQueueStatsResponse {
+  uint32 queue_length = 1;
+  uint32 tasks_processing = 2;
+  uint32 tasks_completed = 3;
+  uint32 tasks_failed = 4;
+  uint32 active_workers = 5;
+}
+
+// ListTasks RPC
+message ListTasksRequest {
+  uint32 limit = 1;
+  uint32 offset = 2;
+  repeated TaskStatus filter_status = 3;
+}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  uint32 total_count = 2;
+}
+
+// ListWorkers RPC
+message ListWorkersResponse {
+  repeated Worker workers = 1;
+} 
