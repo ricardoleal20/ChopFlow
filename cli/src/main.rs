@@ -21,17 +21,17 @@ use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tonic::transport::Channel;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 // Generate code from protobuf definitions
 pub mod chopflow {
-    // The generated code from the build script will be in OUT_DIR
-    tonic::include_proto!("chopflow");
+    // Include the generated code from the build script
+    include!(concat!(env!("OUT_DIR"), "/chopflow.rs"));
 }
 
 use chopflow::{
-    chop_flow_broker_client::ChopFlowBrokerClient, EnqueueTaskRequest, EnqueueTaskResponse,
-    GetQueueStatsRequest, GetQueueStatsResponse, GetTaskStatusRequest, GetTaskStatusResponse,
+    chop_flow_broker_client::ChopFlowBrokerClient, EnqueueTaskRequest, GetQueueStatsRequest,
+    GetTaskStatusRequest,
 };
 
 /// ChopFlow CLI - Task Queue Client

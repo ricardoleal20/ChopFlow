@@ -14,20 +14,16 @@ Future enhancements will include persistent storage, authentication,
 metrics reporting, and cluster coordination.
 */
 
-use chopflow_core::dispatcher::{Dispatcher, DispatcherConfig, InMemoryDispatcher, Worker};
+use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
 use chopflow_core::error::{ChopFlowError, Result};
 use chopflow_core::queue::{InMemoryQueue, Queue};
-use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::task::{Task, TaskStatus};
 
 use clap::{Parser, Subcommand};
-use prost_types::Timestamp;
-use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 // Generate code from protobuf definitions
@@ -92,7 +88,7 @@ enum Commands {
 // Conversions between core and proto types
 impl From<Task> for ProtoTask {
     fn from(task: Task) -> Self {
-        let mut proto_task = ProtoTask {
+        let proto_task = ProtoTask {
             id: task.id.to_string(),
             name: task.name,
             payload: serde_json::to_string(&task.payload).unwrap_or_default(),
@@ -444,7 +440,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
     async fn list_tasks(
         &self,
-        request: Request<ListTasksRequest>,
+        _request: Request<ListTasksRequest>,
     ) -> std::result::Result<Response<ListTasksResponse>, Status> {
         // Not implemented in MVP
         // Would require a way to scan all tasks in the queue
@@ -491,7 +487,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn start_broker(config_path: String, host: String, port: u16) -> Result<()> {
+async fn start_broker(_config_path: String, host: String, port: u16) -> Result<()> {
     // Create the queue
     let queue = Arc::new(InMemoryQueue::new());
 

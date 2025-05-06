@@ -19,22 +19,17 @@ This implementation provides:
 - Signal handling for graceful shutdown
 */
 
-use chopflow_core::dispatcher::Worker;
 use chopflow_core::error::Result;
 use chopflow_core::resources::ResourceAvailability;
-use chopflow_core::task::TaskStatus;
 
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tokio::time;
-use tonic::{Request, Response, Status};
-use tracing::{error, info, warn};
-use uuid::Uuid;
+use tonic::Request;
+use tracing::{error, info};
 
 // Generate code from protobuf definitions
 pub mod chopflow {
@@ -42,8 +37,7 @@ pub mod chopflow {
 }
 
 use chopflow::{
-    chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, EnqueueTaskRequest,
-    GetTaskStatusRequest, RegisterWorkerRequest, RegisterWorkerResponse,
+    chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, RegisterWorkerRequest,
     ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask, WorkerHeartbeatRequest,
 };
 
