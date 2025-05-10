@@ -203,7 +203,8 @@ impl InMemoryDispatcher {
                 // Remove the task from the worker's assigned tasks
                 worker.assigned_tasks.remove(pos);
 
-                // In a real implementation, we would also:
+                // * NOTE (WIP):
+                // In the final system, we would also:
                 // 1. Update the worker's available resources
                 // 2. Send a cancellation notification to the worker
                 // 3. Handle any cleanup required

@@ -150,7 +150,8 @@ impl From<Worker> for ProtoWorker {
 struct ChopFlowBrokerService {
     queue: Arc<dyn Queue>,
     dispatcher: Arc<tokio::sync::Mutex<InMemoryDispatcher>>,
-    // Stats tracking (would use metrics in a real implementation)
+    // * NOTE (WIP):
+    // Stats tracking (would use metrics in the final system)
     tasks_completed: Arc<tokio::sync::Mutex<u32>>,
     tasks_failed: Arc<tokio::sync::Mutex<u32>>,
 }
@@ -276,7 +277,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
                     if let Ok(workers) = workers_result {
                         for worker in workers {
                             if worker.assigned_tasks.contains(&task_id) {
-                                // In a real impl, we would notify the worker about the cancellation
+                                // * NOTE (WIP):
+                                // In the final system, we would notify the worker about the cancellation
                                 // For now, we'll just unassign the task in the internal state
                                 // This is simplified - in production, we'd have a better mechanism
                                 if let Err(e) =
