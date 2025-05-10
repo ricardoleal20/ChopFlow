@@ -288,6 +288,7 @@ dependencies = [
  "chrono",
  "clap",
  "config",
+ "futures-util",
  "metrics",
  "prost",
  "prost-types",

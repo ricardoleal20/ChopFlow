@@ -15,16 +15,18 @@ metrics reporting, and cluster coordination.
 */
 
 use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
-use chopflow_core::error::{ChopFlowError, Result};
+use chopflow_core::error::{Result};
 use chopflow_core::queue::{InMemoryQueue, Queue};
+use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::task::{Task, TaskStatus};
 
 use clap::{Parser, Subcommand};
-use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+use std::time::Duration;
+use tokio::time::sleep;
 
 // Generate code from protobuf definitions
 pub mod chopflow {
@@ -146,7 +148,30 @@ impl From<Worker> for ProtoWorker {
     }
 }
 
+// Resource matching helper
+struct ResourceMatcher {
+    required: std::collections::HashMap<String, u32>,
+    available: std::collections::HashMap<String, u32>,
+}
+
+impl ResourceMatcher {
+    fn new(required: std::collections::HashMap<String, u32>, available: std::collections::HashMap<String, u32>) -> Self {
+        Self { required, available }
+    }
+
+    fn can_fulfill(&self) -> bool {
+        for (resource, amount) in &self.required {
+            let available = self.available.get(resource).unwrap_or(&0);
+            if available < amount {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 // The gRPC service implementation
+#[derive(Clone)]
 struct ChopFlowBrokerService {
     queue: Arc<dyn Queue>,
     dispatcher: Arc<tokio::sync::Mutex<InMemoryDispatcher>>,
@@ -154,6 +179,94 @@ struct ChopFlowBrokerService {
     // Stats tracking (would use metrics in the final system)
     tasks_completed: Arc<tokio::sync::Mutex<u32>>,
     tasks_failed: Arc<tokio::sync::Mutex<u32>>,
+}
+
+impl ChopFlowBrokerService {
+    // Helper method to find available worker for task
+    async fn find_available_worker(&self, task: &Task) -> Option<Worker> {
+        let dispatcher = self.dispatcher.lock().await;
+        let workers = dispatcher.list_workers().await.unwrap_or_default();
+
+        for worker in workers {
+            // Check if worker has required resources
+            let matcher = ResourceMatcher::new(
+                task.resources.clone(),
+                worker.resources.available.clone(),
+            );
+
+            if matcher.can_fulfill() {
+                return Some(worker.clone());
+            }
+        }
+
+        None
+    }
+
+    // Helper method to assign task to worker
+    async fn assign_task_to_worker(&self, task: &Task, worker: &Worker) -> Result<()> {
+        let mut dispatcher = self.dispatcher.lock().await;
+        
+        // Update task status
+        let mut task = task.clone();
+        task.status = TaskStatus::Running;
+        
+        // Update task in queue
+        self.queue.update(task.clone()).await?;
+        
+        // Assign task to worker
+        dispatcher.ack_task(&worker.id, &task.id, true).await?;
+        
+        info!(
+            "Assigned task {} to worker {} (resources: {:?})",
+            task.id, worker.id, task.resources
+        );
+        
+        Ok(())
+    }
+
+    // Helper method to handle task timeouts
+    async fn handle_task_timeouts(&self) {
+        loop {
+            sleep(Duration::from_secs(30)).await; // Check every 30 seconds
+            
+            let mut dispatcher = self.dispatcher.lock().await;
+            let workers = dispatcher.list_workers().await.unwrap_or_default();
+            
+            for worker in workers {
+                for task_id in &worker.assigned_tasks {
+                    if let Ok(Some(task)) = self.queue.get(&task_id).await {
+                        // Check if task has been running for too long (e.g., 1 hour)
+                        if task.status == TaskStatus::Running {
+                            let running_time = chrono::Utc::now() - task.enqueue_time;
+                            if running_time > chrono::Duration::hours(1) {
+                                warn!(
+                                    "Task {} has been running for too long ({}), marking as failed",
+                                    task_id, running_time
+                                );
+                                
+                                // Mark task as failed
+                                let mut task = task.clone();
+                                task.status = TaskStatus::Failed;
+                                
+                                if let Err(e) = self.queue.update(task).await {
+                                    warn!("Failed to update task status: {}", e);
+                                }
+                                
+                                // Release worker resources
+                                if let Err(e) = dispatcher.ack_task(&worker.id, task_id, false).await {
+                                    warn!("Failed to release task resources: {}", e);
+                                }
+                                
+                                // Update stats
+                                let mut failed = self.tasks_failed.lock().await;
+                                *failed += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -192,15 +305,25 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             task = task.with_resource(resource, amount);
         }
 
-        // Enqueue the task
-        self.queue
-            .enqueue(task.clone())
-            .await
-            .map_err(|e| Status::internal(format!("Failed to enqueue task: {}", e)))?;
+        // Try to find available worker
+        if let Some(worker) = self.find_available_worker(&task).await {
+            // Assign task to worker
+            self.assign_task_to_worker(&task, &worker)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to assign task: {}", e)))?;
+        } else {
+            // No worker available, enqueue task
+            self.queue
+                .enqueue(task.clone())
+                .await
+                .map_err(|e| Status::internal(format!("Failed to enqueue task: {}", e)))?;
 
-        info!("Enqueued task {} (name: {})", task.id, task.name);
+            info!(
+                "No worker available for task {} (resources: {:?}), enqueued",
+                task.id, task.resources
+            );
+        }
 
-        // Return the task ID
         Ok(Response::new(EnqueueTaskResponse {
             task_id: task.id.to_string(),
         }))
@@ -273,21 +396,19 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
                     // Manually handle task cancellation for workers
                     // In a production implementation, this would be part of the dispatcher trait
-                    let workers_result = dispatcher.list_workers().await;
-                    if let Ok(workers) = workers_result {
-                        for worker in workers {
-                            if worker.assigned_tasks.contains(&task_id) {
-                                // * NOTE (WIP):
-                                // In the final system, we would notify the worker about the cancellation
-                                // For now, we'll just unassign the task in the internal state
-                                // This is simplified - in production, we'd have a better mechanism
-                                if let Err(e) =
-                                    dispatcher.ack_task(&worker.id, &task_id, false).await
-                                {
-                                    warn!("Failed to unassign cancelled task from worker: {}", e);
-                                }
-                                break;
+                    let workers = dispatcher.list_workers().await.unwrap_or_default();
+                    for worker in workers {
+                        if worker.assigned_tasks.contains(&task_id) {
+                            // * NOTE (WIP):
+                            // In the final system, we would notify the worker about the cancellation
+                            // For now, we'll just unassign the task in the internal state
+                            // This is simplified - in production, we'd have a better mechanism
+                            if let Err(e) =
+                                dispatcher.ack_task(&worker.id, &task_id, false).await
+                            {
+                                warn!("Failed to unassign cancelled task from worker: {}", e);
                             }
+                            break;
                         }
                     }
                 }
@@ -313,27 +434,34 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         request: Request<RegisterWorkerRequest>,
     ) -> std::result::Result<Response<RegisterWorkerResponse>, Status> {
         let req = request.into_inner();
-
-        // Create worker
-        let mut worker = Worker::new(&req.address);
-
-        // Add tags
-        worker = worker.with_tags(req.tags);
-
-        // Add resources
-        for (resource, amount) in req.resources {
-            worker = worker.with_resource(resource, amount);
+        
+        // Validate resources
+        if req.resources.is_empty() {
+            return Err(Status::invalid_argument("Worker must specify at least one resource"));
         }
 
-        // Register worker with dispatcher
-        let mut dispatcher = self.dispatcher.lock().await;
+        // Create worker with resources
+        let worker = Worker {
+            id: Uuid::new_v4(),
+            address: req.address,
+            tags: req.tags,
+            resources: ResourceAvailability {
+                available: req.resources.clone(),
+                total: req.resources,
+            },
+            assigned_tasks: Vec::new(),
+            last_heartbeat: chrono::Utc::now(),
+        };
 
-        dispatcher
-            .register_worker(worker.clone())
-            .await
+        // Register worker
+        let mut dispatcher = self.dispatcher.lock().await;
+        dispatcher.register_worker(worker.clone()).await
             .map_err(|e| Status::internal(format!("Failed to register worker: {}", e)))?;
 
-        info!("Registered worker {} at {}", worker.id, worker.address);
+        info!(
+            "Registered worker {} at {} with resources: {:?}",
+            worker.id, worker.address, worker.resources
+        );
 
         Ok(Response::new(RegisterWorkerResponse {
             worker_id: worker.id.to_string(),
@@ -370,37 +498,45 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         request: Request<AcknowledgeTaskRequest>,
     ) -> std::result::Result<Response<AcknowledgeTaskResponse>, Status> {
         let req = request.into_inner();
-
+        
         // Parse IDs
         let worker_id = Uuid::parse_str(&req.worker_id)
             .map_err(|_| Status::invalid_argument("Invalid worker ID format"))?;
-
         let task_id = Uuid::parse_str(&req.task_id)
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
-        // Acknowledge task
-        let mut dispatcher = self.dispatcher.lock().await;
+        // Get task
+        let mut task = self.queue
+            .get(&task_id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
+            .ok_or_else(|| Status::not_found(format!("Task not found: {}", task_id)))?;
 
-        match dispatcher.ack_task(&worker_id, &task_id, req.success).await {
-            Ok(_) => {
-                // Update stats
-                if req.success {
-                    let mut completed = self.tasks_completed.lock().await;
-                    *completed += 1;
-                    info!("Task {} completed successfully", task_id);
-                } else {
-                    let mut failed = self.tasks_failed.lock().await;
-                    *failed += 1;
-                    warn!("Task {} failed", task_id);
-                }
-
-                Ok(Response::new(AcknowledgeTaskResponse { success: true }))
-            }
-            Err(e) => {
-                warn!("Failed to acknowledge task {}: {}", task_id, e);
-                Ok(Response::new(AcknowledgeTaskResponse { success: false }))
-            }
+        // Update task status
+        if req.success {
+            task.status = TaskStatus::Completed;
+            let mut completed = self.tasks_completed.lock().await;
+            *completed += 1;
+            info!("Task {} completed successfully by worker {}", task_id, worker_id);
+        } else {
+            task.status = TaskStatus::Failed;
+            let mut failed = self.tasks_failed.lock().await;
+            *failed += 1;
+            warn!("Task {} failed: {}", task_id, req.result);
         }
+
+        // Update task in queue
+        self.queue
+            .update(task)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to update task: {}", e)))?;
+
+        // Release worker resources
+        let mut dispatcher = self.dispatcher.lock().await;
+        dispatcher.ack_task(&worker_id, &task_id, false).await
+            .map_err(|e| Status::internal(format!("Failed to release task: {}", e)))?;
+
+        Ok(Response::new(AcknowledgeTaskResponse { success: true }))
     }
 
     async fn get_queue_stats(
@@ -473,7 +609,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
@@ -489,55 +625,33 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn start_broker(_config_path: String, host: String, port: u16) -> Result<()> {
-    // Create the queue
+async fn start_broker(_config_path: String, host: String, port: u16) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let addr = format!("{}:{}", host, port).parse()?;
+    
+    // Create queue
     let queue = Arc::new(InMemoryQueue::new());
-
-    // Create dispatcher
-    let dispatcher = Arc::new(tokio::sync::Mutex::new(InMemoryDispatcher::new(
-        queue.clone(),
-    )));
-
-    // Start the dispatcher background task
-    {
-        let mut dispatcher_guard = dispatcher.lock().await;
-        dispatcher_guard.start().await?;
-    }
-
-    // Stats counters
-    let tasks_completed = Arc::new(tokio::sync::Mutex::new(0u32));
-    let tasks_failed = Arc::new(tokio::sync::Mutex::new(0u32));
-
-    // Create the gRPC service
+    
+    // Create service
     let service = ChopFlowBrokerService {
         queue: queue.clone(),
-        dispatcher: dispatcher.clone(),
-        tasks_completed,
-        tasks_failed,
+        dispatcher: Arc::new(tokio::sync::Mutex::new(InMemoryDispatcher::new(queue))),
+        tasks_completed: Arc::new(tokio::sync::Mutex::new(0)),
+        tasks_failed: Arc::new(tokio::sync::Mutex::new(0)),
     };
-
-    // Parse address
-    let addr = format!("{}:{}", host, port)
-        .parse::<SocketAddr>()
-        .map_err(|e| ChopFlowError::Other(e.into()))?;
-
-    // Start gRPC server
-    info!("Starting gRPC server on {}", addr);
-    let server_future = Server::builder()
+    
+    // Start timeout handler
+    let service_clone = service.clone();
+    tokio::spawn(async move {
+        service_clone.handle_task_timeouts().await;
+    });
+    
+    info!("Starting ChopFlow broker on {}", addr);
+    
+    // Start server
+    Server::builder()
         .add_service(ChopFlowBrokerServer::new(service))
-        .serve(addr);
-
-    // Wait for server to complete or Ctrl+C
-    tokio::select! {
-        _ = server_future => {
-            info!("gRPC server shut down");
-        }
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received Ctrl+C, shutting down...");
-        }
-    }
-
-    info!("Broker shutdown complete");
-
+        .serve(addr)
+        .await?;
+    
     Ok(())
 }
