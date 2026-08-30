@@ -177,16 +177,36 @@ async fn start_worker(
     // Parse tags
     let tags: Vec<String> = tags_str.split(',').map(|s| s.trim().to_string()).collect();
 
-    // Parse resources
+    // Parse resources. Each entry is `name:amount`. A malformed entry is an
+    // error, not a silent skip — otherwise the worker would register with no
+    // resources and the broker would reject it with a confusing message.
     let mut resource_map = HashMap::new();
     for resource_str in resources_str.split(',') {
-        let parts: Vec<&str> = resource_str.split(':').collect();
-        if parts.len() == 2 {
-            let resource_name = parts[0].trim().to_string();
-            if let Ok(amount) = parts[1].trim().parse::<u32>() {
-                resource_map.insert(resource_name, amount);
-            }
+        let entry = resource_str.trim();
+        if entry.is_empty() {
+            continue;
         }
+        let parts: Vec<&str> = entry.split(':').collect();
+        if parts.len() != 2 {
+            return Err(chopflow_core::error::ChopFlowError::NetworkError(format!(
+                "invalid resource '{}': expected 'name:amount' (e.g. cpu:2)",
+                entry
+            )));
+        }
+        let resource_name = parts[0].trim().to_string();
+        let amount = parts[1].trim().parse::<u32>().map_err(|e| {
+            chopflow_core::error::ChopFlowError::NetworkError(format!(
+                "invalid resource amount in '{}': {}",
+                entry, e
+            ))
+        })?;
+        resource_map.insert(resource_name, amount);
+    }
+
+    if resource_map.is_empty() {
+        return Err(chopflow_core::error::ChopFlowError::NetworkError(
+            "a worker must declare at least one resource (use -r, e.g. -r cpu:1)".into(),
+        ));
     }
 
     let resources = ResourceAvailability {
@@ -197,30 +217,11 @@ async fn start_worker(
     info!("Worker configured with tags: {:?}", tags);
     info!("Worker resources: {:?}", resources);
 
-    // Connect to broker
-    let mut client = ChopFlowBrokerClient::connect(broker_address.clone())
-        .await
-        .map_err(|e| {
-            error!("Failed to connect to broker: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
+    // Connect to the broker and register. We retry with backoff so the worker
+    // can be started before the broker, or survive a broker restart, instead
+    // of dying on the first failed connection with a cryptic "transport error".
+    let worker_id = connect_and_register(&broker_address, &tags, &resource_map).await?;
 
-    // Register worker with broker
-    let register_request = Request::new(RegisterWorkerRequest {
-        address: "localhost".to_string(), // In production, this would be the actual address
-        tags: tags.clone(),
-        resources: resource_map,
-    });
-
-    let response = client
-        .register_worker(register_request)
-        .await
-        .map_err(|e| {
-            error!("Failed to register worker: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
-
-    let worker_id = response.into_inner().worker_id;
     info!("Worker registered with ID: {}", worker_id);
 
     // Create shared worker state
@@ -266,6 +267,62 @@ async fn start_worker(
     process_handle.abort();
 
     Ok(())
+}
+
+/// Connect to the broker and register the worker, retrying with backoff until
+/// it succeeds. This makes startup resilient to the broker not being ready yet
+/// (or restarting) — instead of exiting with a bare "transport error".
+async fn connect_and_register(
+    broker_address: &str,
+    tags: &[String],
+    resources: &HashMap<String, u32>,
+) -> Result<String> {
+    info!("Connecting to broker at {}", broker_address);
+
+    let mut backoff = Duration::from_millis(500);
+    const MAX_BACKOFF: Duration = Duration::from_secs(5);
+
+    loop {
+        match try_connect_and_register(broker_address, tags, resources).await {
+            Ok(id) => return Ok(id),
+            Err(e) => {
+                error!(
+                    "Could not reach broker at {} ({}). Retrying in {:?}.",
+                    broker_address, e, backoff
+                );
+                info!(
+                    "Hint: the broker's gRPC port is --port (default 8000). The dashboard/HTTP \
+                     port --http-port (default 8080) is not a gRPC endpoint."
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
+            }
+        }
+    }
+}
+
+/// A single best-effort attempt to connect + register.
+async fn try_connect_and_register(
+    broker_address: &str,
+    tags: &[String],
+    resources: &HashMap<String, u32>,
+) -> Result<String> {
+    let mut client = ChopFlowBrokerClient::connect(broker_address.to_string())
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::NetworkError(e.to_string()))?;
+
+    let register_request = Request::new(RegisterWorkerRequest {
+        address: "localhost".to_string(), // In production, this would be the actual address
+        tags: tags.to_vec(),
+        resources: resources.clone(),
+    });
+
+    let response = client
+        .register_worker(register_request)
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::NetworkError(e.to_string()))?;
+
+    Ok(response.into_inner().worker_id)
 }
 
 async fn send_heartbeat(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()> {
