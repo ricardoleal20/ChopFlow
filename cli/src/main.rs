@@ -201,10 +201,14 @@ async fn get_status(broker_address: String, id: Option<String>, all: bool) -> Re
                 if let Some(task) = &status_response.task {
                     println!("Task ID: {}", task.id);
                     println!("Name: {}", task.name);
-                    println!("Status: {:?}", task.status);
+                    println!("Status: {}", status_name(task.status));
                     println!("Tags: {:?}", task.tags);
+                    println!("Retries: {}/{}", task.retry_count, task.max_retries);
                     if let Some(eta) = &task.eta {
                         println!("ETA: {}s {}ns", eta.seconds, eta.nanos);
+                    }
+                    if !task.result.is_empty() {
+                        println!("Result: {}", task.result);
                     }
                 } else {
                     println!("Task not found: {}", task_id);
@@ -219,9 +223,34 @@ async fn get_status(broker_address: String, id: Option<String>, all: bool) -> Re
     } else if all {
         info!("Listing all tasks");
 
-        // Not implemented yet, would use the list_tasks endpoint
-        println!("Task listing not implemented");
-        Ok(())
+        let mut client = connect_to_broker(&broker_address).await?;
+        let request = chopflow::ListTasksRequest {
+            limit: 50,
+            offset: 0,
+            filter_status: Vec::new(),
+        };
+
+        match client.list_tasks(request).await {
+            Ok(response) => {
+                let resp = response.get_ref();
+                println!("Tasks ({} total):", resp.total_count);
+                for task in &resp.tasks {
+                    println!(
+                        "  {} [{}] {} (retries {}/{})",
+                        task.id,
+                        status_name(task.status),
+                        task.name,
+                        task.retry_count,
+                        task.max_retries
+                    );
+                }
+                Ok(())
+            }
+            Err(status) => {
+                error!("Failed to list tasks: {}", status);
+                Err(chopflow_core::error::ChopFlowError::Other(status.into()))
+            }
+        }
     } else {
         // Show queue stats
         info!("Getting queue stats");
@@ -258,5 +287,19 @@ async fn connect_to_broker(broker_address: &str) -> Result<ChopFlowBrokerClient<
             error!("Failed to connect to broker at {}: {}", broker_address, e);
             Err(chopflow_core::error::ChopFlowError::Other(e.into()))
         }
+    }
+}
+
+/// Map a proto task status value to a human-readable name.
+fn status_name(status: i32) -> &'static str {
+    match status {
+        0 => "CREATED",
+        1 => "QUEUED",
+        2 => "RUNNING",
+        3 => "COMPLETED",
+        4 => "FAILED",
+        5 => "DEADLETTERED",
+        6 => "CANCELLED",
+        _ => "UNKNOWN",
     }
 }

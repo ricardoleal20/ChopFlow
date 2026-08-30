@@ -158,3 +158,85 @@ impl ResourceUsageMetrics {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn avail(cpu: u32, gpu: u32) -> ResourceAvailability {
+        let mut a = ResourceAvailability::new();
+        a.add_resource("cpu", cpu);
+        a.add_resource("gpu", gpu);
+        a
+    }
+
+    #[test]
+    fn can_be_satisfied_by_checks_each_resource() {
+        let a = avail(4, 1);
+        let ok = ResourceRequirements {
+            resources: [("cpu".to_string(), 4), ("gpu".to_string(), 1)].into(),
+        };
+        assert!(ok.can_be_satisfied_by(&a));
+
+        let too_much = ResourceRequirements {
+            resources: [("cpu".to_string(), 8)].into(),
+        };
+        assert!(!too_much.can_be_satisfied_by(&a));
+
+        // Missing resource entirely -> not satisfied.
+        let missing = ResourceRequirements {
+            resources: [("tpu".to_string(), 1)].into(),
+        };
+        assert!(!missing.can_be_satisfied_by(&a));
+    }
+
+    #[test]
+    fn allocate_then_release_restores_available() {
+        let mut a = avail(4, 1);
+        let req = ResourceRequirements {
+            resources: [("cpu".to_string(), 3)].into(),
+        };
+
+        assert!(a.allocate(&req));
+        assert_eq!(a.available.get("cpu"), Some(&1));
+
+        a.release(&req);
+        assert_eq!(a.available.get("cpu"), Some(&4)); // back to total
+    }
+
+    #[test]
+    fn allocate_fails_without_starving() {
+        let mut a = avail(2, 0);
+        let req = ResourceRequirements {
+            resources: [("cpu".to_string(), 5)].into(),
+        };
+        // Failing allocation must not mutate available.
+        assert!(!a.allocate(&req));
+        assert_eq!(a.available.get("cpu"), Some(&2));
+    }
+
+    #[test]
+    fn release_clamps_to_total() {
+        let mut a = avail(4, 1);
+        // Release more than was ever allocated; must not exceed total.
+        let req = ResourceRequirements {
+            resources: [("cpu".to_string(), 10)].into(),
+        };
+        a.release(&req);
+        assert_eq!(a.available.get("cpu"), Some(&4));
+    }
+
+    #[test]
+    fn usage_metrics_from_availability() {
+        let mut a = avail(4, 1);
+        let req = ResourceRequirements {
+            resources: [("cpu".to_string(), 3)].into(),
+        };
+        a.allocate(&req);
+        let m = ResourceUsageMetrics::from_availability(&a);
+        // cpu: 3/4 used -> 0.75
+        assert!((m.usage["cpu"] - 0.75).abs() < 1e-9);
+        // gpu: 0/1 used -> 0.0
+        assert!((m.usage["gpu"] - 0.0).abs() < 1e-9);
+    }
+}

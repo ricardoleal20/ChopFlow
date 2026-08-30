@@ -17,6 +17,7 @@ pub mod error;
 pub mod queue;
 pub mod resources;
 pub mod retry;
+pub mod storage;
 pub mod task;
 
 pub use error::Result;
@@ -25,5 +26,6 @@ pub use dispatcher::Dispatcher;
 pub use queue::Queue;
 pub use resources::ResourceRequirements;
 pub use retry::RetryPolicy;
+pub use storage::{Storage, TaskFilter, StatusCounts, InMemoryStorage, SqliteStorage};
 /// Re-export core types for convenience
 pub use task::Task;

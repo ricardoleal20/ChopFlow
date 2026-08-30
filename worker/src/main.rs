@@ -39,8 +39,9 @@ pub mod chopflow {
 }
 
 use chopflow::{
-    chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, RegisterWorkerRequest,
-    ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask, WorkerHeartbeatRequest,
+    chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, FetchTasksRequest,
+    RegisterWorkerRequest, ResourceAvailability as ProtoResourceAvailability,
+    Task as ProtoTask, WorkerHeartbeatRequest,
 };
 
 /// ChopFlow Worker - Task Executor
@@ -92,6 +93,12 @@ impl WorkerState {
     ) -> Self {
         let mut registry = TaskRegistry::new();
 
+        // Register a built-in `echo` handler and a `default` fallback so the
+        // worker can execute tasks out of the box. Real deployments register
+        // their own handlers (e.g. loaded from a plugin/WASM module).
+        registry.register("echo", echo_handler);
+        registry.register("default", echo_handler);
+
         Self {
             id,
             broker_address,
@@ -101,6 +108,15 @@ impl WorkerState {
             task_registry: registry,
         }
     }
+}
+
+/// Built-in task handler: echoes the payload back as the result. Useful as a
+/// smoke test and as the default when no specific handler is registered.
+fn echo_handler(payload: serde_json::Value) -> Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "status": "ok",
+        "echo": payload,
+    }))
 }
 
 /// A function that can handle a task
@@ -408,62 +424,67 @@ async fn send_task_acknowledgment(
     Ok(result_json)
 }
 
-/// Start processing tasks
-/// * NOTE (WIP):
-/// In the final system, this would fetch tasks from the broker using
-/// either polling or a streaming connection
+/// Start processing tasks.
+///
+/// Polls the broker for tasks this worker can execute (pull model). Each
+/// fetched task is executed and acknowledged. Tasks run sequentially for
+/// now; a future version will dispatch them to a bounded concurrency pool
+/// sized by the worker's declared resources.
 async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()> {
     info!("Starting task processing loop");
 
-    // * NOTE (WIP):
-    // In the final system, this would:
-    // 1. Poll for available tasks or maintain a streaming connection
-    // 2. Dispatch tasks to worker threads for parallel execution
-    // 3. Manage task timeouts and retries
-    // 4. Handle worker shutdown gracefully
-
-    let mut interval = time::interval(Duration::from_secs(5));
+    let poll_interval = Duration::from_secs(2);
 
     loop {
-        interval.tick().await;
-
-        info!("Polling for tasks...");
-
-        // * NOTE (WIP):
-        // In the final system, this would fetch tasks from the broker
-        let example_task = ProtoTask {
-            id: format!("test-task-{}", uuid::Uuid::new_v4()),
-            name: "example_task".to_string(),
-            payload: r#"{"param1": "value1", "param2": 42}"#.to_string(),
-            tags: vec!["test".to_string()],
-            enqueue_time: None,
-            eta: None,
-            retry_count: 0,
-            max_retries: 3,
-            status: 0, // CREATED
-            resources: HashMap::new(),
-        };
-
-        // Execute the task
-        if let Err(e) = execute_task(worker_state, example_task).await {
-            error!("Failed to execute task: {}", e);
+        // Fetch a batch of tasks from the broker.
+        match fetch_tasks(worker_state).await {
+            Ok(tasks) if !tasks.is_empty() => {
+                for task in tasks {
+                    if let Err(e) = execute_task(worker_state, task).await {
+                        error!("Failed to execute task: {}", e);
+                    }
+                }
+            }
+            Ok(_) => {
+                // No tasks available — wait before polling again.
+                tokio::time::sleep(poll_interval).await;
+            }
+            Err(e) => {
+                error!("Failed to fetch tasks: {}", e);
+                // Back off on errors to avoid hammering the broker.
+                tokio::time::sleep(poll_interval).await;
+            }
         }
-
-        // * NOTE (WIP):
-        // In the final system, this would be more sophisticated:
-        // - Poll multiple tasks
-        // - Track running tasks
-        // - Manage concurrency/parallelism
-        // - Handle failures and retries
-
-        // For the MVP purposes, sleep for 30 seconds before polling again
-        // This prevents excessive log spam
-        tokio::time::sleep(Duration::from_secs(30)).await;
     }
+}
 
-    // Note: This is unreachable in practice since the loop is infinite
-    // * NOTE (WIP):
-    // In the final system, we'd have a proper shutdown mechanism
-    #[allow(unreachable_code)]
-    Ok(())
+/// Pull a batch of ready tasks from the broker for this worker.
+async fn fetch_tasks(worker_state: &Arc<Mutex<WorkerState>>) -> Result<Vec<ProtoTask>> {
+    let (broker_address, worker_id) = {
+        let state = worker_state.lock().await;
+        (state.broker_address.clone(), state.id.clone())
+    };
+
+    let mut client = ChopFlowBrokerClient::connect(broker_address)
+        .await
+        .map_err(|e| {
+            error!("Failed to connect to broker for fetch: {}", e);
+            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
+        })?;
+
+    let request = Request::new(FetchTasksRequest {
+        worker_id,
+        max_tasks: 4,
+    });
+
+    let response = client
+        .fetch_tasks(request)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch tasks: {}", e);
+            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
+        })?
+        .into_inner();
+
+    Ok(response.tasks)
 }
