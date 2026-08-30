@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-text font-sans antialiased;
+    /* Subtle ambient grid so the canvas isn't flat — restrained, not noisy. */
+    background-image:
+      radial-gradient(900px 500px at 100% -10%, rgba(52, 211, 153, 0.05), transparent 60%),
+      radial-gradient(700px 400px at -10% 0%, rgba(56, 189, 248, 0.04), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  /* Focus ring is consistent and visible everywhere. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-2 ring-offset-canvas;
+  }
+
+  ::selection {
+    @apply bg-accent/30 text-text;
+  }
+
+  /* Scrollbars match the dark surface. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-borderStrong;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply bg-surface border border-border rounded-2xl shadow-card;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium font-mono;
+  }
+
+  .cf-input {
+    @apply w-full rounded-xl bg-canvas px-3 py-2 text-sm text-text ring-1 ring-border transition-colors duration-150 ease-out placeholder:text-subtle focus-visible:ring-2 focus-visible:ring-accent/60;
+  }
+}

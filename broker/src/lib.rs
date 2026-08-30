@@ -28,6 +28,9 @@ pub mod chopflow {
     tonic::include_proto!("chopflow");
 }
 
+/// HTTP / JSON API + embedded dashboard UI.
+pub mod http;
+
 use chopflow::{
     AcknowledgeTaskRequest,
     AcknowledgeTaskResponse,
@@ -76,9 +79,13 @@ pub enum Commands {
         #[arg(long, short = 'H', default_value = "127.0.0.1")]
         host: String,
 
-        /// Port to listen on
+        /// Port to listen on (gRPC)
         #[arg(long, short, default_value = "8000")]
         port: u16,
+
+        /// Port for the HTTP/JSON API + embedded dashboard UI
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
 
         /// Task storage backend
         #[arg(long, default_value = "sqlite")]
@@ -170,21 +177,53 @@ impl From<Worker> for ProtoWorker {
     }
 }
 
-/// The gRPC broker service. Task state lives in `storage` (the single source
-/// of truth); the dispatcher only tracks workers and their resources.
+/// Shared, cheaply-clonable broker state. Both the gRPC service
+/// ([`ChopFlowBrokerService`]) and the HTTP/JSON layer ([`http`] module) hold
+/// one of these, so a task enqueued via gRPC is immediately visible to the
+/// dashboard and vice versa.
+#[derive(Clone)]
+pub struct BrokerState {
+    /// The single source of truth for task state.
+    pub storage: Arc<dyn Storage>,
+    /// Ephemeral worker registry + resource allocator.
+    pub dispatcher: Arc<tokio::sync::Mutex<InMemoryDispatcher>>,
+}
+
+impl BrokerState {
+    /// Construct shared state backed by the given storage and a fresh
+    /// in-memory dispatcher.
+    pub fn new(storage: Arc<dyn Storage>) -> Self {
+        Self {
+            storage,
+            dispatcher: Arc::new(tokio::sync::Mutex::new(InMemoryDispatcher::new())),
+        }
+    }
+}
+
+/// The gRPC broker service. Task state lives in `state.storage` (the single
+/// source of truth); the dispatcher only tracks workers and their resources.
 #[derive(Clone)]
 pub struct ChopFlowBrokerService {
-    storage: Arc<dyn Storage>,
-    dispatcher: Arc<tokio::sync::Mutex<InMemoryDispatcher>>,
+    state: BrokerState,
 }
 
 impl ChopFlowBrokerService {
     /// Construct a service backed by the given storage.
     pub fn new(storage: Arc<dyn Storage>) -> Self {
         Self {
-            storage,
-            dispatcher: Arc::new(tokio::sync::Mutex::new(InMemoryDispatcher::new())),
+            state: BrokerState::new(storage),
         }
+    }
+
+    /// Construct a service that shares an existing [`BrokerState`] (used to
+    /// keep the gRPC service and HTTP layer over the same live state).
+    pub fn from_state(state: BrokerState) -> Self {
+        Self { state }
+    }
+
+    /// Borrow the shared state (used by the HTTP layer).
+    pub fn state(&self) -> &BrokerState {
+        &self.state
     }
 
     /// Build the tonic server wrapper.
@@ -208,7 +247,7 @@ impl ChopFlowBrokerService {
             sleep(Duration::from_secs(30)).await; // Check every 30 seconds
 
             let workers = {
-                let dispatcher = self.dispatcher.lock().await;
+                let dispatcher = self.state.dispatcher.lock().await;
                 dispatcher.list_workers().await.unwrap_or_default()
             };
 
@@ -220,7 +259,7 @@ impl ChopFlowBrokerService {
                 .collect();
 
             for task_id in assigned {
-                let Some(task) = self.storage.get(&task_id).await.unwrap_or(None) else {
+                let Some(task) = self.state.storage.get(&task_id).await.unwrap_or(None) else {
                     continue;
                 };
                 if task.status != TaskStatus::Running {
@@ -243,7 +282,7 @@ impl ChopFlowBrokerService {
                     if let Some(worker) =
                         workers.iter().find(|w| w.assigned_tasks.contains(&task_id))
                     {
-                        let mut dispatcher = self.dispatcher.lock().await;
+                        let mut dispatcher = self.state.dispatcher.lock().await;
                         if let Err(e) = dispatcher.release_task(&worker.id, &task).await {
                             warn!("Failed to release timed-out task resources: {}", e);
                         }
@@ -262,7 +301,7 @@ impl ChopFlowBrokerService {
                 "Task {} dead-lettered after {} retries",
                 task.id, task.retry_count
             );
-            if let Err(e) = self.storage.insert(task.clone()).await {
+            if let Err(e) = self.state.storage.insert(task.clone()).await {
                 warn!("Failed to persist dead-lettered task {}: {}", task.id, e);
             }
             return;
@@ -280,7 +319,7 @@ impl ChopFlowBrokerService {
             task.id, task.retry_count, task.max_retries
         );
 
-        if let Err(e) = self.storage.insert(task.clone()).await {
+        if let Err(e) = self.state.storage.insert(task.clone()).await {
             warn!("Failed to re-enqueue task {} for retry: {}", task.id, e);
         }
     }
@@ -318,7 +357,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         // A single insert is both "store" and "enqueue": queued tasks are
         // just tasks with status Queued, claimable by workers via FetchTasks.
         task.status = TaskStatus::Queued;
-        self.storage
+        self.state.storage
             .insert(task.clone())
             .await
             .map_err(|e| Status::internal(format!("Failed to enqueue task: {}", e)))?;
@@ -342,7 +381,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
         let task = self
-            .storage
+            .state.storage
             .get(&task_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
@@ -362,7 +401,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
         let Some(mut task) = self
-            .storage
+            .state.storage
             .get(&task_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
@@ -389,7 +428,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         }
 
         task.mark_cancelled();
-        self.storage
+        self.state.storage
             .insert(task.clone())
             .await
             .map_err(|e| Status::internal(format!("Failed to update task: {}", e)))?;
@@ -397,12 +436,12 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         // If the task was running, release the worker's resources.
         if was_running {
             let workers = {
-                let dispatcher = self.dispatcher.lock().await;
+                let dispatcher = self.state.dispatcher.lock().await;
                 dispatcher.list_workers().await.unwrap_or_default()
             };
             for worker in workers {
                 if worker.assigned_tasks.contains(&task_id) {
-                    let mut dispatcher = self.dispatcher.lock().await;
+                    let mut dispatcher = self.state.dispatcher.lock().await;
                     if let Err(e) = dispatcher.release_task(&worker.id, &task).await {
                         warn!("Failed to release cancelled task from worker: {}", e);
                     }
@@ -438,7 +477,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         };
 
         let worker_id = worker.id;
-        let mut dispatcher = self.dispatcher.lock().await;
+        let mut dispatcher = self.state.dispatcher.lock().await;
         dispatcher
             .register_worker(worker.clone())
             .await
@@ -462,7 +501,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         let worker_id = Uuid::parse_str(&req.worker_id)
             .map_err(|_| Status::invalid_argument("Invalid worker ID format"))?;
 
-        let mut dispatcher = self.dispatcher.lock().await;
+        let mut dispatcher = self.state.dispatcher.lock().await;
         match dispatcher.heartbeat(&worker_id).await {
             Ok(_) => {
                 debug!("Received heartbeat from worker {}", worker_id);
@@ -485,7 +524,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         let max_tasks = req.max_tasks.max(1) as usize;
 
         let worker = {
-            let dispatcher = self.dispatcher.lock().await;
+            let dispatcher = self.state.dispatcher.lock().await;
             dispatcher
                 .get_worker(&worker_id)
                 .await
@@ -502,7 +541,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
         // Atomically claim ready matching tasks (Queued → Running).
         let claimed = self
-            .storage
+            .state.storage
             .claim_ready(&worker.tags, max_tasks)
             .await
             .map_err(|e| Status::internal(format!("Failed to claim tasks: {}", e)))?;
@@ -512,7 +551,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             // Allocate the task's resources on the worker. If the worker
             // can't satisfy them, put the task back to Queued and stop.
             let assign_result = {
-                let mut dispatcher = self.dispatcher.lock().await;
+                let mut dispatcher = self.state.dispatcher.lock().await;
                 dispatcher.assign_task(&worker_id, &task).await
             };
 
@@ -522,7 +561,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
                     worker_id, task.id, e
                 );
                 task.status = TaskStatus::Queued;
-                if let Err(e) = self.storage.insert(task.clone()).await {
+                if let Err(e) = self.state.storage.insert(task.clone()).await {
                     warn!("Failed to re-queue task {}: {}", task.id, e);
                 }
                 break;
@@ -549,7 +588,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
         let mut task = self
-            .storage
+            .state.storage
             .get(&task_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
@@ -557,7 +596,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
         // Release the worker's resources for this task regardless of outcome.
         {
-            let mut dispatcher = self.dispatcher.lock().await;
+            let mut dispatcher = self.state.dispatcher.lock().await;
             if let Err(e) = dispatcher.release_task(&worker_id, &task).await {
                 warn!("Failed to release task {} resources: {}", task_id, e);
             }
@@ -565,7 +604,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
         if req.success {
             task.mark_completed_with_result(req.result);
-            self.storage
+            self.state.storage
                 .insert(task.clone())
                 .await
                 .map_err(|e| Status::internal(format!("Failed to update task: {}", e)))?;
@@ -584,19 +623,19 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         _: Request<GetQueueStatsRequest>,
     ) -> std::result::Result<Response<GetQueueStatsResponse>, Status> {
         let queue_length = self
-            .storage
+            .state.storage
             .count_pending()
             .await
             .map_err(|e| Status::internal(format!("Failed to count pending: {}", e)))?;
 
         let counts = self
-            .storage
+            .state.storage
             .count_by_status()
             .await
             .map_err(|e| Status::internal(format!("Failed to count by status: {}", e)))?;
 
         let workers = {
-            let dispatcher = self.dispatcher.lock().await;
+            let dispatcher = self.state.dispatcher.lock().await;
             dispatcher
                 .list_workers()
                 .await
@@ -639,14 +678,14 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         };
 
         let tasks = self
-            .storage
+            .state.storage
             .list(&filter)
             .await
             .map_err(|e| Status::internal(format!("Failed to list tasks: {}", e)))?;
 
         // total_count is the unfiltered total in the store.
         let total = self
-            .storage
+            .state.storage
             .list(&TaskFilter::default())
             .await
             .map_err(|e| Status::internal(format!("Failed to count tasks: {}", e)))?
@@ -664,7 +703,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         &self,
         _: Request<()>,
     ) -> std::result::Result<Response<ListWorkersResponse>, Status> {
-        let dispatcher = self.dispatcher.lock().await;
+        let dispatcher = self.state.dispatcher.lock().await;
         let workers = dispatcher
             .list_workers()
             .await

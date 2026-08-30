@@ -19,6 +19,12 @@ prost-types = "0.12"
 chrono = "0.4"
 uuid = { workspace = true, features = ["v4", "serde"] }
 tokio-stream = { version = "0.1", features = ["net"] }
+anyhow.workspace = true
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+rust-embed = "8"
+serde = { workspace = true }
+mime_guess = "2"
 
 [dev-dependencies]
 tokio = { version = "1.34", features = ["full", "test-util"] }
