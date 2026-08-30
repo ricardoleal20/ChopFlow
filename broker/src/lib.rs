@@ -94,6 +94,10 @@ pub enum Commands {
         /// Path to the SQLite database file (only used when --storage sqlite)
         #[arg(long, default_value = "chopflow.db")]
         db_path: String,
+
+        /// Open the dashboard UI in the default browser on startup
+        #[arg(long, default_value_t = false)]
+        open: bool,
     },
 }
 

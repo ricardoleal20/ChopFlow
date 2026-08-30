@@ -12,6 +12,7 @@ use chopflow_broker::{
     build_storage, BrokerState, ChopFlowBrokerService, Cli, Commands, StorageBackend,
 };
 use clap::Parser;
+use std::time::Duration;
 use tonic::transport::Server;
 use tracing::info;
 
@@ -28,6 +29,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         http_port,
         storage,
         db_path,
+        open,
     } = cli.command;
 
     // `config` is accepted for forward-compat (e.g. loading broker.yml) but
@@ -76,6 +78,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .expect("HTTP server error");
     });
 
+    // Optionally open the dashboard in the default browser. We wait a beat for
+    // the HTTP listener to bind so the page is actually ready. Failures (e.g.
+    // a headless server with no browser) are logged, not fatal.
+    if open {
+        let url = format!("http://{}", http_addr);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            match open_browser(&url) {
+                Ok(()) => info!("Opened dashboard in browser: {}", url),
+                Err(e) => info!("Could not open browser ({}). Open manually: {}", e, url),
+            }
+        });
+    }
+
     Server::builder()
         .add_service(service.into_server())
         .serve(grpc_addr)
@@ -85,3 +101,23 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     http_task.abort();
     Ok(())
 }
+
+/// Open `url` in the platform's default browser. Cross-platform: macOS `open`,
+/// Windows `start`, Linux `xdg-open`. Non-fatal if no DE/browser is present.
+fn open_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let (cmd, args) = ("open", vec![url]);
+    #[cfg(target_os = "windows")]
+    let (cmd, args) = ("cmd", vec!["/C", "start", "", url]);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let (cmd, args) = ("xdg-open", vec![url]);
+
+    std::process::Command::new(cmd)
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(())
+}
+
