@@ -1,47 +1,80 @@
 import { useState } from "react";
+import Sidebar, { type View } from "./components/Sidebar";
+import TopBar from "./components/TopBar";
+import TaskTable from "./components/TaskTable";
+import WorkersView from "./components/WorkersView";
+import TaskDrawer from "./components/TaskDrawer";
 import { EnqueueDialog } from "./components/EnqueueDialog";
-import { Header } from "./components/Header";
-import { StatCard } from "./components/StatCard";
-import { TaskTable } from "./components/TaskTable";
-import { WorkerRail } from "./components/WorkerRail";
-import { useStats } from "./hooks/useChopFlow";
+import { useTheme } from "./hooks/useTheme";
+import { useStats, useTasks, useWorkers } from "./hooks/useChopFlow";
+import type { Task, TaskStatus } from "./lib/api";
 
+// App shell: a Temporal-style fixed sidebar + top command bar + scrollable
+// content area. The selected view (Tasks / Workers) swaps the content; the
+// task detail drawer slides over from the right on row click.
 export default function App() {
+  const { theme, toggle } = useTheme();
+  const [view, setView] = useState<View>("tasks");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<TaskStatus | "all">("all");
   const [enqueueOpen, setEnqueueOpen] = useState(false);
-  const { data: stats, isError } = useStats();
+  const [selected, setSelected] = useState<Task | null>(null);
+
+  const { data: stats } = useStats();
+  const tasksQ = useTasks();
+  const workersQ = useWorkers();
+
+  const tasks = tasksQ.data?.tasks ?? [];
 
   return (
-    <div className="min-h-full">
-      <Header onEnqueue={() => setEnqueueOpen(true)} />
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas">
+      <Sidebar
+        view={view}
+        onView={(v) => {
+          setView(v);
+          setQuery("");
+        }}
+        theme={theme}
+        onToggleTheme={toggle}
+        stats={stats}
+      />
 
-      <main className="mx-auto max-w-7xl px-4 pb-20 sm:px-6">
-        {/* Cluster health stat row — 4-col gapless grid, collapses to 2 then 1. */}
-        <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 grid-flow-dense">
-          <StatCard label="In queue" value={stats?.queue_length ?? 0} tone="info" hint="Waiting for a worker" index={0} />
-          <StatCard label="Processing" value={stats?.tasks_processing ?? 0} tone="warn" hint="Claimed and running" index={1} />
-          <StatCard label="Completed" value={stats?.tasks_completed ?? 0} tone="accent" hint="Finished successfully" index={2} />
-          <StatCard label="Failed" value={stats?.tasks_failed ?? 0} tone="danger" hint="Dead-lettered included" index={3} />
-        </section>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar
+          view={view}
+          query={query}
+          onQuery={setQuery}
+          onEnqueue={() => setEnqueueOpen(true)}
+          stats={stats}
+        />
 
-        {isError && (
-          <div className="mt-4 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
-            Cannot reach the broker. Is <code className="font-mono">chopflow_broker start</code> running?
-          </div>
-        )}
+        <main className="min-h-0 flex-1 overflow-hidden bg-canvas">
+          {view === "tasks" ? (
+            <div className="surface h-full overflow-hidden rounded-none border-0">
+              <TaskTable
+                tasks={tasks}
+                isLoading={tasksQ.isLoading}
+                error={tasksQ.error}
+                query={query}
+                filter={filter}
+                onFilter={setFilter}
+                onOpen={setSelected}
+              />
+            </div>
+          ) : (
+            <div className="h-full overflow-y-auto">
+              <WorkersView
+                workers={workersQ.data ?? []}
+                isLoading={workersQ.isLoading}
+                error={workersQ.error}
+                query={query}
+              />
+            </div>
+          )}
+        </main>
+      </div>
 
-        {/* Primary surface: task ledger (wide) + worker rail (narrow). */}
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <TaskTable />
-          <WorkerRail />
-        </div>
-
-        <footer className="mt-12 border-t border-border pt-6 text-xs text-subtle">
-          <p>
-            ChopFlow · durable task queue. Workers pull work via gRPC; this dashboard reads the same live state over HTTP.
-          </p>
-        </footer>
-      </main>
-
+      <TaskDrawer task={selected} onClose={() => setSelected(null)} />
       <EnqueueDialog open={enqueueOpen} onClose={() => setEnqueueOpen(false)} />
     </div>
   );

@@ -1,25 +1,25 @@
+import { statusStyle } from "../lib/status";
 import type { TaskStatus } from "../lib/api";
 
-// Status → {label, classes, dot}. Never rely on color alone: every badge has
-// a text label + a dot, so it survives colorblindness and grayscale.
-const MAP: Record<
-  TaskStatus,
-  { label: string; classes: string; dot: string }
-> = {
-  queued: { label: "Queued", classes: "text-info bg-info/10 ring-1 ring-info/20", dot: "bg-info" },
-  running: { label: "Running", classes: "text-warn bg-warn/10 ring-1 ring-warn/25", dot: "bg-warn animate-pulseDot" },
-  completed: { label: "Completed", classes: "text-accent bg-accent/10 ring-1 ring-accent/20", dot: "bg-accent" },
-  failed: { label: "Failed", classes: "text-danger bg-danger/10 ring-1 ring-danger/25", dot: "bg-danger" },
-  "dead-lettered": { label: "Dead-lettered", classes: "text-danger bg-danger/15 ring-1 ring-danger/30", dot: "bg-danger" },
-  cancelled: { label: "Cancelled", classes: "text-subtle bg-muted/10 ring-1 ring-border", dot: "bg-subtle" },
-  created: { label: "Created", classes: "text-muted bg-muted/10 ring-1 ring-border", dot: "bg-muted" },
-};
+interface Props {
+  status: TaskStatus;
+  pulse?: boolean; // animate the dot for in-flight tasks
+  size?: "sm" | "md";
+}
 
-export function StatusBadge({ status }: { status: TaskStatus }) {
-  const s = MAP[status];
+// Status badge mirroring Temporal: a colored dot + label on a soft chip. The
+// running dot pulses to signal liveness; everything else is static.
+export default function StatusBadge({ status, pulse, size = "sm" }: Props) {
+  const s = statusStyle(status);
+  const pad = size === "md" ? "px-2.5 py-1 text-xs" : "px-2 py-0.5 text-[11px]";
+  const dot = size === "md" ? "h-2 w-2" : "h-1.5 w-1.5";
+
   return (
-    <span className={`chip ${s.classes}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
+    <span className={`chip ${s.bg} ${s.text} ${pad}`}>
+      <span
+        className={`${dot} rounded-full ${s.dot} ${pulse ? "animate-pulseDot" : ""}`}
+        aria-hidden
+      />
       {s.label}
     </span>
   );

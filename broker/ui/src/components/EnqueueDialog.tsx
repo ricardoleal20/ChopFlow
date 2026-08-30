@@ -189,7 +189,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
                 <button
                   type="submit"
                   disabled={enqueue.isPending}
-                  className="rounded-xl bg-accent px-3.5 py-2 text-sm font-semibold text-canvas shadow-glow transition-transform duration-150 ease-out hover:bg-accentDim active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-transform duration-150 ease-out hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {enqueue.isPending ? "Enqueuing…" : "Enqueue"}
                 </button>

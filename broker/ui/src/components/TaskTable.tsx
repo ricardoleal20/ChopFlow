@@ -1,174 +1,152 @@
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { useCancel, useTasks } from "../hooks/useChopFlow";
+import { motion, AnimatePresence } from "framer-motion";
+import StatusBadge from "./StatusBadge";
+import { STATUS_ORDER, statusStyle } from "../lib/status";
+import { shortId, timeAgo, clockTime, truncate } from "../lib/format";
 import type { Task, TaskStatus } from "../lib/api";
-import { StatusBadge } from "./StatusBadge";
 
-const FILTERS: ("all" | TaskStatus)[] = [
-  "all",
-  "queued",
-  "running",
-  "completed",
-  "failed",
-  "dead-lettered",
-  "cancelled",
-];
+interface Props {
+  tasks: Task[];
+  isLoading: boolean;
+  error?: Error | null;
+  query: string;
+  filter: TaskStatus | "all";
+  onFilter: (f: TaskStatus | "all") => void;
+  onOpen: (task: Task) => void;
+}
 
-export function TaskTable() {
-  const [filter, setFilter] = useState<"all" | TaskStatus>("all");
-  const { data, isLoading, error } = useTasks(filter === "all" ? undefined : filter);
-  const cancel = useCancel();
+type Filter = TaskStatus | "all";
 
-  const tasks = data?.tasks ?? [];
+// Dense workflows-style table: ID · Name · Status · Tags · Retries · Enqueued · Result.
+// A row click opens the detail drawer. Status filter chips with live counts sit
+// above the table; search filters by id / name / tag.
+export default function TaskTable({ tasks, isLoading, error, query, filter, onFilter, onOpen }: Props) {
+  const q = query.trim().toLowerCase();
+  const seen = tasks.filter((t) => {
+    if (filter !== "all" && t.status !== filter) return false;
+    if (!q) return true;
+    return (
+      t.id.toLowerCase().includes(q) ||
+      t.name.toLowerCase().includes(q) ||
+      t.tags.some((tag) => tag.toLowerCase().includes(q))
+    );
+  });
+
+  const counts: Record<string, number> = { all: tasks.length };
+  for (const s of STATUS_ORDER) counts[s] = 0;
+  for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+
+  const chips: Filter[] = ["all", ...STATUS_ORDER];
 
   return (
-    <section className="surface overflow-hidden">
-      {/* Toolbar: title + filter pills */}
-      <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Tasks</h2>
-          <p className="text-xs text-muted">{data?.total ?? 0} total in cluster</p>
-        </div>
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter tasks by status">
-          {FILTERS.map((f) => (
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Filter chips */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2.5">
+        {chips.map((c) => {
+          const active = filter === c;
+          const label = c === "all" ? "All" : statusStyle(c as TaskStatus).label;
+          const dot = c === "all" ? "bg-subtle" : statusStyle(c as TaskStatus).dot;
+          return (
             <button
-              key={f}
-              role="tab"
-              aria-selected={filter === f}
-              onClick={() => setFilter(f)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition-colors duration-150 ease-out active:scale-[0.98] ${
-                filter === f
-                  ? "bg-elevated text-text ring-1 ring-borderStrong"
-                  : "text-muted hover:text-text hover:bg-surface2"
+              key={c}
+              onClick={() => onFilter(c)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors duration-150 ease-out active:scale-[0.98] ${
+                active
+                  ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                  : "text-muted hover:bg-surface2 hover:text-text"
               }`}
             >
-              {f.replace("-", " ")}
+              <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+              {label}
+              <span className="text-subtle">{counts[c] ?? 0}</span>
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
 
       {/* Body */}
-      {isLoading ? (
-        <SkeletonRows />
-      ) : error ? (
-        <div className="p-8 text-center text-sm text-danger">Failed to load tasks: {(error as Error).message}</div>
-      ) : tasks.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-subtle">
-                <th className="px-4 py-2.5 font-medium">Name</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="hidden px-4 py-2.5 font-medium md:table-cell">Tags</th>
-                <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Retries</th>
-                <th className="hidden px-4 py-2.5 font-medium lg:table-cell">Result</th>
-                <th className="px-4 py-2.5 text-right font-medium">Action</th>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {isLoading ? (
+          <div className="space-y-2 p-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-11 animate-pulse rounded-lg bg-surface2" />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="p-8 text-center text-sm text-danger">
+            Failed to load tasks: {error.message}
+          </div>
+        ) : (
+          <table className="w-full border-collapse text-sm">
+            <thead className="sticky top-0 z-10 bg-surface">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-subtle">
+                <th className="px-4 py-2.5">ID</th>
+                <th className="px-4 py-2.5">Name</th>
+                <th className="px-4 py-2.5">Status</th>
+                <th className="px-4 py-2.5">Tags</th>
+                <th className="px-4 py-2.5">Retries</th>
+                <th className="px-4 py-2.5">Enqueued</th>
+                <th className="px-4 py-2.5">Result</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody>
+              {seen.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-16 text-center text-muted">
+                    No tasks match. Enqueue one with{" "}
+                    <span className="font-medium text-text">New Task</span>.
+                  </td>
+                </tr>
+              )}
               <AnimatePresence initial={false}>
-                {tasks.map((t) => (
-                  <TaskRow key={t.id} task={t} onCancel={() => cancel.mutate(t.id)} />
+                {seen.map((t, i) => (
+                  <motion.tr
+                    key={t.id}
+                    layout
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, transition: { duration: 0.18, ease: "easeIn" } }}
+                    transition={{ duration: 0.18, ease: "easeOut", delay: Math.min(i * 0.02, 0.15) }}
+                    onClick={() => onOpen(t)}
+                    className="group cursor-pointer border-t border-border transition-colors duration-150 ease-out hover:bg-surface2"
+                  >
+                    <td className="px-4 py-2.5 font-mono text-xs text-muted">{shortId(t.id)}</td>
+                    <td className="px-4 py-2.5 font-medium text-text">{t.name}</td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={t.status} pulse={t.status === "running"} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {t.tags.length === 0 ? (
+                          <span className="text-xs text-subtle">—</span>
+                        ) : (
+                          t.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded bg-surface2 px-1.5 py-0.5 font-mono text-[10px] text-muted"
+                            >
+                              {tag}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted">
+                      {t.retry_count}
+                      {t.max_retries > 0 && <span className="text-subtle">/{t.max_retries}</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-muted" title={clockTime(t.enqueue_time)}>
+                      {timeAgo(t.enqueue_time)}
+                    </td>
+                    <td className="max-w-[200px] truncate px-4 py-2.5 font-mono text-xs text-subtle">
+                      {t.result ? truncate(t.result, 40) : "—"}
+                    </td>
+                  </motion.tr>
                 ))}
               </AnimatePresence>
             </tbody>
           </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function TaskRow({ task, onCancel }: { task: Task; onCancel: () => void }) {
-  const cancellable = task.status === "queued" || task.status === "running";
-  const result = task.result ? truncate(task.result, 60) : null;
-
-  return (
-    <motion.tr
-      layout
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.18, ease: "easeIn" } }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className="group hover:bg-surface2/60"
-    >
-      <td className="px-4 py-3">
-        <div className="font-medium text-text">{task.name}</div>
-        <div className="font-mono text-xs text-subtle">{shortId(task.id)}</div>
-      </td>
-      <td className="px-4 py-3">
-        <StatusBadge status={task.status} />
-      </td>
-      <td className="hidden px-4 py-3 md:table-cell">
-        <div className="flex flex-wrap gap-1">
-          {task.tags.length === 0 ? (
-            <span className="text-xs text-subtle">—</span>
-          ) : (
-            task.tags.map((tag) => (
-              <span key={tag} className="rounded-md bg-canvas px-1.5 py-0.5 font-mono text-xs text-muted ring-1 ring-border">
-                {tag}
-              </span>
-            ))
-          )}
-        </div>
-      </td>
-      <td className="hidden px-4 py-3 font-mono text-xs text-muted sm:table-cell">
-        {task.retry_count}/{task.max_retries}
-      </td>
-      <td className="hidden px-4 py-3 lg:table-cell">
-        {result ? (
-          <code className="font-mono text-xs text-muted">{result}</code>
-        ) : (
-          <span className="text-xs text-subtle">—</span>
         )}
-      </td>
-      <td className="px-4 py-3 text-right">
-        {cancellable ? (
-          <button
-            onClick={onCancel}
-            className="rounded-lg px-2.5 py-1 text-xs font-medium text-danger ring-1 ring-danger/30 transition-colors duration-150 ease-out hover:bg-danger/10 active:scale-[0.98]"
-          >
-            Cancel
-          </button>
-        ) : (
-          <span className="text-xs text-subtle">—</span>
-        )}
-      </td>
-    </motion.tr>
-  );
-}
-
-function SkeletonRows() {
-  return (
-    <div className="space-y-2 p-4" aria-busy="true" aria-label="Loading tasks">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-12 animate-pulse rounded-lg bg-surface2" />
-      ))}
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-surface2 ring-1 ring-border">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path d="M4 7h16M4 12h16M4 17h10" stroke="#5b6478" strokeWidth="2" strokeLinecap="round" />
-        </svg>
       </div>
-      <h3 className="mt-4 text-sm font-medium">No tasks in this view</h3>
-      <p className="mt-1 text-xs text-muted">Enqueue a task or switch filters to see activity.</p>
     </div>
   );
-}
-
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }

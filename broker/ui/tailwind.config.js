@@ -1,48 +1,65 @@
 /** @type {import('tailwindcss').Config} */
+// Dual-theme system: semantic colors are CSS variables (rgb channels) defined
+// in index.css for :root (light) and .dark (dark). This avoids littering
+// `dark:` across every component — toggling the `dark` class on <html> flips
+// the whole UI. The navy sidebar keeps constant tokens in both themes, mirroring
+// Temporal's always-dark rail.
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Geist", "Inter", "system-ui", "sans-serif"],
+        // Inter matches Temporal's UI type voice.
+        sans: ["Inter", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       colors: {
-        // Semantic surface tokens for a dark developer-tool canvas.
-        canvas: "#0a0c10",
-        surface: "#11141b",
-        surface2: "#161a23",
-        elevated: "#1c2130",
-        border: "#232938",
-        borderStrong: "#2e3548",
-        muted: "#8a93a6",
-        subtle: "#5b6478",
-        text: "#e7ebf3",
-        // Accents — chosen against the AI-default purple/indigo. Emerald for
-        // success/active, amber for running/attention, rose for failure,
-        // sky for info/links.
-        accent: "#34d399",
-        accentDim: "#10b981",
-        warn: "#f59e0b",
-        danger: "#f43f5e",
-        info: "#38bdf8",
+        canvas: "rgb(var(--canvas) / <alpha-value>)",
+        surface: "rgb(var(--surface) / <alpha-value>)",
+        surface2: "rgb(var(--surface2) / <alpha-value>)",
+        elevated: "rgb(var(--elevated) / <alpha-value>)",
+        border: "rgb(var(--border) / <alpha-value>)",
+        borderStrong: "rgb(var(--border-strong) / <alpha-value>)",
+        text: "rgb(var(--text) / <alpha-value>)",
+        muted: "rgb(var(--muted) / <alpha-value>)",
+        subtle: "rgb(var(--subtle) / <alpha-value>)",
+        // Sidebar: constant navy in both themes (Temporal-style).
+        sidebar: "rgb(var(--sidebar-bg) / <alpha-value>)",
+        sidebarSurface: "rgb(var(--sidebar-surface) / <alpha-value>)",
+        sidebarBorder: "rgb(var(--sidebar-border) / <alpha-value>)",
+        sidebarText: "rgb(var(--sidebar-text) / <alpha-value>)",
+        sidebarMuted: "rgb(var(--sidebar-muted) / <alpha-value>)",
+        // Accents — constant across themes.
+        primary: "rgb(var(--primary) / <alpha-value>)",
+        info: "rgb(var(--info) / <alpha-value>)",
+        success: "rgb(var(--success) / <alpha-value>)",
+        danger: "rgb(var(--danger) / <alpha-value>)",
+        warn: "rgb(var(--warn) / <alpha-value>)",
+        purple: "rgb(var(--purple) / <alpha-value>)",
+        slate2: "rgb(var(--slate) / <alpha-value>)",
       },
       borderRadius: {
-        xl: "0.75rem",
-        "2xl": "1rem",
+        xl: "0.625rem",
+        "2xl": "0.875rem",
       },
       boxShadow: {
-        card: "0 1px 0 0 rgba(255,255,255,0.03) inset, 0 1px 2px 0 rgba(0,0,0,0.4)",
-        glow: "0 0 0 1px rgba(52,211,153,0.25), 0 8px 30px -8px rgba(52,211,153,0.15)",
+        card: "0 1px 2px 0 rgba(0,0,0,0.06), 0 1px 0 0 rgba(255,255,255,0.04) inset",
+        drawer: "-12px 0 40px -12px rgba(0,0,0,0.25)",
+        popover: "0 8px 30px -6px rgba(0,0,0,0.25)",
       },
       keyframes: {
         pulseDot: {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.35" },
         },
+        dash: {
+          to: { "stroke-dashoffset": "-16" },
+        },
       },
       animation: {
         pulseDot: "pulseDot 1.8s ease-in-out infinite",
+        dash: "dash 1s linear infinite",
       },
     },
   },
