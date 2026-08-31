@@ -93,14 +93,23 @@ The HTTP API is also available directly:
 | POST   | `/api/tasks/:id/cancel`   | Cancel a non-terminal task |
 | GET    | `/api/workers`            | Registered workers       |
 
-**Rebuilding the UI:** the built `broker/ui/dist` is committed so the broker
-compiles from a fresh clone. To modify the frontend, install Node and run:
+**Editing the UI:** the dashboard is a single self-contained HTML file,
+`broker/ui/dashboard.html` (no build toolchain, no Node). It polls the HTTP
+API above every 2s and renders live stats, the task ledger, workers, a task
+detail drawer, and an enqueue dialog. The design system is canonicalized in
+`docs/design/DESIGN.md`.
+
+`broker/ui/dist/index.html` is what the broker embeds (via `rust-embed`).
+After editing `dashboard.html`, copy it into place and rebuild:
 
 ```bash
-pnpm --dir broker/ui install
-pnpm --dir broker/ui dev      # dev server at http://localhost:5173 (proxies /api)
-pnpm --dir broker/ui build    # rebuild into broker/ui/dist, then `cargo build`
+cp broker/ui/dashboard.html broker/ui/dist/index.html
+touch broker/src/http.rs      # force rust-embed to re-read ui/dist
+cargo build
 ```
+
+For iterative development against a live broker, point a browser directly at
+the file with the API on localhost:8080, or run the broker with `--open`.
 
 ### Python Interface
 
