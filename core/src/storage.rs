@@ -24,6 +24,7 @@ synchronous database work to `tokio::task::spawn_blocking`.
 */
 
 use crate::error::{ChopFlowError, Result};
+use crate::schedule::Schedule;
 use crate::task::{Task, TaskStatus};
 use async_trait::async_trait;
 use rusqlite::Connection;
@@ -82,6 +83,27 @@ pub trait Storage: Send + Sync + 'static {
     /// any in-flight task was being handled by a worker that no longer
     /// exists. Returns the number of tasks reconciled.
     async fn reconcile(&self) -> Result<usize>;
+
+    /// Insert or replace a schedule (upsert keyed by id).
+    async fn insert_schedule(&self, schedule: Schedule) -> Result<()>;
+
+    /// Get a schedule by id.
+    async fn get_schedule(&self, id: &Uuid) -> Result<Option<Schedule>>;
+
+    /// List all schedules, ordered by created_at.
+    async fn list_schedules(&self) -> Result<Vec<Schedule>>;
+
+    /// Delete a schedule by id.
+    async fn delete_schedule(&self, id: &Uuid) -> Result<()>;
+
+    /// Update a schedule (upsert).
+    async fn update_schedule(&self, schedule: Schedule) -> Result<()>;
+
+    /// Enabled schedules whose `next_fire <= now`, for the ticker.
+    async fn due_schedules(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Schedule>>;
+
+    /// Tasks spawned by `schedule_id` still in flight (Queued or Running).
+    async fn in_flight_for_schedule(&self, schedule_id: &Uuid) -> Result<Vec<Task>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,12 +113,14 @@ pub trait Storage: Send + Sync + 'static {
 /// In-memory `Storage` backed by a `HashMap` under a `tokio::Mutex`.
 pub struct InMemoryStorage {
     tasks: Arc<Mutex<HashMap<Uuid, Task>>>,
+    schedules: Arc<Mutex<HashMap<Uuid, Schedule>>>,
 }
 
 impl InMemoryStorage {
     pub fn new() -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
+            schedules: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -208,6 +232,57 @@ impl Storage for InMemoryStorage {
         }
         Ok(n)
     }
+
+    async fn insert_schedule(&self, schedule: Schedule) -> Result<()> {
+        let mut scheds = self.schedules.lock().await;
+        scheds.insert(schedule.id, schedule);
+        Ok(())
+    }
+
+    async fn get_schedule(&self, id: &Uuid) -> Result<Option<Schedule>> {
+        let scheds = self.schedules.lock().await;
+        Ok(scheds.get(id).cloned())
+    }
+
+    async fn list_schedules(&self) -> Result<Vec<Schedule>> {
+        let scheds = self.schedules.lock().await;
+        let mut all: Vec<Schedule> = scheds.values().cloned().collect();
+        all.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(all)
+    }
+
+    async fn delete_schedule(&self, id: &Uuid) -> Result<()> {
+        let mut scheds = self.schedules.lock().await;
+        scheds.remove(id);
+        Ok(())
+    }
+
+    async fn update_schedule(&self, schedule: Schedule) -> Result<()> {
+        let mut scheds = self.schedules.lock().await;
+        scheds.insert(schedule.id, schedule);
+        Ok(())
+    }
+
+    async fn due_schedules(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Schedule>> {
+        let scheds = self.schedules.lock().await;
+        let mut due: Vec<Schedule> = scheds
+            .values()
+            .filter(|s| s.enabled && s.next_fire <= now)
+            .cloned()
+            .collect();
+        due.sort_by_key(|s| s.next_fire);
+        Ok(due)
+    }
+
+    async fn in_flight_for_schedule(&self, schedule_id: &Uuid) -> Result<Vec<Task>> {
+        let tasks = self.tasks.lock().await;
+        Ok(tasks
+            .values()
+            .filter(|t| t.schedule_id == Some(*schedule_id)
+                && matches!(t.status, TaskStatus::Queued | TaskStatus::Running))
+            .cloned()
+            .collect())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +314,14 @@ impl SqliteStorage {
              );
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
              CREATE INDEX IF NOT EXISTS tasks_eta ON tasks(eta_ms);
-             CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);",
+             CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);
+             CREATE TABLE IF NOT EXISTS schedules (
+                 id              TEXT PRIMARY KEY,
+                 next_fire_ms    INTEGER NOT NULL,
+                 enabled         INTEGER NOT NULL,
+                 schedule_json   TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS schedules_next_fire ON schedules(next_fire_ms);",
         )
         .map_err(rusqlite_err)?;
 
@@ -261,7 +343,14 @@ impl SqliteStorage {
              );
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
              CREATE INDEX IF NOT EXISTS tasks_eta ON tasks(eta_ms);
-             CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);",
+             CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);
+             CREATE TABLE IF NOT EXISTS schedules (
+                 id              TEXT PRIMARY KEY,
+                 next_fire_ms    INTEGER NOT NULL,
+                 enabled         INTEGER NOT NULL,
+                 schedule_json   TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS schedules_next_fire ON schedules(next_fire_ms);",
         )
         .map_err(rusqlite_err)?;
         Ok(Self {
@@ -289,6 +378,16 @@ impl SqliteStorage {
             rusqlite::types::Type::Text,
             Box::new(e),
         ))
+    }
+
+    fn marshal_schedule(s: &Schedule) -> Result<(String, i64, i64, String)> {
+        let id = s.id.to_string();
+        let next_fire_ms = s.next_fire.timestamp_millis();
+        let enabled = if s.enabled { 1i64 } else { 0 };
+        let json = serde_json::to_string(s).map_err(|e| {
+            ChopFlowError::SerializationError(format!("failed to serialize schedule: {}", e))
+        })?;
+        Ok((id, next_fire_ms, enabled, json))
     }
 }
 
@@ -532,12 +631,117 @@ impl Storage for SqliteStorage {
         .map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(n)
     }
+
+    async fn insert_schedule(&self, schedule: Schedule) -> Result<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let (id, next_fire_ms, enabled, json) = Self::marshal_schedule(&schedule)?;
+            let conn = lock_conn(&conn)?;
+            conn.execute(
+                "INSERT OR REPLACE INTO schedules (id, next_fire_ms, enabled, schedule_json) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![id, next_fire_ms, enabled, json],
+            ).map_err(rusqlite_err)?;
+            Ok(())
+        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(())
+    }
+
+    async fn get_schedule(&self, id: &Uuid) -> Result<Option<Schedule>> {
+        let conn = self.conn.clone();
+        let id_str = id.to_string();
+        let sch = tokio::task::spawn_blocking(move || -> Result<Option<Schedule>> {
+            let conn = lock_conn(&conn)?;
+            let mut stmt = conn.prepare("SELECT schedule_json FROM schedules WHERE id = ?1").map_err(rusqlite_err)?;
+            let mut rows = stmt.query(rusqlite::params![id_str]).map_err(rusqlite_err)?;
+            match rows.next().map_err(rusqlite_err)? {
+                Some(row) => {
+                    let json: String = row.get(0).map_err(rusqlite_err)?;
+                    let s: Schedule = serde_json::from_str(&json).map_err(|e| ChopFlowError::SerializationError(format!("failed to deserialize schedule: {}", e)))?;
+                    Ok(Some(s))
+                }
+                None => Ok(None),
+            }
+        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(sch)
+    }
+
+    async fn list_schedules(&self) -> Result<Vec<Schedule>> {
+        let conn = self.conn.clone();
+        let schs = tokio::task::spawn_blocking(move || -> Result<Vec<Schedule>> {
+            let conn = lock_conn(&conn)?;
+            let mut stmt = conn.prepare("SELECT schedule_json FROM schedules ORDER BY rowid").map_err(rusqlite_err)?;
+            let rows: rusqlite::Result<Vec<Schedule>> = stmt.query_map([], |row| {
+                let json: String = row.get(0)?;
+                serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+            }).map_err(rusqlite_err)?.collect();
+            Ok(rows.map_err(rusqlite_err)?)
+        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(schs)
+    }
+
+    async fn delete_schedule(&self, id: &Uuid) -> Result<()> {
+        let conn = self.conn.clone();
+        let id_str = id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let conn = lock_conn(&conn)?;
+            conn.execute("DELETE FROM schedules WHERE id = ?1", rusqlite::params![id_str]).map_err(rusqlite_err)?;
+            Ok(())
+        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(())
+    }
+
+    async fn update_schedule(&self, schedule: Schedule) -> Result<()> {
+        // Same as insert (upsert).
+        self.insert_schedule(schedule).await
+    }
+
+    async fn due_schedules(&self, now: chrono::DateTime<chrono::Utc>) -> Result<Vec<Schedule>> {
+        let conn = self.conn.clone();
+        let now_ms = now.timestamp_millis();
+        let schs = tokio::task::spawn_blocking(move || -> Result<Vec<Schedule>> {
+            let conn = lock_conn(&conn)?;
+            let mut stmt = conn.prepare(
+                "SELECT schedule_json FROM schedules WHERE enabled = 1 AND next_fire_ms <= ?1 ORDER BY next_fire_ms"
+            ).map_err(rusqlite_err)?;
+            let rows: rusqlite::Result<Vec<Schedule>> = stmt.query_map(rusqlite::params![now_ms], |row| {
+                let json: String = row.get(0)?;
+                serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+            }).map_err(rusqlite_err)?.collect();
+            Ok(rows.map_err(rusqlite_err)?)
+        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(schs)
+    }
+
+    async fn in_flight_for_schedule(&self, schedule_id: &Uuid) -> Result<Vec<Task>> {
+        // No dedicated schedule_id column; scan task_json (acceptable at
+        // ChopFlow's scale — spec section 4). Filter to Queued/Running in Rust.
+        let conn = self.conn.clone();
+        let target = schedule_id.to_string();
+        let tasks = tokio::task::spawn_blocking(move || -> Result<Vec<Task>> {
+            let conn = lock_conn(&conn)?;
+            let mut stmt = conn.prepare(
+                "SELECT task_json FROM tasks WHERE status = ?1 OR status = ?2"
+            ).map_err(rusqlite_err)?;
+            let rows: rusqlite::Result<Vec<Task>> = stmt.query_map(
+                rusqlite::params![TaskStatus::Queued as i64, TaskStatus::Running as i64],
+                |row| {
+                    let json: String = row.get(0)?;
+                    serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+                },
+            ).map_err(rusqlite_err)?.collect();
+            let all: Vec<Task> = rows.map_err(rusqlite_err)?;
+            Ok(all.into_iter().filter(|t| t.schedule_id.as_ref().map(|s| s.to_string()) == Some(target.clone())).collect())
+        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(tasks)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
+    use crate::schedule::{OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
+    use std::collections::HashMap;
 
     fn queued(name: &str, tags: &[&str]) -> Task {
         let mut t = Task::new(name.into(), serde_json::json!({}));
@@ -546,6 +750,20 @@ mod tests {
         }
         t.status = TaskStatus::Queued;
         t
+    }
+
+    fn tmpl(name: &str) -> TaskTemplate {
+        TaskTemplate {
+            name: name.into(),
+            payload: serde_json::json!({}),
+            tags: vec![],
+            resources: HashMap::new(),
+            max_retries: 3,
+        }
+    }
+
+    fn cron_schedule(name: &str, cron: &str) -> Schedule {
+        Schedule::new(name.into(), tmpl(name), ScheduleKind::Cron { cron: cron.into() }, OverlapPolicy::Skip).unwrap()
     }
 
     async fn check_in_memory() {
@@ -681,5 +899,116 @@ mod tests {
         // pending via the status index column.
         let got = s.get(&id).await.unwrap().unwrap();
         assert_eq!(got.status, TaskStatus::Queued);
+    }
+
+    #[tokio::test]
+    async fn in_memory_schedule_crud() {
+        let s = InMemoryStorage::new();
+        let sch = cron_schedule("nightly", "0 9 * * *");
+        s.insert_schedule(sch.clone()).await.unwrap();
+        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().name, "nightly");
+
+        let listed = s.list_schedules().await.unwrap();
+        assert_eq!(listed.len(), 1);
+
+        let mut updated = sch.clone();
+        updated.enabled = false;
+        s.update_schedule(updated.clone()).await.unwrap();
+        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().enabled, false);
+
+        s.delete_schedule(&sch.id).await.unwrap();
+        assert!(s.get_schedule(&sch.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn in_memory_due_schedules_respects_next_fire_and_enabled() {
+        let s = InMemoryStorage::new();
+        let now = Utc::now();
+
+        // due: enabled, next_fire in the past
+        let mut due = cron_schedule("due", "*/2 * * * *");
+        due.next_fire = now - chrono::Duration::minutes(1);
+        s.insert_schedule(due.clone()).await.unwrap();
+
+        // not due: next_fire in the future
+        let mut future = cron_schedule("future", "*/2 * * * *");
+        future.next_fire = now + chrono::Duration::hours(1);
+        s.insert_schedule(future).await.unwrap();
+
+        // not due: disabled even though next_fire is past
+        let mut disabled = cron_schedule("disabled", "*/2 * * * *");
+        disabled.next_fire = now - chrono::Duration::minutes(1);
+        disabled.enabled = false;
+        s.insert_schedule(disabled).await.unwrap();
+
+        let got = s.due_schedules(now).await.unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "due");
+    }
+
+    #[tokio::test]
+    async fn in_flight_for_schedule_returns_queued_and_running_only() {
+        let s = InMemoryStorage::new();
+        let sch = cron_schedule("s", "*/2 * * * *");
+        s.insert_schedule(sch.clone()).await.unwrap();
+
+        let mut queued = Task::new("a".into(), serde_json::json!({}));
+        queued.status = TaskStatus::Queued;
+        queued.schedule_id = Some(sch.id);
+        s.insert(queued).await.unwrap();
+
+        let mut running = Task::new("b".into(), serde_json::json!({}));
+        running.status = TaskStatus::Running;
+        running.schedule_id = Some(sch.id);
+        s.insert(running).await.unwrap();
+
+        let mut done = Task::new("c".into(), serde_json::json!({}));
+        done.status = TaskStatus::Completed;
+        done.schedule_id = Some(sch.id);
+        s.insert(done).await.unwrap();
+
+        let in_flight = s.in_flight_for_schedule(&sch.id).await.unwrap();
+        assert_eq!(in_flight.len(), 2); // queued + running, not completed
+    }
+
+    #[tokio::test]
+    async fn sqlite_schedule_crud() {
+        let s = SqliteStorage::open_in_memory().unwrap();
+        let sch = cron_schedule("nightly", "0 9 * * *");
+        s.insert_schedule(sch.clone()).await.unwrap();
+        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().name, "nightly");
+        assert_eq!(s.list_schedules().await.unwrap().len(), 1);
+
+        let mut updated = sch.clone();
+        updated.enabled = false;
+        s.update_schedule(updated).await.unwrap();
+        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().enabled, false);
+
+        s.delete_schedule(&sch.id).await.unwrap();
+        assert!(s.get_schedule(&sch.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn sqlite_due_schedules_and_in_flight() {
+        let s = SqliteStorage::open_in_memory().unwrap();
+        let now = Utc::now();
+        let mut due = cron_schedule("due", "*/2 * * * *");
+        due.next_fire = now - chrono::Duration::minutes(1);
+        s.insert_schedule(due.clone()).await.unwrap();
+
+        let mut future = cron_schedule("future", "*/2 * * * *");
+        future.next_fire = now + chrono::Duration::hours(1);
+        s.insert_schedule(future).await.unwrap();
+
+        let got = s.due_schedules(now).await.unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "due");
+
+        // in-flight tasks for the schedule
+        let mut t = Task::new("a".into(), serde_json::json!({}));
+        t.status = TaskStatus::Queued;
+        t.schedule_id = Some(due.id);
+        s.insert(t).await.unwrap();
+        assert_eq!(s.in_flight_for_schedule(&due.id).await.unwrap().len(), 1);
     }
 }
