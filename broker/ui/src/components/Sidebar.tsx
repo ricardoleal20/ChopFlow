@@ -1,6 +1,6 @@
-import { BrandMark, TasksIcon, WorkersIcon, MoonIcon, SunIcon } from "./Icons";
+import { BrandMark, TasksIcon, ScheduleIcon, WorkersIcon, MoonIcon, SunIcon } from "./Icons";
 
-export type View = "tasks" | "workers";
+export type View = "tasks" | "schedules" | "workers";
 
 interface Props {
   view: View;
@@ -8,24 +8,28 @@ interface Props {
   theme: "light" | "dark";
   onToggleTheme: () => void;
   taskCount: number;
+  scheduleCount: number;
   workerCount: number;
   activeWorkers: number;
 }
 
 // Always-dark navy rail, like Temporal's left sidebar. Holds the gradient brand
-// mark, the primary nav (Tasks / Workers) with right-aligned mono count pills,
-// a live cluster-pulse card, and the theme track toggle + version tag.
+// mark, the primary nav (Tasks / Schedules / Workers) with right-aligned mono
+// count pills, a live cluster-pulse card, and the theme track toggle + version
+// tag.
 export default function Sidebar({
   view,
   onView,
   theme,
   onToggleTheme,
   taskCount,
+  scheduleCount,
   workerCount,
   activeWorkers,
 }: Props) {
   const nav: { key: View; label: string; icon: typeof TasksIcon; count: number }[] = [
     { key: "tasks", label: "Tasks", icon: TasksIcon, count: taskCount },
+    { key: "schedules", label: "Schedules", icon: ScheduleIcon, count: scheduleCount },
     { key: "workers", label: "Workers", icon: WorkersIcon, count: workerCount },
   ];
 

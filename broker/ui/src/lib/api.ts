@@ -22,6 +22,7 @@ export interface Task {
   eta: number | null;
   resources: Record<string, number>;
   result: string | null;
+  schedule_id: string | null;
 }
 
 export interface TaskListResponse {
@@ -36,6 +37,7 @@ export interface Stats {
   tasks_failed: number;
   active_workers: number;
   total_tasks: number;
+  schedules: number;
 }
 
 export interface Worker {
@@ -55,6 +57,43 @@ export interface EnqueueBody {
   tags?: string[];
   max_retries?: number;
   resources?: Record<string, number>;
+}
+
+// ---- Schedules --------------------------------------------------------------
+// Mirrors the DTOs in broker/src/http.rs. The server owns the lowercase enum
+// tag names (cron / oneshot) and the lowercase overlap strings.
+
+export type OverlapPolicy = "skip" | "coalesce" | "allow";
+
+export type ScheduleKind =
+  | { type: "cron"; cron: string }
+  | { type: "oneshot"; eta: string }; // RFC3339 (UTC)
+
+export interface TaskTemplate {
+  name: string;
+  payload: unknown;
+  tags: string[];
+  resources: Record<string, number>;
+  max_retries: number;
+}
+
+export interface Schedule {
+  id: string;
+  name: string;
+  task_template: TaskTemplate;
+  kind: ScheduleKind;
+  overlap_policy: OverlapPolicy;
+  enabled: boolean;
+  last_fired: number | null; // epoch ms
+  next_fire: number; // epoch ms
+  created_at: number; // epoch ms
+}
+
+export interface CreateScheduleBody {
+  name: string;
+  task_template: TaskTemplate;
+  kind: ScheduleKind;
+  overlap_policy: OverlapPolicy;
 }
 
 // API base: relative "/api" when served by the broker (web) or via the Vite
@@ -94,4 +133,17 @@ export const api = {
   cancel: (id: string) =>
     json<{ success: boolean }>(`/tasks/${id}/cancel`, { method: "POST" }),
   workers: () => json<Worker[]>("/workers"),
+  listSchedules: () => json<Schedule[]>("/schedules"),
+  createSchedule: (body: CreateScheduleBody) =>
+    json<{ schedule_id: string }>("/schedules", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  patchSchedule: (id: string, body: Record<string, unknown>) =>
+    json<Schedule>(`/schedules/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteSchedule: (id: string) =>
+    json<{ success: boolean }>(`/schedules/${id}`, { method: "DELETE" }),
 };

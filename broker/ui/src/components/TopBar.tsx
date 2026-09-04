@@ -38,7 +38,8 @@ export default function TopBar({ view, query, onQuery, onEnqueue, stats }: Props
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const label = view === "tasks" ? "Tasks" : "Workers";
+  const label =
+    view === "tasks" ? "Tasks" : view === "schedules" ? "Schedules" : "Workers";
 
   return (
     <header className="topbar">

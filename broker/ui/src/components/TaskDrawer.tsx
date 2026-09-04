@@ -148,6 +148,14 @@ function Summary({ task }: { task: Task }) {
   return (
     <div className="dr-pane">
       {task.retry_count > 0 && retryCallout(task.retry_count, task.max_retries, "recorded")}
+      {task.schedule_id && (
+        <div className="callout sched-lineage">
+          <div>
+            <div className="t">Spawned by schedule</div>
+            <div className="d mono">{task.schedule_id}</div>
+          </div>
+        </div>
+      )}
       <div className="field-grid">
         <div className="field">
           <div className="k">Status</div>

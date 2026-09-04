@@ -1,6 +1,7 @@
 import StatusBadge from "./StatusBadge";
 import { STATUS_LABEL, STATUS_ORDER, chipKey } from "../lib/status";
 import { shortId, timeAgo, clockTime, truncate } from "../lib/format";
+import { ScheduleIcon } from "./Icons";
 import type { Task, TaskStatus } from "../lib/api";
 
 interface Props {
@@ -137,7 +138,14 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                         </span>
                       </td>
                       <td>
-                        <span className="tname">{t.name}</span>
+                        <span className="tname">
+                          {t.name}
+                          {t.schedule_id && (
+                            <span title="from schedule" className="sched-mark-wrap">
+                              <ScheduleIcon className="sched-mark" />
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td>
                         <StatusBadge status={t.status} />

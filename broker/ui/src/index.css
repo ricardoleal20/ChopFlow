@@ -442,6 +442,27 @@ textarea.cf-input { height: auto; padding: 9px 11px; resize: vertical; line-heig
 .form-error { border-radius: 8px; background: rgba(239,47,47,.1); border: 1px solid rgba(239,47,47,.25);
   padding: 9px 12px; font-size: 12px; color: var(--danger); }
 
+/* ---- segmented control (enqueue modal mode toggle) ---- */
+.seg { display: flex; gap: 0; padding: 3px; border-radius: 9px; background: var(--surface-3);
+  border: 1px solid var(--border); }
+.seg-btn { flex: 1; height: 30px; border-radius: 7px; border: none; background: transparent;
+  color: var(--muted); font-size: 12.5px; font-weight: 550; cursor: pointer;
+  transition: background var(--dur-s), color var(--dur-s); }
+.seg-btn:hover { color: var(--fg-2); }
+.seg-btn.active { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.sched-fields { display: flex; flex-direction: column; gap: 14px; padding: 12px 14px; border-radius: 10px;
+  background: var(--surface-3); border: 1px solid var(--border); }
+.radio-row { display: flex; gap: 16px; }
+.radio { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--fg-2); cursor: pointer; }
+.radio input { accent-color: var(--accent); }
+
+/* ---- schedule lineage (task table + drawer) ---- */
+.sched-mark-wrap { display: inline-flex; vertical-align: -1px; margin-left: 6px; }
+.sched-mark { width: 13px; height: 13px; color: var(--muted-2); }
+.callout.sched-lineage { background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2); }
+.callout.sched-lineage .t { color: var(--info); }
+.callout.sched-lineage .d { color: var(--muted); word-break: break-all; }
+
 @media (max-width: 880px) {
   .app { grid-template-columns: 64px 1fr; }
   .brand-word, .nav-label, .nav-item span:not(.count), .cluster-pulse .cp-meta, .side-tag, .theme-toggle span:not(.tt-track) { display: none; }
