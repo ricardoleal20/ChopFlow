@@ -17,6 +17,7 @@ pub mod error;
 pub mod queue;
 pub mod resources;
 pub mod retry;
+pub mod schedule;
 pub mod storage;
 pub mod task;
 
@@ -26,6 +27,7 @@ pub use dispatcher::Dispatcher;
 pub use queue::Queue;
 pub use resources::ResourceRequirements;
 pub use retry::RetryPolicy;
+pub use schedule::{Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
 pub use storage::{Storage, TaskFilter, StatusCounts, InMemoryStorage, SqliteStorage};
 /// Re-export core types for convenience
 pub use task::Task;
