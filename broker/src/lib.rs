@@ -12,7 +12,7 @@ tests in `broker/tests/`. The `main.rs` binary is a thin CLI wrapper.
 use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
 use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::retry::RetryPolicy;
-use chopflow_core::schedule::{next_fire, ScheduleKind, OverlapPolicy};
+use chopflow_core::schedule::{next_fire, Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
 use chopflow_core::storage::{Storage, TaskFilter};
 use chopflow_core::task::{Task, TaskStatus};
 
@@ -37,6 +37,10 @@ use chopflow::{
     AcknowledgeTaskResponse,
     CancelTaskRequest,
     CancelTaskResponse,
+    CreateScheduleRequest,
+    CreateScheduleResponse,
+    DeleteScheduleRequest,
+    DeleteScheduleResponse,
     EnqueueTaskRequest,
     EnqueueTaskResponse,
     FetchTasksRequest,
@@ -45,14 +49,20 @@ use chopflow::{
     GetQueueStatsResponse,
     GetTaskStatusRequest,
     GetTaskStatusResponse,
+    ListSchedulesRequest,
+    ListSchedulesResponse,
     ListTasksRequest,
     ListTasksResponse,
     ListWorkersResponse,
+    OverlapPolicy as ProtoOverlapPolicy,
     RegisterWorkerRequest,
     RegisterWorkerResponse,
     ResourceAvailability as ProtoResourceAvailability,
+    Schedule as ProtoSchedule,
+    ScheduleKind as ProtoScheduleKind,
     Task as ProtoTask,
     TaskStatus as ProtoTaskStatus,
+    TaskTemplate as ProtoTaskTemplate,
     Worker as ProtoWorker,
     WorkerHeartbeatRequest,
     WorkerHeartbeatResponse,
@@ -141,6 +151,7 @@ impl From<Task> for ProtoTask {
             status: task.status as i32,
             resources: task.resources,
             result: task.result.unwrap_or_default(),
+            schedule_id: task.schedule_id.map(|u| u.to_string()).unwrap_or_default(),
         }
     }
 }
@@ -179,6 +190,66 @@ impl From<Worker> for ProtoWorker {
                 nanos: worker.last_heartbeat.timestamp_subsec_nanos() as i32,
             }),
         }
+    }
+}
+
+/// Convert a proto `TaskTemplate` into the core type. The proto payload is a
+/// JSON string; we parse it into a `serde_json::Value` here.
+fn proto_to_template(p: ProtoTaskTemplate) -> std::result::Result<TaskTemplate, Status> {
+    let payload: serde_json::Value = serde_json::from_str(&p.payload)
+        .map_err(|e| Status::invalid_argument(format!("invalid template payload: {}", e)))?;
+    Ok(TaskTemplate { name: p.name, payload, tags: p.tags, resources: p.resources, max_retries: p.max_retries })
+}
+
+/// Convert a proto `Schedule` into the core `Schedule` (computing `next_fire`
+/// via [`Schedule::new`]).
+fn proto_to_schedule(p: ProtoSchedule) -> std::result::Result<Schedule, Status> {
+    let kind = match p.kind {
+        Some(ProtoScheduleKind { kind: Some(chopflow::schedule_kind::Kind::Cron(c)) }) => ScheduleKind::Cron { cron: c },
+        Some(ProtoScheduleKind { kind: Some(chopflow::schedule_kind::Kind::Eta(ts)) }) => {
+            let eta = chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
+                .ok_or_else(|| Status::invalid_argument("invalid eta"))?;
+            ScheduleKind::OneShot { eta }
+        }
+        _ => return Err(Status::invalid_argument("schedule kind required")),
+    };
+    let overlap = ProtoOverlapPolicy::try_from(p.overlap_policy)
+        .map_err(|_| Status::invalid_argument("invalid overlap_policy"))?;
+    let overlap = match overlap {
+        ProtoOverlapPolicy::OverlapSkip => OverlapPolicy::Skip,
+        ProtoOverlapPolicy::OverlapCoalesce => OverlapPolicy::Coalesce,
+        ProtoOverlapPolicy::OverlapAllow => OverlapPolicy::Allow,
+    };
+    let tmpl = proto_to_template(p.task_template.ok_or_else(|| Status::invalid_argument("task_template required"))?)?;
+    let s = Schedule::new(p.name, tmpl, kind, overlap).map_err(|e| Status::invalid_argument(e.to_string()))?;
+    Ok(s)
+}
+
+/// Convert a core `Schedule` into the proto representation.
+fn schedule_to_proto(s: Schedule) -> ProtoSchedule {
+    let kind = Some(ProtoScheduleKind {
+        kind: Some(match s.kind {
+            ScheduleKind::Cron { cron } => chopflow::schedule_kind::Kind::Cron(cron),
+            ScheduleKind::OneShot { eta } => chopflow::schedule_kind::Kind::Eta(prost_types::Timestamp {
+                seconds: eta.timestamp(), nanos: eta.timestamp_subsec_nanos() as i32,
+            }),
+        }),
+    });
+    let overlap = match s.overlap_policy {
+        OverlapPolicy::Skip => ProtoOverlapPolicy::OverlapSkip,
+        OverlapPolicy::Coalesce => ProtoOverlapPolicy::OverlapCoalesce,
+        OverlapPolicy::Allow => ProtoOverlapPolicy::OverlapAllow,
+    };
+    let ts = |t: chrono::DateTime<chrono::Utc>| prost_types::Timestamp { seconds: t.timestamp(), nanos: t.timestamp_subsec_nanos() as i32 };
+    ProtoSchedule {
+        id: s.id.to_string(), name: s.name,
+        task_template: Some(ProtoTaskTemplate {
+            name: s.task_template.name,
+            payload: serde_json::to_string(&s.task_template.payload).unwrap_or_default(),
+            tags: s.task_template.tags, resources: s.task_template.resources, max_retries: s.task_template.max_retries,
+        }),
+        kind, overlap_policy: overlap as i32, enabled: s.enabled,
+        last_fired: s.last_fired.map(ts), next_fire: Some(ts(s.next_fire)), created_at: Some(ts(s.created_at)),
     }
 }
 
@@ -795,6 +866,50 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         Ok(Response::new(ListWorkersResponse {
             workers: proto_workers,
         }))
+    }
+
+    async fn create_schedule(
+        &self,
+        request: Request<CreateScheduleRequest>,
+    ) -> std::result::Result<Response<CreateScheduleResponse>, Status> {
+        let schedule = proto_to_schedule(
+            request.into_inner().schedule.ok_or_else(|| Status::invalid_argument("schedule required"))?,
+        )?;
+        let id = schedule.id;
+        self.state
+            .storage
+            .insert_schedule(schedule)
+            .await
+            .map_err(|e| Status::internal(format!("insert schedule: {}", e)))?;
+        Ok(Response::new(CreateScheduleResponse { schedule_id: id.to_string() }))
+    }
+
+    async fn list_schedules(
+        &self,
+        _: Request<ListSchedulesRequest>,
+    ) -> std::result::Result<Response<ListSchedulesResponse>, Status> {
+        let schs = self
+            .state
+            .storage
+            .list_schedules()
+            .await
+            .map_err(|e| Status::internal(format!("list schedules: {}", e)))?;
+        let schedules = schs.into_iter().map(schedule_to_proto).collect();
+        Ok(Response::new(ListSchedulesResponse { schedules }))
+    }
+
+    async fn delete_schedule(
+        &self,
+        request: Request<DeleteScheduleRequest>,
+    ) -> std::result::Result<Response<DeleteScheduleResponse>, Status> {
+        let id = Uuid::parse_str(&request.into_inner().id)
+            .map_err(|_| Status::invalid_argument("invalid schedule id"))?;
+        self.state
+            .storage
+            .delete_schedule(&id)
+            .await
+            .map_err(|e| Status::internal(format!("delete schedule: {}", e)))?;
+        Ok(Response::new(DeleteScheduleResponse { success: true }))
     }
 }
 
