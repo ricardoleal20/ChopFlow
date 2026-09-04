@@ -64,11 +64,12 @@ Use the CLI to enqueue a task:
 ./target/release/chopflow_cli enqueue --task task.json --name training --tags gpu,ml
 ```
 
-### Embedded Dashboard UI
+### Operations Dashboard UI
 
 The broker ships with an embedded web dashboard — no separate frontend deploy
 needed. It serves HTTP/JSON (for the UI and any external tooling) alongside
-gRPC, both reading the same live broker state.
+gRPC, both reading the same live broker state. The same dashboard is also
+available as a native **macOS app** via Tauri.
 
 ```bash
 # gRPC on :8000 (workers/CLI), dashboard + HTTP API on :8080
@@ -93,23 +94,47 @@ The HTTP API is also available directly:
 | POST   | `/api/tasks/:id/cancel`   | Cancel a non-terminal task |
 | GET    | `/api/workers`            | Registered workers       |
 
-**Editing the UI:** the dashboard is a single self-contained HTML file,
-`broker/ui/dashboard.html` (no build toolchain, no Node). It polls the HTTP
-API above every 2s and renders live stats, the task ledger, workers, a task
-detail drawer, and an enqueue dialog. The design system is canonicalized in
-`docs/design/DESIGN.md`.
+**The UI stack:** the dashboard is a React + Vite + Tailwind app in
+`broker/ui/` (TypeScript, TanStack Query, framer-motion), built to the visual
+contract in `docs/design/DESIGN.md`. It polls the HTTP API above every 2s and
+renders live stats, the task ledger, workers, a task detail drawer, and an
+enqueue dialog. The built bundle in `broker/ui/dist/` is what the broker
+embeds (via `rust-embed`).
 
-`broker/ui/dist/index.html` is what the broker embeds (via `rust-embed`).
-After editing `dashboard.html`, copy it into place and rebuild:
+**Iterative web dev** against a live broker (the Vite dev server proxies
+`/api` to `http://localhost:8080`):
 
 ```bash
-cp broker/ui/dashboard.html broker/ui/dist/index.html
-touch broker/src/http.rs      # force rust-embed to re-read ui/dist
+pnpm --dir broker/ui install     # first time only
+pnpm --dir broker/ui dev         # http://localhost:5173, hot reload
+```
+
+**Rebuild the embedded web bundle** (committed so the broker compiles from a
+fresh clone without a Node toolchain):
+
+```bash
+pnpm --dir broker/ui build
+touch broker/src/http.rs         # force rust-embed to re-read ui/dist
 cargo build
 ```
 
-For iterative development against a live broker, point a browser directly at
-the file with the API on localhost:8080, or run the broker with `--open`.
+Or run the broker with `--open` to launch the embedded dashboard in a browser.
+
+**Native macOS app (Tauri):** the same React frontend is wrapped as a desktop
+app via Tauri 2, living in `app/src-tauri/`. It points at the broker's HTTP
+API at `http://127.0.0.1:8080` (set via `VITE_API_BASE` in
+`broker/ui/.env.tauri`), so it is a first-class client of the same broker a
+browser would use — nothing is forked or re-implemented.
+
+```bash
+pnpm --dir broker/ui install          # first time only
+# Start the broker first (gRPC :8000, HTTP :8080):
+./target/release/chopflow_broker start --port 8000 --http-port 8080
+
+cd app && ../broker/ui/node_modules/.bin/tauri dev    # launch the desktop app
+# or build a signed .app bundle:
+cd app && ../broker/ui/node_modules/.bin/tauri build
+```
 
 ### Python Interface
 

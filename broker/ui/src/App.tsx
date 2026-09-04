@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Sidebar, { type View } from "./components/Sidebar";
 import TopBar from "./components/TopBar";
-import TaskTable from "./components/TaskTable";
+import TasksView from "./components/TasksView";
 import WorkersView from "./components/WorkersView";
 import TaskDrawer from "./components/TaskDrawer";
 import { EnqueueDialog } from "./components/EnqueueDialog";
@@ -9,9 +9,10 @@ import { useTheme } from "./hooks/useTheme";
 import { useStats, useTasks, useWorkers } from "./hooks/useChopFlow";
 import type { Task, TaskStatus } from "./lib/api";
 
-// App shell: a Temporal-style fixed sidebar + top command bar + scrollable
-// content area. The selected view (Tasks / Workers) swaps the content; the
-// task detail drawer slides over from the right on row click.
+// App shell — a faithful port of the OpenDesign reference layout: a fixed navy
+// sidebar (248px) + a main column with a 54px command bar and a scrollable
+// content area. The selected view (Tasks / Workers) swaps the content; a task
+// detail drawer slides over from the right on row click.
 export default function App() {
   const { theme, toggle } = useTheme();
   const [view, setView] = useState<View>("tasks");
@@ -25,9 +26,10 @@ export default function App() {
   const workersQ = useWorkers();
 
   const tasks = tasksQ.data?.tasks ?? [];
+  const workers = workersQ.data ?? [];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-canvas">
+    <div className="app">
       <Sidebar
         view={view}
         onView={(v) => {
@@ -36,10 +38,12 @@ export default function App() {
         }}
         theme={theme}
         onToggleTheme={toggle}
-        stats={stats}
+        taskCount={tasks.length}
+        workerCount={workers.filter((w) => w.alive).length}
+        activeWorkers={stats?.active_workers ?? 0}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="main">
         <TopBar
           view={view}
           query={query}
@@ -48,28 +52,24 @@ export default function App() {
           stats={stats}
         />
 
-        <main className="min-h-0 flex-1 overflow-hidden bg-canvas">
+        <main className="content">
           {view === "tasks" ? (
-            <div className="surface h-full overflow-hidden rounded-none border-0">
-              <TaskTable
-                tasks={tasks}
-                isLoading={tasksQ.isLoading}
-                error={tasksQ.error}
-                query={query}
-                filter={filter}
-                onFilter={setFilter}
-                onOpen={setSelected}
-              />
-            </div>
+            <TasksView
+              tasks={tasks}
+              isLoading={tasksQ.isLoading}
+              error={tasksQ.error}
+              query={query}
+              filter={filter}
+              onFilter={setFilter}
+              onOpen={setSelected}
+            />
           ) : (
-            <div className="h-full overflow-y-auto">
-              <WorkersView
-                workers={workersQ.data ?? []}
-                isLoading={workersQ.isLoading}
-                error={workersQ.error}
-                query={query}
-              />
-            </div>
+            <WorkersView
+              workers={workers}
+              isLoading={workersQ.isLoading}
+              error={workersQ.error}
+              query={query}
+            />
           )}
         </main>
       </div>

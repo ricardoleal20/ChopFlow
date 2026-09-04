@@ -1,115 +1,98 @@
-// Lightweight inline icon set (stroke-based, currentColor). Keeping these as
-// small components avoids pulling a whole icon dependency; stroke width and
-// sizing inherit from the surrounding text styles.
+// Inline icon set (stroke-based, currentColor) matching the OpenDesign
+// reference. Stroke width and sizing inherit from the surrounding styles.
 import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
-const base = {
+const stroke = (sw = 2) => ({
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.75,
+  strokeWidth: sw,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
   viewBox: "0 0 24 24",
-};
+});
 
-export const FlowIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <rect x="3" y="4" width="6" height="5" rx="1.5" />
-    <rect x="15" y="15" width="6" height="5" rx="1.5" />
-    <path d="M9 6.5h3.5a2 2 0 0 1 2 2V13a2 2 0 0 0 2 2H21" />
+// Brand flow mark — two forward chevrons, on the gradient tile.
+export const BrandMark = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" {...p}>
+    <path d="M4 7h6l3 5-3 5H4l3-5z" fill="#fff" />
+    <path d="M13 7h7v3h-4l1.5 2L16 14h4v3h-7l-2.5-4z" fill="#fff" opacity=".8" />
   </svg>
 );
 
 export const TasksIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <path d="M9 5h11M9 12h11M9 19h11" />
-    <path d="M4 5h.01M4 12h.01M4 19h.01" />
+  <svg {...stroke(2)} {...p}>
+    <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+    <rect x="9" y="3" width="6" height="4" rx="1" />
+    <path d="M9 12h6M9 16h4" />
   </svg>
 );
 
 export const WorkersIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <rect x="3" y="4" width="18" height="6" rx="2" />
-    <rect x="3" y="14" width="18" height="6" rx="2" />
-    <path d="M7 7h.01M7 17h.01" />
+  <svg {...stroke(2)} {...p}>
+    <rect x="3" y="4" width="18" height="12" rx="2" />
+    <path d="M6 20h12M9 16v4M15 16v4" />
+    <circle cx="8" cy="10" r="1" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="10" r="1" fill="currentColor" stroke="none" />
+    <circle cx="16" cy="10" r="1" fill="currentColor" stroke="none" />
   </svg>
 );
 
 export const SunIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
+  <svg {...stroke(2)} {...p}>
     <circle cx="12" cy="12" r="4" />
     <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
   </svg>
 );
 
 export const MoonIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
+  <svg {...stroke(2)} {...p}>
     <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
   </svg>
 );
 
 export const SearchIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
+  <svg {...stroke(2)} {...p}>
     <circle cx="11" cy="11" r="7" />
     <path d="m21 21-4.3-4.3" />
   </svg>
 );
 
 export const PlusIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
+  <svg {...stroke(2.5)} {...p}>
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
 
 export const CloseIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <path d="M6 6l12 12M18 6L6 18" />
+  <svg {...stroke(2)} {...p}>
+    <path d="M18 6 6 18M6 6l12 12" />
   </svg>
 );
 
 export const ChevronDownIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <path d="m6 9 6 6 6-6" />
+  <svg {...stroke(2.5)} {...p}>
+    <path d="M6 9l6 6 6-6" />
   </svg>
 );
 
-export const ClockIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 7v5l3 2" />
+export const CopyIcon = (p: IconProps) => (
+  <svg {...stroke(2)} {...p}>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
   </svg>
 );
 
 export const CheckIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
+  <svg {...stroke(2.5)} {...p}>
     <path d="M20 6 9 17l-5-5" />
   </svg>
 );
 
-export const CancelIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="m9 9 6 6M15 9l-6 6" />
-  </svg>
-);
-
-export const RetryIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-    <path d="M21 3v5h-5" />
-  </svg>
-);
-
-export const DotIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
-  </svg>
-);
-
-export const PulseIcon = (p: IconProps) => (
-  <svg {...base} {...p}>
-    <path d="M3 12h4l2 6 4-14 2 8h6" />
+export const AlertIcon = (p: IconProps) => (
+  <svg {...stroke(2)} {...p}>
+    <path d="M12 9v4M12 17h.01" />
+    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
   </svg>
 );

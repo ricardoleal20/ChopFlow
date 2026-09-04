@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { PlusIcon, SearchIcon, ChevronDownIcon } from "./Icons";
 import type { Stats } from "../lib/api";
 import type { View } from "./Sidebar";
@@ -10,56 +11,108 @@ interface Props {
   stats?: Stats;
 }
 
-// Top command bar: cluster selector on the left, contextual search in the
-// middle, and the primary action (enqueue) on the right — Temporal's layout.
+// 54px command bar: cluster selector (with dropdown) on the left, breadcrumb,
+// contextual search with ⌘K hint, a segmented live count pill, and the single
+// primary CTA ("New Task").
 export default function TopBar({ view, query, onQuery, onEnqueue, stats }: Props) {
+  const [clusterOpen, setClusterOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Close the cluster dropdown on outside click.
+  useEffect(() => {
+    if (!clusterOpen) return;
+    const onDoc = () => setClusterOpen(false);
+    window.addEventListener("click", onDoc);
+    return () => window.removeEventListener("click", onDoc);
+  }, [clusterOpen]);
+
+  // ⌘K / Ctrl-K focuses the search input.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const label = view === "tasks" ? "Tasks" : "Workers";
+
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
+    <header className="topbar">
       {/* Cluster selector */}
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-surface2 px-3 py-1.5">
-        <span className="h-2 w-2 rounded-full bg-success animate-pulseDot" />
-        <span className="text-sm font-medium text-text">local</span>
-        <span className="text-xs text-subtle">· default</span>
-        <ChevronDownIcon className="h-4 w-4 text-subtle" />
+      <div className={`cluster-sel${clusterOpen ? " open" : ""}`}>
+        <button
+          className="cs-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            setClusterOpen((o) => !o);
+          }}
+        >
+          <span className="dot" />
+          <span>local · default</span>
+          <ChevronDownIcon className="chev" />
+        </button>
+        <div className="cs-menu">
+          <div className="cs-opt">
+            <span className="dot live" />
+            <b>local · default</b>
+            <small>{stats?.active_workers ?? 0} workers</small>
+          </div>
+          <div className="cs-opt">
+            <span className="dot idle" />
+            <b>prod · us-east</b>
+            <small>—</small>
+          </div>
+          <div className="cs-sep" />
+          <div className="cs-opt" style={{ color: "var(--accent)", fontWeight: 550 }}>
+            <PlusIcon style={{ width: 14, height: 14 }} />
+            Add cluster
+          </div>
+        </div>
       </div>
 
-      <div className="text-sm text-subtle">/</div>
-      <div className="text-sm font-medium text-muted capitalize">{view}</div>
+      {/* Breadcrumb */}
+      <div className="crumb">
+        Operations <span className="sep">/</span> <b>{label}</b>
+      </div>
 
       {/* Search */}
-      <div className="relative ml-auto w-full max-w-sm">
-        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" />
+      <div className="search">
+        <SearchIcon />
         <input
+          ref={searchRef}
+          type="text"
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder={`Search ${view} by id, name, tag…`}
-          className="cf-input pl-9"
         />
+        <kbd>⌘K</kbd>
       </div>
 
       {/* Live count pill */}
       {stats && (
-        <div className="hidden items-center gap-3 rounded-lg border border-border bg-surface2 px-3 py-1.5 text-xs text-muted lg:flex">
-          <span>
-            <b className="text-text">{stats.queue_length}</b> queued
-          </span>
-          <span className="h-3 w-px bg-border" />
-          <span>
-            <b className="text-text">{stats.tasks_processing}</b> running
-          </span>
-          <span className="h-3 w-px bg-border" />
-          <span>
-            <b className="text-text">{stats.total_tasks}</b> total
-          </span>
+        <div className="count-pill">
+          <div className="cp-seg q">
+            <span className="d" />
+            <small>queued</small> <b>{stats.queue_length}</b>
+          </div>
+          <div className="cp-seg r">
+            <span className="d" />
+            <small>running</small> <b>{stats.tasks_processing}</b>
+          </div>
+          <div className="cp-seg t">
+            <span className="d" />
+            <small>total</small> <b>{stats.total_tasks}</b>
+          </div>
         </div>
       )}
 
-      {/* Primary action */}
-      <button
-        onClick={onEnqueue}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-transform duration-150 ease-out hover:bg-primary/90 active:scale-[0.98]"
-      >
-        <PlusIcon className="h-4 w-4" />
+      {/* Primary CTA */}
+      <button className="btn btn-primary" onClick={onEnqueue}>
+        <PlusIcon />
         New Task
       </button>
     </header>

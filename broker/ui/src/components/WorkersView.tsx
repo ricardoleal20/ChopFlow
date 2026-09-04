@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { shortId, timeAgo } from "../lib/format";
 import type { Worker } from "../lib/api";
 
@@ -9,9 +8,10 @@ interface Props {
   query: string;
 }
 
-// Workers view: a grid of cards, each showing identity, liveness, declared
-// tags, and live resource meters (available / total). Mirrors Temporal's
-// worker-list density without being a bare table.
+// Workers view: a header with liveness meta + a responsive grid of worker
+// cards. Each card shows identity, declared tags, and live resource meters
+// (used/total) with gradient fills — CPU in primary, GPU in warn, saturated in
+// danger. Mirrors the OpenDesign reference density.
 export default function WorkersView({ workers, isLoading, error, query }: Props) {
   const q = query.trim().toLowerCase();
   const seen = workers.filter((w) => {
@@ -23,119 +23,109 @@ export default function WorkersView({ workers, isLoading, error, query }: Props)
     );
   });
 
-  if (isLoading) {
-    return (
-      <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-40 animate-pulse rounded-2xl bg-surface2" />
-        ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-8 text-center text-sm text-danger">
-        Failed to load workers: {error.message}
-      </div>
-    );
-  }
-
-  if (seen.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
-        <h3 className="text-sm font-medium text-text">No workers connected</h3>
-        <p className="mt-1 text-xs text-muted">
-          Start a worker with <code className="font-mono text-muted">chopflow_worker start -b http://localhost:8000</code>
-        </p>
-      </div>
-    );
-  }
+  const liveCount = workers.filter((w) => w.alive).length;
 
   return (
-    <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
-      {seen.map((w, i) => (
-        <motion.div
-          key={w.id}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, ease: "easeOut", delay: Math.min(i * 0.03, 0.2) }}
-          className="surface p-4"
-        >
-          {/* Header */}
-          <div className="flex items-start justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${
-                    w.alive ? "bg-success animate-pulseDot" : "bg-danger"
-                  }`}
-                />
-                <span className="truncate font-mono text-sm font-medium text-text">
-                  {shortId(w.id)}
-                </span>
-              </div>
-              <div className="mt-0.5 truncate text-xs text-subtle">{w.address}</div>
-            </div>
-            <span
-              className={`chip ${
-                w.alive ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
-              }`}
-            >
-              {w.alive ? "Alive" : "Dead"}
+    <section className="view">
+      <div className="view-head">
+        <div>
+          <h1>Workers</h1>
+          <p>
+            Polling processes registered to <b>local · default</b>
+          </p>
+        </div>
+        <div className="vh-meta">
+          <div>
+            <b>●</b> {liveCount} live · {workers.length - liveCount} drained
+          </div>
+          <div>heartbeat 2s ago</div>
+        </div>
+      </div>
+
+      <div className="workers-grid">
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} style={{ height: 180, borderRadius: "var(--radius-lg)", background: "var(--surface-3)", opacity: 0.5 }} />
+          ))
+        ) : error ? (
+          <div className="empty-state" style={{ gridColumn: "1 / -1" }}>
+            <p style={{ color: "var(--danger)" }}>Failed to load workers: {error.message}</p>
+          </div>
+        ) : seen.length === 0 ? (
+          <div className="empty-state" style={{ gridColumn: "1 / -1" }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <rect x="3" y="4" width="18" height="12" rx="2" />
+              <path d="M6 20h12M9 16v4M15 16v4" />
+            </svg>
+            <p>
+              No workers connected. Start one with{" "}
+              <span className="mono" style={{ color: "var(--fg-2)" }}>
+                chopflow_worker start -b http://localhost:8000
+              </span>
+            </p>
+          </div>
+        ) : (
+          seen.map((w, i) => <WorkerCard key={w.id} worker={w} index={i} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WorkerCard({ worker: w, index }: { worker: Worker; index: number }) {
+  const entries = Object.entries(w.resources_total);
+  return (
+    <div className="wcard" style={{ animationDelay: `${index * 60}ms` }}>
+      <div className="wc-head">
+        <span className={`wc-live${w.alive ? "" : " dead"}`} />
+        <span className="wc-id mono">{shortId(w.id)}</span>
+        <span className="wc-addr mono">{w.address || "—"}</span>
+      </div>
+
+      <div className="wc-tags">
+        {w.tags.length === 0 ? (
+          <span style={{ fontSize: 11, color: "var(--muted-2)" }}>no tags</span>
+        ) : (
+          w.tags.map((tag) => (
+            <span key={tag} className={`tag ${tag}`}>
+              {tag}
             </span>
-          </div>
+          ))
+        )}
+      </div>
 
-          {/* Tags */}
-          <div className="mt-3 flex flex-wrap gap-1">
-            {w.tags.length === 0 ? (
-              <span className="text-xs text-subtle">no tags</span>
-            ) : (
-              w.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded bg-surface2 px-1.5 py-0.5 font-mono text-[10px] text-muted"
-                >
-                  {tag}
-                </span>
-              ))
-            )}
-          </div>
+      <div className="wc-meters">
+        {entries.length === 0 && (
+          <div style={{ fontSize: 11.5, color: "var(--muted-2)" }}>no resources declared</div>
+        )}
+        {entries.map(([name, total]) => {
+          const avail = w.resources_available[name] ?? 0;
+          const used = Math.max(0, total - avail);
+          const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+          const full = pct >= 100;
+          const cls = name === "gpu" ? "gpu" : "";
+          return (
+            <div key={name} className={`meter ${cls}${full ? " full" : ""}`}>
+              <span className="lbl">{name.toUpperCase()}</span>
+              <div className="bar">
+                <span className="fill" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="val">
+                {used}/{total}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
-          {/* Resource meters */}
-          <div className="mt-3 space-y-2">
-            {Object.entries(w.resources_total).map(([name, total]) => {
-              const avail = w.resources_available[name] ?? 0;
-              const used = Math.max(0, total - avail);
-              const pct = total > 0 ? (used / total) * 100 : 0;
-              return (
-                <div key={name}>
-                  <div className="flex items-center justify-between text-[11px] text-muted">
-                    <span className="font-mono">{name}</span>
-                    <span>
-                      {used} / {total} used
-                    </span>
-                  </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface2">
-                    <motion.div
-                      className="h-full rounded-full bg-primary"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.3, ease: "easeOut" }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Footer */}
-          <div className="mt-3 flex items-center justify-between border-t border-border pt-2 text-[11px] text-subtle">
-            <span>{w.assigned_tasks} assigned</span>
-            <span>heartbeat {timeAgo(w.last_heartbeat)}</span>
-          </div>
-        </motion.div>
-      ))}
+      <div className="wc-foot">
+        <span>
+          <b>{w.assigned_tasks}</b> assigned
+        </span>
+        <span>
+          heartbeat <b>{timeAgo(w.last_heartbeat)}</b> ago
+        </span>
+      </div>
     </div>
   );
 }

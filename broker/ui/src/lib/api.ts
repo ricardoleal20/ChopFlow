@@ -57,10 +57,14 @@ export interface EnqueueBody {
   resources?: Record<string, number>;
 }
 
-const API = "/api";
+// API base: relative "/api" when served by the broker (web) or via the Vite
+// dev proxy; an absolute URL (e.g. http://127.0.0.1:8080/api) when bundled as
+// a Tauri desktop app talking to a locally-running broker. Override via
+// VITE_API_BASE at build time (see broker/ui/.env.tauri).
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || "/api";
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });

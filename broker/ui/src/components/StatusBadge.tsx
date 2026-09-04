@@ -1,26 +1,29 @@
-import { statusStyle } from "../lib/status";
 import type { TaskStatus } from "../lib/api";
 
 interface Props {
   status: TaskStatus;
-  pulse?: boolean; // animate the dot for in-flight tasks
-  size?: "sm" | "md";
+  pulse?: boolean; // reserved — the running dot pulses via CSS automatically
+  className?: string;
 }
 
-// Status badge mirroring Temporal: a colored dot + label on a soft chip. The
-// running dot pulses to signal liveness; everything else is static.
-export default function StatusBadge({ status, pulse, size = "sm" }: Props) {
-  const s = statusStyle(status);
-  const pad = size === "md" ? "px-2.5 py-1 text-xs" : "px-2 py-0.5 text-[11px]";
-  const dot = size === "md" ? "h-2 w-2" : "h-1.5 w-1.5";
+// The sole sanctioned status representation: a dot + label pill on a soft
+// tint. The running dot pulses to signal liveness; everything else is static.
+// Color is never the only signal — the label always travels with it.
+const LABEL: Record<TaskStatus, string> = {
+  created: "Created",
+  queued: "Queued",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
+  "dead-lettered": "Dead-lettered",
+  cancelled: "Cancelled",
+};
 
+export default function StatusBadge({ status, className = "" }: Props) {
   return (
-    <span className={`chip ${s.bg} ${s.text} ${pad}`}>
-      <span
-        className={`${dot} rounded-full ${s.dot} ${pulse ? "animate-pulseDot" : ""}`}
-        aria-hidden
-      />
-      {s.label}
+    <span className={`stbadge badge ${status} ${className}`.trim()}>
+      <span className="d" />
+      {LABEL[status]}
     </span>
   );
 }

@@ -530,8 +530,13 @@ words on the final line; charts use filled encoding, never empty outlines.
 
 ## 10. Evolution Notes (from shipping dashboard)
 
-The existing `chopflow-ops-dashboard.html` ships a near-compatible system with minor
-token drift. This document is canonical; align the file as follows when next edited:
+The canonical implementation is the React + Vite + Tailwind app in `broker/ui/`,
+built from this design system. The OpenDesign reference prototype
+`docs/design/chopflow-ops-dashboard.html` is kept as a static visual reference;
+the React app is the source of truth and is what the broker embeds (via
+`rust-embed` into `broker/ui/dist`) and what the Tauri macOS shell
+(`app/src-tauri`) wraps. Earlier drift notes applied to the prototype and are
+resolved in the React port:
 
 | Token (this system) | Shipping value (drift) | Action |
 |---|---|---|

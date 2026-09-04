@@ -1,12 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEnqueue } from "../hooks/useChopFlow";
+import { CloseIcon } from "./Icons";
 
 interface EnqueueDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
+const EASE_OUT = [0.22, 0.61, 0.36, 1] as const;
+const EASE_IN = [0.4, 0, 1, 1] as const;
+
+// Enqueue dialog — the only solid-primary action surface besides the TopBar
+// CTA. Ease-out entrance / ease-in exit per the motion principles. Submits a
+// task to the broker; a worker claims it on the next poll.
 export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
   const [name, setName] = useState("echo");
   const [tags, setTags] = useState("default");
@@ -16,13 +23,14 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
   const [formError, setFormError] = useState<string | null>(null);
 
   const enqueue = useEnqueue();
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
 
-  // Focus the close button on open + clear errors when (re)opening.
+  // Focus the name field on open + clear errors when (re)opening.
   useEffect(() => {
     if (open) {
       setFormError(null);
-      closeRef.current?.focus();
+      const t = setTimeout(() => nameRef.current?.focus(), 60);
+      return () => clearTimeout(t);
     }
   }, [open]);
 
@@ -51,7 +59,12 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
     let parsedResources: Record<string, number> = {};
     if (resources.trim()) {
       try {
-        parsedResources = JSON.parse(resources);
+        const obj = JSON.parse(resources);
+        if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+          setFormError("Resources must be a JSON object, e.g. {\"cpu\": 1}.");
+          return;
+        }
+        parsedResources = obj as Record<string, number>;
       } catch {
         setFormError("Resources must be a JSON object, e.g. {\"cpu\": 1}.");
         return;
@@ -82,51 +95,39 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
-          {/* Dimmed backdrop — staging-dim-background */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.15, ease: "easeIn" } }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={onClose}
-            aria-hidden
-          />
-
-          {/* Dialog — ease-out entrance / ease-in exit per animation principles */}
+        <motion.div
+          className="modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: { duration: 0.15, ease: EASE_IN } }}
+          transition={{ duration: 0.18, ease: EASE_OUT }}
+          onClick={onClose}
+        >
           <motion.div
             role="dialog"
             aria-modal="true"
             aria-labelledby="enqueue-title"
-            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            className="modal"
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98, transition: { duration: 0.18, ease: "easeIn" } }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="relative z-10 w-full max-w-lg surface p-6"
+            exit={{ opacity: 0, y: 8, scale: 0.98, transition: { duration: 0.18, ease: EASE_IN } }}
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
               <div>
-                <h2 id="enqueue-title" className="text-base font-semibold tracking-tight">
-                  Enqueue task
-                </h2>
-                <p className="mt-0.5 text-xs text-muted">Submit a task to the cluster. A worker claims it on the next poll.</p>
+                <h2 id="enqueue-title">Enqueue task</h2>
+                <p className="sub">Submit a task to the cluster. A worker claims it on the next poll.</p>
               </div>
-              <button
-                ref={closeRef}
-                onClick={onClose}
-                aria-label="Close dialog"
-                className="rounded-lg p-1.5 text-muted transition-colors duration-150 ease-out hover:bg-surface2 hover:text-text active:scale-[0.98]"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+              <button className="btn-icon" onClick={onClose} aria-label="Close dialog">
+                <CloseIcon />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <Field label="Task name">
                 <input
+                  ref={nameRef}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="cf-input"
@@ -148,7 +149,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
                   value={payload}
                   onChange={(e) => setPayload(e.target.value)}
                   rows={4}
-                  className="cf-input font-mono text-xs resize-y"
+                  className="cf-input mono"
                   spellCheck={false}
                 />
               </Field>
@@ -166,37 +167,25 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
                   <input
                     value={resources}
                     onChange={(e) => setResources(e.target.value)}
-                    className="cf-input font-mono text-xs"
+                    className="cf-input mono"
                     placeholder='{"cpu": 1}'
                   />
                 </Field>
               </div>
 
-              {formError && (
-                <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger ring-1 ring-danger/25">
-                  {formError}
-                </p>
-              )}
+              {formError && <p className="form-error">{formError}</p>}
 
               <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-xl px-3.5 py-2 text-sm font-medium text-muted transition-colors duration-150 ease-out hover:bg-surface2 hover:text-text active:scale-[0.98]"
-                >
+                <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={enqueue.isPending}
-                  className="rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-transform duration-150 ease-out hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                >
+                <button type="submit" className="btn btn-primary btn-sm" disabled={enqueue.isPending}>
                   {enqueue.isPending ? "Enqueuing…" : "Enqueue"}
                 </button>
               </div>
             </form>
           </motion.div>
-        </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );
@@ -213,11 +202,15 @@ function Field({
 }) {
   return (
     <label className="block">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-medium text-muted">{label}</span>
-        {hint && <span className="text-[11px] text-subtle">{hint}</span>}
+      <div className="flex items-center justify-between">
+        <span className="fld-label" style={{ marginBottom: 0 }}>
+          {label}
+        </span>
+        {hint && (
+          <span style={{ fontSize: 11, color: "var(--muted-2)" }}>{hint}</span>
+        )}
       </div>
-      {children}
+      <div className="mt-1.5">{children}</div>
     </label>
   );
 }
