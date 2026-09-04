@@ -12,6 +12,7 @@ tests in `broker/tests/`. The `main.rs` binary is a thin CLI wrapper.
 use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
 use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::retry::RetryPolicy;
+use chopflow_core::schedule::{next_fire, ScheduleKind, OverlapPolicy};
 use chopflow_core::storage::{Storage, TaskFilter};
 use chopflow_core::task::{Task, TaskStatus};
 
@@ -243,6 +244,84 @@ impl ChopFlowBrokerService {
         tokio::spawn(async move {
             service_clone.handle_task_timeouts().await;
         });
+    }
+
+    /// Spawn the background schedule ticker. Every second it materializes a
+    /// Task for each due schedule (subject to the overlap policy) and advances
+    /// the schedule. A single bad schedule is logged and skipped.
+    pub fn spawn_schedule_ticker(&self) {
+        let service = self.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = service.tick_once().await {
+                    warn!("schedule ticker iteration failed: {}", e);
+                }
+                sleep(Duration::from_secs(1)).await;
+            }
+        });
+    }
+
+    /// One ticker iteration. Exposed for tests so they don't need to sleep.
+    pub async fn tick_once(&self) -> chopflow_core::Result<()> {
+        let now = chrono::Utc::now();
+        let due = self.state.storage.due_schedules(now).await?;
+
+        for mut schedule in due {
+            // Overlap check (skip/coalesce skip when any in-flight task exists).
+            if schedule.overlap_policy != OverlapPolicy::Allow {
+                let in_flight = self.state.storage.in_flight_for_schedule(&schedule.id).await?;
+                if !in_flight.is_empty() {
+                    // Skip the fire but still advance next_fire for cron so the
+                    // next match is computed. OneShot is left to retry next tick.
+                    if let ScheduleKind::Cron { .. } = &schedule.kind {
+                        if let Ok(nf) = next_fire(&schedule.kind, now) {
+                            schedule.next_fire = nf;
+                        }
+                    }
+                    let sid = schedule.id;
+                    if let Err(e) = self.state.storage.update_schedule(schedule).await {
+                        warn!("failed to update skipped schedule {}: {}", sid, e);
+                    }
+                    continue;
+                }
+            }
+
+            // Materialize a Task from the template.
+            let t = &schedule.task_template;
+            let mut task = Task::new(t.name.clone(), t.payload.clone())
+                .with_tags(t.tags.clone());
+            for (k, v) in &t.resources {
+                task = task.with_resource(k.clone(), *v);
+            }
+            if t.max_retries > 0 {
+                task = task.with_max_retries(t.max_retries);
+            }
+            task.schedule_id = Some(schedule.id);
+            task.status = TaskStatus::Queued;
+
+            if let Err(e) = self.state.storage.insert(task).await {
+                warn!("failed to insert materialized task for schedule {}: {}", schedule.id, e);
+                continue;
+            }
+
+            // Advance / disable the schedule.
+            schedule.last_fired = Some(now);
+            match &schedule.kind {
+                ScheduleKind::OneShot { .. } => {
+                    schedule.enabled = false;
+                }
+                ScheduleKind::Cron { .. } => {
+                    if let Ok(nf) = next_fire(&schedule.kind, now) {
+                        schedule.next_fire = nf;
+                    }
+                }
+            }
+            let sid = schedule.id;
+            if let Err(e) = self.state.storage.update_schedule(schedule).await {
+                warn!("failed to advance schedule {}: {}", sid, e);
+            }
+        }
+        Ok(())
     }
 
     /// Helper method to handle task timeouts for running tasks.
@@ -732,4 +811,27 @@ pub async fn serve_with_listener(
         .serve_with_incoming(incoming)
         .await?;
     Ok(addr)
+}
+
+/// Recompute `next_fire` for enabled cron schedules from `now` (no backfill of
+/// missed runs). One-shot schedules with a past eta are left enabled so the
+/// ticker fires them on the first tick. Run once at broker startup.
+pub async fn reconcile_schedules(storage: &dyn Storage) -> chopflow_core::Result<()> {
+    let now = chrono::Utc::now();
+    let schedules = storage.list_schedules().await?;
+    for mut s in schedules {
+        if !s.enabled {
+            continue;
+        }
+        if let ScheduleKind::Cron { .. } = &s.kind {
+            if let Ok(nf) = next_fire(&s.kind, now) {
+                s.next_fire = nf;
+                if let Err(e) = storage.update_schedule(s).await {
+                    warn!("failed to reconcile schedule: {}", e);
+                }
+            }
+        }
+        // OneShot: leave next_fire as the eta; if past, ticker fires it.
+    }
+    Ok(())
 }
