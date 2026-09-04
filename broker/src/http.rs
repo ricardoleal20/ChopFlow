@@ -25,6 +25,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chopflow_core::schedule::{next_fire, Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
 use chopflow_core::storage::TaskFilter;
 use chopflow_core::task::{Task, TaskStatus};
 use chopflow_core::Dispatcher;
@@ -58,6 +59,7 @@ struct TaskDto {
     eta: Option<i64>,
     resources: HashMap<String, u32>,
     result: Option<String>,
+    schedule_id: Option<String>,
 }
 
 impl From<Task> for TaskDto {
@@ -74,6 +76,7 @@ impl From<Task> for TaskDto {
             eta: t.eta.map(|e| e.timestamp_millis()),
             resources: t.resources,
             result: t.result,
+            schedule_id: t.schedule_id.map(|u| u.to_string()),
         }
     }
 }
@@ -111,6 +114,7 @@ struct StatsDto {
     tasks_failed: usize,
     active_workers: usize,
     total_tasks: usize,
+    schedules: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,6 +169,106 @@ struct ErrorResponse {
     error: String,
 }
 
+/// API error response with an HTTP status code.
+type ApiError = (StatusCode, Json<ErrorResponse>);
+
+// ---------------------------------------------------------------------------
+// Schedule DTOs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct ScheduleDto {
+    id: String,
+    name: String,
+    task_template: TaskTemplate,
+    kind: ScheduleKindDto,
+    overlap_policy: String,
+    enabled: bool,
+    last_fired: Option<i64>,
+    next_fire: i64,
+    created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum ScheduleKindDto {
+    Cron { cron: String },
+    Oneshot { eta: String }, // RFC3339
+}
+
+impl TryFrom<ScheduleKindDto> for ScheduleKind {
+    type Error = String;
+    fn try_from(d: ScheduleKindDto) -> std::result::Result<Self, Self::Error> {
+        match d {
+            ScheduleKindDto::Cron { cron } => {
+                // validate by parsing
+                let _ = next_fire(&ScheduleKind::Cron { cron: cron.clone() }, chrono::Utc::now())
+                    .map_err(|e| format!("invalid cron: {}", e))?;
+                Ok(ScheduleKind::Cron { cron })
+            }
+            ScheduleKindDto::Oneshot { eta } => {
+                let dt = chrono::DateTime::parse_from_rfc3339(&eta)
+                    .map_err(|e| format!("invalid eta: {}", e))?
+                    .with_timezone(&chrono::Utc);
+                Ok(ScheduleKind::OneShot { eta: dt })
+            }
+        }
+    }
+}
+
+impl From<Schedule> for ScheduleDto {
+    fn from(s: Schedule) -> Self {
+        let kind = match s.kind {
+            ScheduleKind::Cron { cron } => ScheduleKindDto::Cron { cron },
+            ScheduleKind::OneShot { eta } => ScheduleKindDto::Oneshot { eta: eta.to_rfc3339() },
+        };
+        Self {
+            id: s.id.to_string(),
+            name: s.name,
+            task_template: s.task_template,
+            overlap_policy: match s.overlap_policy {
+                OverlapPolicy::Skip => "skip",
+                OverlapPolicy::Coalesce => "coalesce",
+                OverlapPolicy::Allow => "allow",
+            }
+            .to_string(),
+            enabled: s.enabled,
+            last_fired: s.last_fired.map(|t| t.timestamp_millis()),
+            next_fire: s.next_fire.timestamp_millis(),
+            created_at: s.created_at.timestamp_millis(),
+            kind,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateScheduleBody {
+    name: String,
+    task_template: TaskTemplate,
+    kind: ScheduleKindDto,
+    #[serde(default = "default_overlap")]
+    overlap_policy: String,
+}
+fn default_overlap() -> String {
+    "skip".into()
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchScheduleBody {
+    enabled: Option<bool>,
+    overlap_policy: Option<String>,
+    cron: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ScheduleIdResponse {
+    schedule_id: String,
+}
+#[derive(Debug, Serialize)]
+struct SuccessResponse {
+    success: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -176,7 +280,9 @@ pub fn router(state: BrokerState) -> Router {
         .route("/tasks", get(list_tasks).post(enqueue))
         .route("/tasks/:id", get(get_task))
         .route("/tasks/:id/cancel", post(cancel_task))
-        .route("/workers", get(list_workers));
+        .route("/workers", get(list_workers))
+        .route("/schedules", get(list_schedules).post(create_schedule))
+        .route("/schedules/:id", get(get_schedule).patch(patch_schedule).delete(delete_schedule));
 
     Router::new()
         .nest("/api", api)
@@ -221,7 +327,7 @@ fn asset_response(path: &str, asset: rust_embed::EmbeddedFile) -> Response {
 
 type SharedState = State<Arc<BrokerState>>;
 
-async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, Json<ErrorResponse>> {
+async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
     let counts = state
         .storage
         .count_by_status()
@@ -239,6 +345,14 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, Json<ErrorRe
     let tasks_processing: usize = workers.iter().map(|w| w.assigned_tasks.len()).sum();
     let active_workers = workers.iter().filter(|w| w.is_alive()).count();
     let total_tasks = state.storage.list(&TaskFilter::default()).await.map_err(|e| internal(e))?.len();
+    let schedules = state
+        .storage
+        .list_schedules()
+        .await
+        .map_err(|e| internal(e))?
+        .iter()
+        .filter(|s| s.enabled)
+        .count();
 
     Ok(Json(StatsDto {
         queue_length: counts.queued,
@@ -247,13 +361,14 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, Json<ErrorRe
         tasks_failed: counts.failed + counts.dead_lettered,
         active_workers,
         total_tasks,
+        schedules,
     }))
 }
 
 async fn list_tasks(
     State(state): SharedState,
     Query(q): Query<ListQuery>,
-) -> Result<Json<TaskListResponse>, Json<ErrorResponse>> {
+) -> Result<Json<TaskListResponse>, ApiError> {
     let statuses = q.status.as_deref().and_then(parse_status).into_iter().collect::<Vec<_>>();
     let filter = TaskFilter {
         statuses,
@@ -276,7 +391,7 @@ async fn list_tasks(
 async fn get_task(
     State(state): SharedState,
     Path(id): Path<String>,
-) -> Result<Json<TaskDto>, Json<ErrorResponse>> {
+) -> Result<Json<TaskDto>, ApiError> {
     let uuid = Uuid::parse_str(&id).map_err(|_| bad("Invalid task ID format"))?;
     let task = state
         .storage
@@ -290,7 +405,7 @@ async fn get_task(
 async fn enqueue(
     State(state): SharedState,
     Json(body): Json<EnqueueBody>,
-) -> Result<(StatusCode, Json<EnqueueResponse>), Json<ErrorResponse>> {
+) -> Result<(StatusCode, Json<EnqueueResponse>), ApiError> {
     let mut task = Task::new(body.name, body.payload).with_tags(body.tags);
     if body.max_retries > 0 {
         task = task.with_max_retries(body.max_retries);
@@ -313,7 +428,7 @@ async fn enqueue(
 async fn cancel_task(
     State(state): SharedState,
     Path(id): Path<String>,
-) -> Result<Json<CancelResponse>, Json<ErrorResponse>> {
+) -> Result<Json<CancelResponse>, ApiError> {
     let task_id = Uuid::parse_str(&id).map_err(|_| bad("Invalid task ID format"))?;
 
     let Some(mut task) = state.storage.get(&task_id).await.map_err(|e| internal(e))? else {
@@ -351,7 +466,7 @@ async fn cancel_task(
     Ok(Json(CancelResponse { success: true }))
 }
 
-async fn list_workers(State(state): SharedState) -> Result<Json<Vec<WorkerDto>>, Json<ErrorResponse>> {
+async fn list_workers(State(state): SharedState) -> Result<Json<Vec<WorkerDto>>, ApiError> {
     let workers = state.dispatcher.lock().await.list_workers().await.map_err(|e| internal(e))?;
     let dtos = workers
         .into_iter()
@@ -377,23 +492,139 @@ async fn list_workers(State(state): SharedState) -> Result<Json<Vec<WorkerDto>>,
 }
 
 // ---------------------------------------------------------------------------
+// Schedule handlers
+// ---------------------------------------------------------------------------
+
+async fn list_schedules(State(state): SharedState) -> Result<Json<Vec<ScheduleDto>>, ApiError> {
+    let schs = state.storage.list_schedules().await.map_err(|e| internal(e))?;
+    Ok(Json(schs.into_iter().map(ScheduleDto::from).collect()))
+}
+
+async fn get_schedule(
+    State(state): SharedState,
+    Path(id): Path<String>,
+) -> Result<Json<ScheduleDto>, ApiError> {
+    let uuid = Uuid::parse_str(&id).map_err(|_| bad("Invalid schedule ID format"))?;
+    let s = state
+        .storage
+        .get_schedule(&uuid)
+        .await
+        .map_err(|e| internal(e))?
+        .ok_or_else(|| not_found(&format!("Schedule not found: {id}")))?;
+    Ok(Json(ScheduleDto::from(s)))
+}
+
+fn parse_overlap(s: &str) -> Result<OverlapPolicy, ApiError> {
+    match s {
+        "skip" => Ok(OverlapPolicy::Skip),
+        "coalesce" => Ok(OverlapPolicy::Coalesce),
+        "allow" => Ok(OverlapPolicy::Allow),
+        other => Err(bad(&format!(
+            "invalid overlap_policy: {} (skip|coalesce|allow)",
+            other
+        ))),
+    }
+}
+
+async fn create_schedule(
+    State(state): SharedState,
+    Json(body): Json<CreateScheduleBody>,
+) -> Result<(StatusCode, Json<ScheduleIdResponse>), ApiError> {
+    let kind: ScheduleKind = match body.kind.try_into() {
+        Ok(k) => k,
+        Err(e) => return Err(bad(&e)),
+    };
+    let overlap = parse_overlap(&body.overlap_policy)?;
+    let schedule = Schedule::new(body.name, body.task_template, kind, overlap)
+        .map_err(|e| bad(&e.to_string()))?;
+    let id = schedule.id;
+    state
+        .storage
+        .insert_schedule(schedule)
+        .await
+        .map_err(|e| internal(e))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ScheduleIdResponse {
+            schedule_id: id.to_string(),
+        }),
+    ))
+}
+
+async fn patch_schedule(
+    State(state): SharedState,
+    Path(id): Path<String>,
+    Json(body): Json<PatchScheduleBody>,
+) -> Result<Json<ScheduleDto>, ApiError> {
+    let uuid = Uuid::parse_str(&id).map_err(|_| bad("Invalid schedule ID format"))?;
+    let mut s = state
+        .storage
+        .get_schedule(&uuid)
+        .await
+        .map_err(|e| internal(e))?
+        .ok_or_else(|| not_found(&format!("Schedule not found: {id}")))?;
+    if let Some(enabled) = body.enabled {
+        s.enabled = enabled;
+    }
+    if let Some(op) = body.overlap_policy {
+        s.overlap_policy = parse_overlap(&op)?;
+    }
+    if let Some(cron) = body.cron {
+        let kind = ScheduleKind::Cron { cron: cron.clone() };
+        let _ =
+            next_fire(&kind, chrono::Utc::now()).map_err(|e| bad(&format!("invalid cron: {}", e)))?;
+        s.kind = kind;
+        s.next_fire = chopflow_core::schedule::next_fire(&s.kind, chrono::Utc::now())
+            .map_err(|e| bad(&e.to_string()))?;
+    }
+    state
+        .storage
+        .update_schedule(s.clone())
+        .await
+        .map_err(|e| internal(e))?;
+    Ok(Json(ScheduleDto::from(s)))
+}
+
+async fn delete_schedule(
+    State(state): SharedState,
+    Path(id): Path<String>,
+) -> Result<Json<SuccessResponse>, ApiError> {
+    let uuid = Uuid::parse_str(&id).map_err(|_| bad("Invalid schedule ID format"))?;
+    state
+        .storage
+        .delete_schedule(&uuid)
+        .await
+        .map_err(|e| internal(e))?;
+    Ok(Json(SuccessResponse { success: true }))
+}
+
+// ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
 
-fn internal<E: std::fmt::Display>(e: E) -> Json<ErrorResponse> {
-    Json(ErrorResponse {
-        error: format!("internal error: {e}"),
-    })
+fn internal<E: std::fmt::Display>(e: E) -> ApiError {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse {
+            error: format!("internal error: {e}"),
+        }),
+    )
 }
 
-fn bad(msg: &str) -> Json<ErrorResponse> {
-    Json(ErrorResponse {
-        error: msg.to_string(),
-    })
+fn bad(msg: &str) -> ApiError {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
+    )
 }
 
-fn not_found(msg: &str) -> Json<ErrorResponse> {
-    Json(ErrorResponse {
-        error: msg.to_string(),
-    })
+fn not_found(msg: &str) -> ApiError {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
+    )
 }
