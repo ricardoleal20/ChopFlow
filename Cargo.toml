@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "broker", "worker", "cli"]
+members = ["core", "broker", "worker", "cli", "demos"]
 
 [workspace.package]
 version = "0.1.0"
@@ -28,3 +28,7 @@ async-trait = "0.1"
 thiserror = "1.0"
 config = "0.13"
 futures = "0.3"
+image = "0.25"
+nalgebra = "0.33"
+rand = "0.8"
+reqwest = { version = "0.12", features = ["json"] }

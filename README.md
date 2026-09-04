@@ -136,6 +136,104 @@ cd app && ../broker/ui/node_modules/.bin/tauri dev    # launch the desktop app
 cd app && ../broker/ui/node_modules/.bin/tauri build
 ```
 
+## Scheduled tasks
+
+ChopFlow ships a first-class `Schedule` entity that the broker materializes into
+`Task`s on a background ticker (one tick per second). A schedule is either:
+
+- **Cron** — a standard 5-field cron expression (e.g. `*/2 * * * *`, `0 9 * * *`).
+  The broker normalizes it to the 6-field form the `cron` crate expects. The
+  server evaluates cron and ETAs in **UTC**; the dashboard converts from the
+  local picker before sending.
+- **One-shot** — fires once at an RFC3339 ETA, then self-disables.
+
+Each schedule carries an **overlap policy** that governs what happens when a
+fire is due but a previous run for the same schedule is still in flight
+(Queued or Running):
+
+| Policy    | Behavior                                                          |
+|-----------|-------------------------------------------------------------------|
+| `skip`    | Skip this fire and advance `next_fire` (cron). Default.           |
+| `coalesce`| Skip this fire (treated like `skip` for now; reserved for merging).|
+| `allow`   | Materialize the task anyway — concurrent runs permitted.          |
+
+Missed cron runs are **not** backfilled: on broker startup, enabled cron
+schedules have their `next_fire` recomputed from `now`, so the ticker only
+fires future matches. A disabled one-shot with a past ETA stays disabled until
+re-enabled.
+
+### Managing schedules
+
+**CLI** (`schedule` subcommand):
+
+```bash
+# A recurring cron schedule
+./target/release/chopflow_cli schedule create \
+    --name nightly-build --task build --cron "0 9 * * *" \
+    --tags ci --resources cpu:4 --overlap skip
+
+# A one-shot 5 minutes out
+./target/release/chopflow_cli schedule create \
+    --name one-off-report --task report --eta 2026-09-03T14:30:00Z --overlap allow
+
+./target/release/chopflow_cli schedule list
+./target/release/chopflow_cli schedule delete <schedule-id>
+```
+
+**HTTP API**:
+
+| Method | Endpoint                  | Purpose                                  |
+|--------|---------------------------|------------------------------------------|
+| GET    | `/api/schedules`          | List all schedules                       |
+| POST   | `/api/schedules`          | Create a schedule (cron or oneshot)      |
+| GET    | `/api/schedules/:id`      | Get a single schedule                    |
+| PATCH  | `/api/schedules/:id`      | Toggle `enabled`, change overlap or cron |
+| DELETE | `/api/schedules/:id`      | Delete a schedule                        |
+
+`GET /api/stats` also reports `schedules` (count of enabled schedules). The
+dashboard's Schedules view lists every schedule, lets you enable/disable, run
+now (which enqueues a one-off task from the template without disturbing the
+schedule's overlap accounting), and delete.
+
+## Demo handlers
+
+The `demos` workspace crate ships a drop-in demo worker plus a seeding tool so
+`cargo run` produces a live dashboard end-to-end. The demo worker registers
+four showcase handlers (plus `echo` and a `default` fallback):
+
+| Handler           | What it does                                                        |
+|-------------------|---------------------------------------------------------------------|
+| `resize_image`    | Generates a synthetic gradient PNG and resizes it (image-rs).        |
+| `batch_compute`   | CPU-bound `n x n` f64 matrix multiply (nalgebra), reports timings.  |
+| `simulate_pipeline`| Multi-stage pipeline (download/process/upload) with staged sleeps. |
+| `flaky_handler`   | Fails ~30% of the time (seeded) to exercise the retry policy.        |
+
+### One-command demo run
+
+```bash
+bash demos/run.sh
+```
+
+This builds the workspace, starts an in-memory broker with `--open` (launches
+the dashboard at `http://localhost:8080`), starts a demo worker wired to the
+four handlers above (`--tags demo,ml --resources cpu:4`), then seeds:
+
+- One task of each handler type (the `flaky_handler` one with `max_retries: 5`
+  so you can watch it retry).
+- A `*/2 * * * *` cron schedule running `batch_compute` with overlap `skip`.
+- A one-shot `simulate_pipeline` schedule 5 minutes out with overlap `allow`.
+
+You'll see four tasks flow through distinct lifecycles in the dashboard, the
+`flaky_handler` visibly retrying, and two schedules ticking in the Schedules
+view. Ctrl+C stops the broker and worker.
+
+You can also seed a running broker manually:
+
+```bash
+cargo run -p chopflow_demos --bin chopflow_demo_seed -- [broker_base_url]
+# broker_base_url defaults to http://localhost:8080
+```
+
 ### Python Interface
 
 ```python
