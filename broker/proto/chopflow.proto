@@ -2,6 +2,12 @@ syntax = "proto3";
 
 package chopflow;
 
+// Java codegen options. These are ignored by prost (the Rust build) but make
+// the generated Java stubs land in a proper namespace for the Java client SDK.
+option java_package = "dev.ricardoleal20.chopflow.grpc";
+option java_outer_classname = "ChopFlowProto";
+option java_multiple_files = true;
+
 // Import Google's timestamp for ETA handling
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";

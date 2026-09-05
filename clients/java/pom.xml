@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    ChopFlow Java client / worker SDK.
+
+    Speaks gRPC to the Rust broker (broker/proto/chopflow.proto). The proto is
+    compiled from its single source of truth in broker/proto; well-known Google
+    protos (timestamp, empty) are vendored under src/main/proto-import as an
+    import-only path so protoc can resolve them without generating duplicate
+    classes (those come from com.google.protobuf:protobuf-java).
+
+    Build:   mvn install          (compiles stubs + SDK, installs to ~/.m2)
+    Example: mvn exec:java -Dexec.mainClass=dev.ricardoleal20.chopflow.examples.EchoWorker
+  -->
+
+  <groupId>dev.ricardoleal20</groupId>
+  <artifactId>chopflow-java</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+
+  <name>ChopFlow Java Client</name>
+  <description>Java worker + producer SDK for ChopFlow, a distributed task queue in Rust.</description>
+  <url>https://github.com/ricardoleal20/ChopFlow</url>
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <grpc.version>1.62.2</grpc.version>
+    <protobuf.version>3.25.3</protobuf.version>
+  </properties>
+
+  <!-- Resolves ${os.detected.classifier} for the protoc / grpc-java codegen
+       artifacts (e.g. osx-aarch_64, linux-x86_64). -->
+  <extensions>
+    <extension>
+      <groupId>kr.motd.maven</groupId>
+      <artifactId>os-maven-plugin</artifactId>
+      <version>1.7.1</version>
+    </extension>
+  </extensions>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-netty-shaded</artifactId>
+      <version>${grpc.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-protobuf</artifactId>
+      <version>${grpc.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-stub</artifactId>
+      <version>${grpc.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+      <version>${protobuf.version}</version>
+    </dependency>
+    <!-- @javax.annotation.Generated used by generated stubs (Java 9+). -->
+    <dependency>
+      <groupId>javax.annotation</groupId>
+      <artifactId>javax.annotation-api</artifactId>
+      <version>1.3.2</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.10.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.12</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.12</version>
+      <scope>runtime</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.xolstice.maven.plugins</groupId>
+        <artifactId>protobuf-maven-plugin</artifactId>
+        <version>0.6.1</version>
+        <configuration>
+          <!-- Download protoc + the grpc-java codegen plugin; no system protoc needed. -->
+          <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+          <pluginId>grpc-java</pluginId>
+          <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
+          <!-- Single source of truth: the proto lives in the Rust broker crate. -->
+          <protoSourceRoot>${project.basedir}/../../broker/proto</protoSourceRoot>
+          <!-- Import-only path for well-known protos (not generated). -->
+          <additionalProtoPathElements>
+            <additionalProtoPathElement>${project.basedir}/src/main/proto-import</additionalProtoPathElement>
+          </additionalProtoPathElements>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>compile</goal>
+              <goal>compile-custom</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <configuration>
+          <mainClass>dev.ricardoleal20.chopflow.examples.EchoWorker</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
