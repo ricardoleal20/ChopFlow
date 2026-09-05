@@ -5,9 +5,9 @@ queue in Rust. The broker and all execution logic live in Rust; this SDK lets yo
 **define and run task handlers in Java** and **enqueue tasks from Java**, speaking
 gRPC to the broker over the contract in [`broker/proto/chopflow.proto`](../../broker/proto/chopflow.proto).
 
-> ⚠️ **Build status:** This project is authored but **not yet compile-verified** in CI
-> (no JDK was available during authoring). It uses a standard `protobuf-maven-plugin`
-> + `grpc-java` codegen setup. If you hit a build issue, see _Troubleshooting_ below.
+> **Build status:** Verified — `mvn clean install` passes (JDK 21 + Maven 3.9.9) and
+> the example round-trips end-to-end against the Rust broker (Java producer enqueues
+> an echo task → Java worker acks → `AsyncResult.get()` returns `COMPLETED`).
 
 ## Requirements
 
