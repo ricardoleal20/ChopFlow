@@ -1,4 +1,5 @@
-import { BrandMark, TasksIcon, ScheduleIcon, WorkersIcon, MoonIcon, SunIcon } from "./Icons";
+import { TasksIcon, ScheduleIcon, WorkersIcon, MoonIcon, SunIcon } from "./Icons";
+import brandIcon from "../assets/brand-icon.png";
 
 export type View = "tasks" | "schedules" | "workers";
 
@@ -38,7 +39,7 @@ export default function Sidebar({
       {/* Brand */}
       <div className="brand">
         <span className="brand-mark">
-          <BrandMark />
+          <img src={brandIcon} alt="ChopFlow" />
         </span>
         <div className="brand-word">
           <b>Chop</b>

@@ -1,5 +1,9 @@
 # ChopFlow
 
+<p align="center">
+  <img src="assets/banner.png" alt="ChopFlow" width="100%">
+</p>
+
 > Durable task queue for distributed systems. A Rust-fast core with client
 > libraries for Rust, Python, and Java — plus a live operations dashboard,
 > all from one binary.
