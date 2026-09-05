@@ -67,6 +67,12 @@ pub struct InMemoryQueue {
     tasks_by_id: Arc<Mutex<std::collections::HashMap<Uuid, usize>>>,
 }
 
+impl Default for InMemoryQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryQueue {
     /// Create a new in-memory queue
     pub fn new() -> Self {

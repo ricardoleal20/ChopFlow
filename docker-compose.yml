@@ -1,0 +1,45 @@
+# Quick start: a broker plus one worker, on a single Docker network.
+#
+#   docker compose up --build
+#
+# Then open the dashboard at http://localhost:8080 and the gRPC API is on
+# :8000. Submit tasks with:
+#
+#   docker compose run --rm chopflow-cli enqueue -f /path/to/task.json ...
+#
+# (mount your task file or use the HTTP API on :8080 instead).
+services:
+  broker:
+    build: .
+    image: chopflow:latest
+    container_name: chopflow-broker
+    ports:
+      - "8000:8000"   # gRPC (workers, CLI)
+      - "8080:8080"   # HTTP/JSON API + embedded dashboard
+    volumes:
+      - chopflow-data:/data
+    command: >
+      start --host 0.0.0.0 --port 8000 --http-port 8080
+      --storage sqlite --db-path /data/chopflow.db
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8080/api/stats >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    image: chopflow:latest
+    container_name: chopflow-worker
+    depends_on:
+      broker:
+        condition: service_healthy
+    entrypoint: ["chopflow_worker"]
+    command: >
+      start --broker http://broker:8000
+      --tags default
+      --resources cpu:4
+    restart: unless-stopped
+
+volumes:
+  chopflow-data:

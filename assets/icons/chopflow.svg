@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1024" height="1024" viewBox="260 190 760 880"
+     role="img" aria-labelledby="title desc">
+  <title id="title">ChopFlow German Shepherd mark</title>
+  <desc id="desc">Geometric German Shepherd head in ink, white, and ChopFlow blue. Transparent background.</desc>
+
+  <!-- ChopFlow canonical flat mark.
+       Background intentionally transparent.
+       Palette:
+       Ink       #0B0F14
+       White     #F8FAFC
+       Flow Blue #2583EF
+  -->
+
+  <g id="chopflow-dog" stroke-linejoin="miter" stroke-linecap="square">
+    <!-- Standalone ink silhouette: keeps the mark readable on light backgrounds. -->
+    <path id="ink-silhouette" fill="#0B0F14" d="
+      M310 762
+      L329 685 L461 506 L513 390 L617 234
+      L675 443 L696 402 L780 278 L780 459
+      L816 521 L834 584 L976 685
+      L943 732 L918 757 L888 797
+      L856 805 L842 805 L670 825
+      L648 980 L607 1026 L534 954
+      L326 800 Z"/>
+
+    <!-- Flow / queue accent -->
+    <path id="flow-blue" fill="#2583EF" d="
+      M459 648
+      L326 800
+      L534 954
+      L607 1026
+      L570 910
+      L434 790 Z"/>
+
+    <!-- Rear ear / upper neck facet -->
+    <path id="rear-facet" fill="#F8FAFC" d="
+      M617 234
+      L513 390
+      L461 506
+      L329 685
+      L310 762
+      L355 686
+      L491 542
+      L517 577
+      L548 522
+      L537 472
+      L609 285
+      L641 434
+      L612 492
+      L674 443 Z"/>
+
+    <!-- Far ear -->
+    <path id="far-ear" fill="#F8FAFC" d="
+      M780 278
+      L696 402
+      L723 420
+      L768 334
+      L768 386
+      L751 436
+      L780 459 Z"/>
+
+    <!-- Face / chest -->
+    <path id="face" fill="#F8FAFC" d="
+      M695 430
+      L623 579
+      L517 655
+      L493 763
+      L614 893
+      L648 980
+      L670 825
+      L603 743
+      L767 617
+      L757 595
+      L680 568
+      L749 539
+      L739 509
+      L781 535
+      L799 599
+      L923 669
+      L907 690
+      L943 732
+      L976 685
+      L834 584
+      L816 521 Z"/>
+
+    <!-- Lower muzzle highlight -->
+    <path id="muzzle-highlight" fill="#F8FAFC" d="
+      M918 757
+      L882 782
+      L854 788
+      L838 788
+      L740 760
+      L715 771
+      L745 776
+      L842 805
+      L856 805
+      L888 797 Z"/>
+  </g>
+</svg>
