@@ -1,0 +1,1540 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ChopFlow documentation — a durable distributed task queue with a Rust core, multi-language clients, and an embedded live operations dashboard.">
+  <meta name="theme-color" content="#0a0c10">
+  <title>ChopFlow Docs — Durable task queue for distributed systems</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      const saved = localStorage.getItem('chopflow-theme');
+      document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #f7f8fa;
+      --surface: #ffffff;
+      --surface-2: #f2f4f7;
+      --surface-3: #e8ebf1;
+      --elevated: #ffffff;
+      --border: #e2e6ed;
+      --border-strong: #cdd4df;
+      --text: #171b26;
+      --text-2: #3a4150;
+      --muted: #586274;
+      --subtle: #848ea0;
+      --navy: #141a27;
+      --navy-2: #1e2637;
+      --navy-3: #262f42;
+      --navy-text: #ced6e6;
+      --navy-strong: #f4f6fb;
+      --navy-muted: #7c879e;
+      --primary: #4060ff;
+      --info: #3b82f6;
+      --success: #22c55a;
+      --danger: #ef2f2f;
+      --warn: #f59e0b;
+      --purple: #a855f7;
+      --slate: #64748b;
+      --shadow: 0 12px 36px rgba(30, 38, 55, 0.08);
+      --syn-kw: #8b2fd3;
+      --syn-str: #0f8a5f;
+      --syn-com: #848ea0;
+      --syn-ty: #0b66c2;
+      --syn-fn: #4060ff;
+      --syn-num: #b9430b;
+      --syn-dec: #8b2fd3;
+      --syn-punct: #586274;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+      --sidebar-w: 264px;
+      --toc-w: 200px;
+      --topbar-h: 60px;
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --canvas: #0a0c10;
+      --surface: #11141b;
+      --surface-2: #171b24;
+      --elevated: #1c212f;
+      --surface-3: #232938;
+      --border: #232938;
+      --border-strong: #2f3648;
+      --text: #e7ebf3;
+      --text-2: #b9c1d1;
+      --muted: #8a93a6;
+      --subtle: #5c6578;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --syn-kw: #c792ea;
+      --syn-str: #7ee0a2;
+      --syn-com: #5c6578;
+      --syn-ty: #6cb6ff;
+      --syn-fn: #82a0ff;
+      --syn-num: #f5a06a;
+      --syn-dec: #c792ea;
+      --syn-punct: #8a93a6;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 24px); }
+    body {
+      margin: 0; background: var(--canvas); color: var(--text);
+      font-family: var(--font-sans); font-size: 15px; line-height: 1.65;
+      -webkit-font-smoothing: antialiased; overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+    svg { display: block; }
+    ::selection { background: var(--primary); color: var(--navy-strong); }
+    :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+
+    /* ---- Topbar ---- */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50; height: var(--topbar-h);
+      display: flex; align-items: center; gap: 16px; padding: 0 24px;
+      border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--canvas) 88%, transparent);
+      backdrop-filter: blur(12px);
+    }
+    .topbar-brand { display: inline-flex; align-items: center; gap: 9px; min-height: 40px; flex: none; }
+    .brand-tile { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: linear-gradient(135deg, var(--primary), var(--purple)); box-shadow: 0 4px 12px rgba(64,96,255,.2); }
+    .brand-tile svg { width: 15px; height: 15px; color: var(--navy-strong); }
+    .wordmark { font-size: 15px; letter-spacing: -.02em; }
+    .wordmark strong { font-weight: 700; }
+    .wordmark span { color: var(--muted); font-weight: 500; }
+    .version-pill { padding: 3px 8px; border: 1px solid var(--border); border-radius: 9999px; background: var(--surface-2); color: var(--muted); font: 500 10px/1 var(--font-mono); letter-spacing: .02em; flex: none; }
+    .search-box { margin-left: auto; position: relative; flex: 0 1 280px; }
+    .search-input { width: 100%; height: 36px; padding: 0 64px 0 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: 400 13px var(--font-sans); }
+    .search-input::placeholder { color: var(--subtle); }
+    .search-input:focus { outline: none; border-color: var(--primary); }
+    .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--subtle); }
+    .search-kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--subtle); font: 500 10px/1 var(--font-mono); }
+    .topbar-link { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-2); font: 600 13px/1 var(--font-sans); transition: border-color .15s, color .15s; flex: none; }
+    .topbar-link:hover { border-color: var(--border-strong); color: var(--text); }
+    .topbar-link svg { width: 15px; height: 15px; }
+    .theme-toggle { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; transition: color .15s; flex: none; }
+    .theme-toggle:hover { color: var(--text-2); }
+    .theme-toggle svg { width: 16px; height: 16px; }
+    .theme-toggle .sun, [data-theme="light"] .theme-toggle .moon { display: none; }
+    [data-theme="light"] .theme-toggle .sun { display: block; }
+    .menu-toggle { display: none; width: 36px; height: 36px; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); cursor: pointer; flex: none; }
+    .menu-toggle svg { width: 18px; height: 18px; }
+
+    /* ---- Layout ---- */
+    .doc-layout { display: grid; grid-template-columns: var(--sidebar-w) 1fr var(--toc-w); gap: 0; padding-top: var(--topbar-h); min-height: 100vh; }
+
+    /* ---- Sidebar ---- */
+    .sidebar { position: fixed; top: var(--topbar-h); bottom: 0; left: 0; width: var(--sidebar-w); border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 8px 0 40px; z-index: 40; }
+    .nav-group { border-top: 1px solid var(--border); }
+    .nav-group:first-child { border-top: 0; }
+    .nav-group-header { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 20px 9px; border: 0; background: transparent; color: var(--subtle); font: 600 11px/1.3 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; text-align: left; }
+    .nav-group-header:hover { color: var(--muted); }
+    .nav-group-header .chevron { width: 12px; height: 12px; color: var(--subtle); transition: transform .2s ease; flex: none; }
+    .nav-group.collapsed .chevron { transform: rotate(-90deg); }
+    .nav-group-list { list-style: none; margin: 0; padding: 0 0 6px; }
+    .nav-group.collapsed .nav-group-list { display: none; }
+    .nav-leaf { display: block; padding: 6px 20px 6px 24px; color: var(--muted); font-size: 13.5px; font-weight: 500; border-left: 2px solid transparent; transition: color .12s, border-color .12s, background-color .12s; }
+    .nav-leaf:hover { color: var(--text); background: var(--surface-2); }
+    .nav-leaf.active { color: var(--primary); border-left-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, transparent); font-weight: 600; }
+    .nav-leaf.disabled { color: var(--subtle); cursor: default; font-style: italic; }
+    .nav-leaf.disabled:hover { background: transparent; color: var(--subtle); }
+    .nav-standalone { display: block; padding: 8px 20px; color: var(--muted); font: 600 11px/1.3 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; border-left: 2px solid transparent; transition: color .12s, border-color .12s, background-color .12s; }
+    .nav-standalone:hover { color: var(--text); background: var(--surface-2); }
+    .nav-standalone.active { color: var(--primary); border-left-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+
+    /* ---- Main ---- */
+    .doc-main { grid-column: 2; padding: 0 clamp(24px, 4vw, 48px); max-width: 820px; margin: 0 auto; width: 100%; }
+    .doc-page { display: none; padding: 40px 0 80px; }
+    .doc-page.active { display: block; }
+    .doc-page > h1 { margin: 0 0 12px; font-size: clamp(28px, 4vw, 38px); line-height: 1.15; letter-spacing: -.025em; font-weight: 600; }
+    .doc-lede { margin: 0 0 32px; max-width: 65ch; color: var(--text-2); font-size: clamp(16px, 1.8vw, 18px); line-height: 1.6; }
+    .doc-page h2 { margin: 40px 0 14px; font-size: 22px; line-height: 1.25; letter-spacing: -.015em; font-weight: 600; position: relative; }
+    .doc-page h3 { margin: 28px 0 10px; font-size: 17px; font-weight: 600; }
+    .doc-page p { margin: 0 0 16px; color: var(--text-2); }
+    .doc-page ul, .doc-page ol { margin: 0 0 16px; padding-left: 20px; color: var(--text-2); }
+    .doc-page li { margin-bottom: 6px; }
+    .doc-page strong { color: var(--text); font-weight: 600; }
+    .doc-page code { font-family: var(--font-mono); font-size: .88em; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--text); }
+
+    /* heading anchor */
+    .anchor { position: absolute; left: -20px; top: 50%; transform: translateY(-50%); opacity: 0; color: var(--subtle); font-size: 18px; transition: opacity .15s; text-decoration: none; }
+    h2:hover .anchor { opacity: 1; }
+
+    /* ---- Code blocks ---- */
+    .code-block { margin: 0 0 20px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-2); }
+    .code-block-head { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--surface-3); }
+    .code-block-file { color: var(--subtle); font: 500 11px/1 var(--font-mono); letter-spacing: .02em; }
+    .copy-btn { padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--muted); font: 500 11px/1 var(--font-sans); cursor: pointer; transition: color .12s, border-color .12s; }
+    .copy-btn:hover { color: var(--text); border-color: var(--border-strong); }
+    .copy-btn.copied { color: var(--success); }
+    .code-block pre { margin: 0; padding: 16px; overflow-x: auto; }
+    .code-block code { font-family: var(--font-mono); font-size: 13px; line-height: 1.7; padding: 0; background: none; color: var(--text-2); white-space: pre; }
+    .term-line { display: block; }
+    .term-prompt { color: var(--success); user-select: none; }
+    .term-output { color: var(--muted); }
+    /* ---- Syntax highlighting tokens ---- */
+    .tok-kw { color: var(--syn-kw); }
+    .tok-str { color: var(--syn-str); }
+    .tok-com { color: var(--syn-com); font-style: italic; }
+    .tok-ty { color: var(--syn-ty); }
+    .tok-fn { color: var(--syn-fn); }
+    .tok-num { color: var(--syn-num); }
+    .tok-dec { color: var(--syn-dec); }
+    .tok-punct { color: var(--syn-punct); }
+
+    /* ---- Callouts ---- */
+    .callout { margin: 0 0 20px; padding: 14px 18px; border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: 6px; background: var(--surface-2); }
+    .callout-title { margin: 0 0 6px; font: 600 13px/1.3 var(--font-sans); color: var(--text); }
+    .callout p { margin: 0; color: var(--muted); font-size: 14px; }
+    .callout-info { border-left-color: var(--info); }
+    .callout-info .callout-title { color: var(--info); }
+    .callout-success { border-left-color: var(--success); }
+    .callout-success .callout-title { color: var(--success); }
+    .callout-warn { border-left-color: var(--warn); }
+    .callout-warn .callout-title { color: var(--warn); }
+    .callout-danger { border-left-color: var(--danger); }
+    .callout-danger .callout-title { color: var(--danger); }
+
+    /* ---- Tables ---- */
+    .table-wrap { margin: 0 0 20px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { position: sticky; top: 0; padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); background: var(--surface-2); color: var(--subtle); font: 600 11px/1.3 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+    tbody td { padding: 11px 16px; border-bottom: 1px solid var(--border); color: var(--text-2); font-size: 14px; vertical-align: top; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody code { font-family: var(--font-mono); font-size: .85em; }
+    .method-badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; font: 600 10px/1 var(--font-mono); letter-spacing: .04em; }
+    .method-get { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
+    .method-post { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+    .method-patch { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+    .method-delete { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+
+    /* ---- Status dots ---- */
+    .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--slate); display: inline-block; }
+    .dot.info { background: var(--info); } .dot.success { background: var(--success); } .dot.danger { background: var(--danger); } .dot.warn { background: var(--warn); } .dot.purple { background: var(--purple); } .dot.slate { background: var(--slate); }
+    .dot.pulse { animation: dot-pulse 1.6s ease-out infinite; }
+    @keyframes dot-pulse { 0% { box-shadow: 0 0 0 0 rgba(59,130,246,.5); } 70%,100% { box-shadow: 0 0 0 6px rgba(59,130,246,0); } }
+    .status-cell { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; color: var(--text); }
+
+    /* ---- Architecture crate grid ---- */
+    .crate-grid { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); margin: 0 0 20px; }
+    .crate { min-width: 0; padding: 18px; border-right: 1px solid var(--border); }
+    .crate:last-child { border-right: 0; }
+    .crate code { display: inline-flex; margin-bottom: 8px; color: var(--text); font: 600 12px/1 var(--font-mono); }
+    .crate p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    /* ---- TOC (right sidebar) ---- */
+    .toc { position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: var(--toc-w); padding: 40px 20px 40px 16px; overflow-y: auto; border-left: 1px solid var(--border); }
+    .toc-title { margin: 0 0 12px; color: var(--subtle); font: 600 10px/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+    .toc-list { list-style: none; margin: 0; padding: 0; }
+    .toc-item { margin-bottom: 6px; }
+    .toc-link { display: block; padding: 3px 0 3px 12px; border-left: 2px solid var(--border); color: var(--muted); font-size: 13px; line-height: 1.4; transition: color .12s, border-color .12s; }
+    .toc-link:hover { color: var(--text); }
+    .toc-link.active { color: var(--primary); border-left-color: var(--primary); font-weight: 500; }
+    .toc-link.sub { padding-left: 24px; font-size: 12px; }
+    .toc-empty { color: var(--subtle); font-size: 13px; }
+
+    /* ---- Footer ---- */
+    .doc-footer { grid-column: 2; border-top: 1px solid var(--border); padding: 24px 0; max-width: 820px; margin: 0 auto; width: 100%; }
+    .doc-footer a { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+    .doc-footer a:hover { color: var(--text); }
+    .doc-footer svg { width: 15px; height: 15px; }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 1100px) {
+      .doc-layout { grid-template-columns: var(--sidebar-w) 1fr; }
+      .toc { display: none; }
+      .doc-footer { grid-column: 2; }
+    }
+    @media (max-width: 820px) {
+      .search-box, .topbar-link span { display: none; }
+      .menu-toggle { display: grid; }
+      .doc-layout { grid-template-columns: 1fr; }
+      .sidebar { transform: translateX(-100%); transition: transform .25s ease; z-index: 45; box-shadow: var(--shadow); }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-backdrop { display: none; position: fixed; inset: var(--topbar-h) 0 0; background: rgba(0,0,0,.4); z-index: 35; }
+      .sidebar-backdrop.open { display: block; }
+      .doc-main { grid-column: 1; padding: 0 20px; }
+      .doc-footer { grid-column: 1; padding: 24px 20px; }
+      .crate-grid { grid-template-columns: 1fr; }
+      .crate { border-right: 0; border-bottom: 1px solid var(--border); }
+      .crate:last-child { border-bottom: 0; }
+    }
+    @media (max-width: 420px) {
+      .topbar { padding: 0 16px; gap: 10px; }
+      .version-pill { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <button class="menu-toggle" type="button" aria-label="Toggle navigation" data-od-id="docs-menu-toggle"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    <a class="topbar-brand" href="/" aria-label="ChopFlow home">
+      <span class="brand-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 6.5 10.5 12 5 17.5M12 6.5 17.5 12 12 17.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="wordmark"><strong>Chop</strong><span>Flow</span></span>
+    </a>
+    <span class="version-pill">v0.1.0</span>
+    <div class="search-box">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input class="search-input" type="text" placeholder="Search docs…" aria-label="Search docs">
+      <span class="search-kbd">⌘K</span>
+    </div>
+    <a class="topbar-link" href="https://github.com/ricardoleal20/ChopFlow" aria-label="GitHub repository"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17 4.6 18 4.9 18 4.9c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg><span>GitHub</span></a>
+    <button class="theme-toggle" type="button" aria-label="Switch to light theme" data-od-id="docs-theme-toggle">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 15.3A8.5 8.5 0 0 1 8.7 4a8.5 8.5 0 1 0 11.3 11.3Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3.6" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+  </header>
+
+  <div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div>
+
+  <div class="doc-layout">
+    <aside class="sidebar" id="sidebar" data-od-id="docs-sidebar">
+      <div class="nav-group" data-group="getting-started">
+        <button class="nav-group-header" type="button">Getting Started <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf active" href="#overview" data-page="overview">Overview</a></li>
+          <li><a class="nav-leaf" href="#quickstart" data-page="quickstart">Quickstart</a></li>
+          <li><a class="nav-leaf" href="#installation" data-page="installation">Installation</a></li>
+        </ul>
+      </div>
+      <div class="nav-group" data-group="concepts">
+        <button class="nav-group-header" type="button">Concepts <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#task-lifecycle" data-page="task-lifecycle">Task Lifecycle</a></li>
+          <li><a class="nav-leaf" href="#task-states" data-page="task-states">Task States &amp; Statuses</a></li>
+          <li><a class="nav-leaf" href="#scheduling" data-page="scheduling">Scheduling &amp; Recurrence</a></li>
+          <li><a class="nav-leaf" href="#retry-deadletter" data-page="retry-deadletter">Retry &amp; Dead-Letter</a></li>
+          <li><a class="nav-leaf" href="#resources-tags" data-page="resources-tags">Resources &amp; Tags</a></li>
+        </ul>
+      </div>
+      <div class="nav-group" data-group="components">
+        <button class="nav-group-header" type="button">Components <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#comp-core" data-page="comp-core">Core (Rust library)</a></li>
+          <li><a class="nav-leaf" href="#comp-broker" data-page="comp-broker">Broker</a></li>
+          <li><a class="nav-leaf" href="#comp-worker" data-page="comp-worker">Worker</a></li>
+          <li><a class="nav-leaf" href="#comp-cli" data-page="comp-cli">CLI</a></li>
+          <li><a class="nav-leaf" href="#comp-dashboard" data-page="comp-dashboard">Embedded Dashboard</a></li>
+          <li><a class="nav-leaf" href="#comp-demos" data-page="comp-demos">Demos</a></li>
+        </ul>
+      </div>
+      <div class="nav-group" data-group="clients">
+        <button class="nav-group-header" type="button">Client Libraries <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#client-rust" data-page="client-rust">Rust</a></li>
+          <li><a class="nav-leaf" href="#client-python" data-page="client-python">Python</a></li>
+          <li><a class="nav-leaf" href="#client-java" data-page="client-java">Java</a></li>
+          <li><span class="nav-leaf disabled">More clients soon</span></li>
+        </ul>
+      </div>
+      <div class="nav-group" data-group="http-api">
+        <button class="nav-group-header" type="button">HTTP API Reference <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#http-api" data-page="http-api">Overview</a></li>
+          <li><a class="nav-leaf" href="#api-stats" data-page="api-stats">Stats</a></li>
+          <li><a class="nav-leaf" href="#api-tasks" data-page="api-tasks">Tasks</a></li>
+          <li><a class="nav-leaf" href="#api-schedules" data-page="api-schedules">Schedules</a></li>
+          <li><a class="nav-leaf" href="#api-workers" data-page="api-workers">Workers</a></li>
+        </ul>
+      </div>
+      <div class="nav-group">
+        <a class="nav-standalone" href="#grpc" data-page="grpc">gRPC Reference</a>
+      </div>
+      <div class="nav-group" data-group="storage">
+        <button class="nav-group-header" type="button">Storage Backends <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#storage-sqlite" data-page="storage-sqlite">SQLite</a></li>
+          <li><a class="nav-leaf" href="#storage-memory" data-page="storage-memory">In-Memory</a></li>
+        </ul>
+      </div>
+      <div class="nav-group">
+        <a class="nav-standalone" href="#architecture" data-page="architecture">Architecture</a>
+      </div>
+      <div class="nav-group">
+        <a class="nav-standalone" href="#faq" data-page="faq">FAQ</a>
+      </div>
+    </aside>
+
+    <main class="doc-main" id="doc-main" data-od-id="docs-content">
+
+      <!-- ===== OVERVIEW ===== -->
+      <article class="doc-page active" id="page-overview" data-page="overview">
+        <h1>Overview</h1>
+        <p class="doc-lede">ChopFlow is a durable distributed task queue with a Rust-fast core, multi-language client libraries, and an embedded live operations dashboard — all from a single binary.</p>
+
+        <h2 id="what-is-chopflow">What is ChopFlow?<a class="anchor" href="#what-is-chopflow">#</a></h2>
+        <p>ChopFlow enqueues, dispatches, and observes background work across a fleet of workers. It belongs to the <strong>Celery / Ray / Dask</strong> lineage of task queues — not to the workflow-engine family like Temporal or Airflow. ChopFlow does not orchestrate multi-step DAGs or sagas; it reliably executes individual units of background work with retries, dead-lettering, and live observability.</p>
+        <p>The broker is written in Rust and ships as one binary that embeds the dashboard. Workers pull work from the broker (pull model — backpressure is implicit). Client libraries let you define and enqueue tasks from Rust, Python, or Java.</p>
+
+        <h2 id="workspace-crates">Workspace crates<a class="anchor" href="#workspace-crates">#</a></h2>
+        <p>The repository is a Cargo workspace with five crates:</p>
+        <div class="crate-grid">
+          <div class="crate"><code>core</code><p>Shared task models, state transitions, and protocol types.</p></div>
+          <div class="crate"><code>broker</code><p>Persistence, scheduling, leases, retries, and APIs (gRPC + HTTP).</p></div>
+          <div class="crate"><code>worker</code><p>Pull-based execution, heartbeats, and acknowledgments.</p></div>
+          <div class="crate"><code>cli</code><p>Local startup, configuration, and operator commands.</p></div>
+          <div class="crate"><code>demos</code><p>Example integrations and usage patterns.</p></div>
+        </div>
+
+        <h2 id="design-principles">Design principles<a class="anchor" href="#design-principles">#</a></h2>
+        <ul>
+          <li><strong>Durability first.</strong> Tasks are persisted before they are eligible for dispatch. A broker restart reconciles in-flight work.</li>
+          <li><strong>Pull-based dispatch.</strong> Workers fetch work from the broker; the broker never pushes. Backpressure is implicit.</li>
+          <li><strong>Explicit state.</strong> Every task moves through a visible lifecycle. There are no hidden transitions.</li>
+          <li><strong>One binary.</strong> The broker embeds the dashboard — no separate frontend deployment to operate.</li>
+        </ul>
+
+        <div class="callout callout-info">
+          <p class="callout-title">Not a workflow engine</p>
+          <p>ChopFlow executes individual tasks. If you need multi-step DAG orchestration, sagas, or long-running workflow state machines, use Temporal or Airflow alongside ChopFlow.</p>
+        </div>
+      </article>
+
+      <!-- ===== QUICKSTART ===== -->
+      <article class="doc-page" id="page-quickstart" data-page="quickstart">
+        <h1>Quickstart</h1>
+        <p class="doc-lede">Install ChopFlow, start a broker, register a worker, and enqueue your first task — in under two minutes.</p>
+
+        <div class="callout callout-info"><p class="callout-title">Install once, use everywhere</p><p>This is the only page that covers installation. Every other page in these docs assumes the <code>chopflow_broker</code>, <code>chopflow_worker</code>, and <code>chopflow_cli</code> binaries are already on your <code>PATH</code>.</p></div>
+
+        <h2 id="install">1. Install ChopFlow<a class="anchor" href="#install">#</a></h2>
+        <p>Two paths — pick whichever fits. Both produce the same set of binaries.</p>
+
+        <h3 id="install-brew">Option A — From a package manager<a class="anchor" href="#install-brew">#</a></h3>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>brew install ricardoleal20/tap/chopflow</span></code></pre>
+        </div>
+        <div class="callout callout-warn"><p class="callout-title">Planned, not yet live</p><p>The Homebrew tap is the intended easy-install path but has not been published yet. Until it lands, use Option B (build from source). Track the issue on <a href="https://github.com/ricardoleal20/ChopFlow" style="color:var(--primary);text-decoration:underline">GitHub</a>.</p></div>
+
+        <h3 id="install-build">Option B — Build from source<a class="anchor" href="#install-build">#</a></h3>
+        <p>Requires <a href="https://rustup.rs" style="color:var(--primary);text-decoration:underline">Rust</a> (2021 edition) and Cargo. Builds the whole workspace into optimized binaries — no Node toolchain needed to run.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>git clone https://github.com/ricardoleal20/ChopFlow.git</span>
+<span class="term-line"><span class="term-prompt">$ </span>cd ChopFlow</span>
+<span class="term-line"><span class="term-prompt">$ </span>cargo build --release</span>
+<span class="term-output">   Compiling chopflow-core v0.1.0
+   Compiling chopflow-broker v0.1.0
+   Compiling chopflow-worker v0.1.0
+   Compiling chopflow-cli v0.1.0
+   Compiling chopflow-demos v0.1.0
+    Finished release [optimized] target(s) in 42.8s</span></code></pre>
+        </div>
+        <p>The binaries land in <code>target/release/</code>. Add that directory to your <code>PATH</code> (or reference them directly) so the commands below work as written. See <a href="#installation" style="color:var(--primary);text-decoration:underline">Installation</a> for the full binary list and prerequisites.</p>
+
+        <h2 id="start-broker">2. Start the broker<a class="anchor" href="#start-broker">#</a></h2>
+        <p>The broker persists tasks to SQLite, serves gRPC on port 8000 and HTTP on port 8080, and opens the dashboard in your browser.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_broker start \
+    --host 127.0.0.1 --port 8000 --http-port 8080 --open</span>
+<span class="term-output">Persistence: sqlite (wal mode at ./chopflow.db)
+Reconciled in-flight tasks: 0
+ChopFlow gRPC on 127.0.0.1:8000
+ChopFlow HTTP/ on 127.0.0.1:8080
+Opened dashboard in browser</span></code></pre>
+        </div>
+
+        <h2 id="start-worker">3. Start a worker<a class="anchor" href="#start-worker">#</a></h2>
+        <p>Workers poll the broker, claim matching tasks, and execute them. Tags route work; resources declare capacity.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_worker start \
+    --broker http://localhost:8000 \
+    --tags gpu,ml --resources gpu:1,cpu:4</span>
+<span class="term-output">Worker registered: worker-7a3f (tags: gpu,ml)
+Polling broker at http://localhost:8000 (interval: 2s)</span></code></pre>
+        </div>
+
+        <h2 id="enqueue-task">4. Enqueue a task<a class="anchor" href="#enqueue-task">#</a></h2>
+        <p>Define a task payload in <code>task.json</code> and enqueue it via the CLI. The broker assigns an ID and makes it eligible for dispatch.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli enqueue \
+    --task task.json --name training --tags gpu,ml</span>
+<span class="term-output">Enqueued: training · 9f4a2c (attempt: 0, eta: now)</span></code></pre>
+        </div>
+
+        <div class="callout callout-success">
+          <p class="callout-title">That's it</p>
+          <p>The task is now in the queue. Open <code>http://localhost:8080</code> to watch it flow through the lifecycle in the dashboard.</p>
+        </div>
+      </article>
+
+      <!-- ===== INSTALLATION ===== -->
+      <article class="doc-page" id="page-installation" data-page="installation">
+        <h1>Installation</h1>
+        <p class="doc-lede">Build ChopFlow from source using Rust and Cargo. The whole workspace compiles to a single set of binaries — no Node toolchain is required for a fresh clone.</p>
+
+        <h2 id="prerequisites">Prerequisites<a class="anchor" href="#prerequisites">#</a></h2>
+        <ul>
+          <li><strong>Rust</strong> (2021 edition) — install via <a href="https://rustup.rs" style="color:var(--primary);text-decoration:underline">rustup</a>.</li>
+          <li><strong>Cargo</strong> — ships with Rust.</li>
+          <li><strong>Python 3.8+</strong> — only if you intend to use the Python client (roadmap).</li>
+          <li><strong>Node + pnpm</strong> — only if you will edit the embedded dashboard UI (the built bundle is committed).</li>
+        </ul>
+
+        <h2 id="build">Install<a class="anchor" href="#build">#</a></h2>
+        <p>Two paths to get the binaries onto your <code>PATH</code>.</p>
+
+        <h3 id="build-brew">Package manager<a class="anchor" href="#build-brew">#</a></h3>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>brew install ricardoleal20/tap/chopflow</span></code></pre>
+        </div>
+        <div class="callout callout-warn"><p class="callout-title">Planned, not yet live</p><p>The Homebrew tap is the intended easy-install path but has not been published yet. Until it lands, build from source below.</p></div>
+
+        <h3 id="build-source">Build from source<a class="anchor" href="#build-source">#</a></h3>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>git clone https://github.com/ricardoleal20/ChopFlow.git</span>
+<span class="term-line"><span class="term-prompt">$ </span>cd ChopFlow</span>
+<span class="term-line"><span class="term-prompt">$ </span>cargo build --release</span></code></pre>
+        </div>
+        <p>This produces four binaries in <code>target/release/</code>:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Binary</th><th>Crate</th><th>Role</th></tr></thead>
+            <tbody>
+              <tr><td><code>chopflow_broker</code></td><td>broker</td><td>gRPC + HTTP server, embeds the dashboard</td></tr>
+              <tr><td><code>chopflow_worker</code></td><td>worker</td><td>Pulls and executes tasks</td></tr>
+              <tr><td><code>chopflow_cli</code></td><td>cli</td><td>Enqueue, status, schedule management</td></tr>
+              <tr><td><code>chopflow_demo_worker</code> / <code>chopflow_demo_seed</code></td><td>demos</td><td>Demo worker + seeding tool</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="storage-backends">Storage backends<a class="anchor" href="#storage-backends">#</a></h2>
+        <p>The broker persists tasks with <strong>SQLite</strong> by default (a <code>chopflow.db</code> file in the working directory). Pass <code>--storage memory</code> for an ephemeral, in-memory backend useful for tests and demos. See <a href="#storage-sqlite" style="color:var(--primary);text-decoration:underline">Storage Backends</a>.</p>
+
+        <div class="callout callout-info">
+          <p class="callout-title">No Node required to run</p>
+          <p>The dashboard's built bundle (<code>broker/ui/dist/</code>) is committed and embedded via <code>rust-embed</code>. You only need Node/pnpm if you edit the UI source.</p>
+        </div>
+      </article>
+
+      <!-- ===== TASK LIFECYCLE ===== -->
+      <article class="doc-page" id="page-task-lifecycle" data-page="task-lifecycle">
+        <h1>Task Lifecycle</h1>
+        <p class="doc-lede">Every task moves through an explicit lifecycle from submission to terminal state. There are no hidden transitions — each state is persisted and visible in the dashboard.</p>
+
+        <h2 id="the-flow">The flow<a class="anchor" href="#the-flow">#</a></h2>
+        <p>A task advances through six stages, driven by the client, the broker, and the worker:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Stage</th><th>Actor</th><th>What happens</th></tr></thead>
+            <tbody>
+              <tr><td><strong>1. enqueue</strong></td><td>Client</td><td>Submits payload, name, tags, ETA, resource requirements, and retry policy to the broker.</td></tr>
+              <tr><td><strong>2. Queued</strong></td><td>Broker</td><td>Persists the task (SQLite). It becomes eligible for dispatch when its ETA arrives.</td></tr>
+              <tr><td><strong>3. FetchTasks</strong></td><td>Worker</td><td>A worker with matching tags and available resources pulls and atomically claims the task (Queued → Running).</td></tr>
+              <tr><td><strong>4. Running</strong></td><td>Worker</td><td>Executes the handler under a lease. The broker tracks worker ownership.</td></tr>
+              <tr><td><strong>5. AcknowledgeTask</strong></td><td>Worker</td><td>Reports success (with a result) or a structured failure back to the broker.</td></tr>
+              <tr><td><strong>6. Completed</strong></td><td>Broker</td><td>Persists the result and terminal metadata. On failure, the retry policy decides the next transition.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="transitions">State transitions<a class="anchor" href="#transitions">#</a></h2>
+        <p>The <code>TaskStatus</code> field on a task encodes its entire lifecycle. The broker never pushes work — workers call <code>FetchTasks</code> and the broker atomically transitions matching Queued tasks to Running. This pull model means backpressure is implicit: if no worker fetches, work simply waits.</p>
+        <p>On failure, a task with remaining retries transitions back to <strong>Queued</strong> with an incremented retry count and a computed ETA (see <a href="#retry-deadletter" style="color:var(--primary);text-decoration:underline">Retry &amp; Dead-Letter</a>). When retries are exhausted, it moves to <strong>DeadLettered</strong>.</p>
+
+        <div class="callout callout-info">
+          <p class="callout-title">Restart reconcile</p>
+          <p>On broker startup, any task left <code>Running</code> from a previous run is reset to <code>Queued</code> — its worker is gone after a restart, so the work is requeued rather than lost.</p>
+        </div>
+
+        <p>See <a href="#task-states" style="color:var(--primary);text-decoration:underline">Task States &amp; Statuses</a> for the full state reference.</p>
+      </article>
+
+      <!-- ===== TASK STATES & STATUSES ===== -->
+      <article class="doc-page" id="page-task-states" data-page="task-states">
+        <h1>Task States &amp; Statuses</h1>
+        <p class="doc-lede">ChopFlow tasks move through seven states. Each state is represented by a colored status dot paired with a text label — never color alone.</p>
+
+        <h2 id="state-reference">State reference<a class="anchor" href="#state-reference">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>State</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><span class="status-cell"><span class="dot slate"></span>Created</span></td><td>Task payload submitted to the broker; not yet persisted or eligible for dispatch.</td></tr>
+              <tr><td><span class="status-cell"><span class="dot warn"></span>Queued</span></td><td>Persisted in the queue; waiting for a matching worker to claim it.</td></tr>
+              <tr><td><span class="status-cell"><span class="dot info pulse"></span>Running</span></td><td>A worker has claimed the task and is executing it under a lease. The dot pulses while active.</td></tr>
+              <tr><td><span class="status-cell"><span class="dot success"></span>Completed</span></td><td>The worker acknowledged success; result and terminal metadata are persisted.</td></tr>
+              <tr><td><span class="status-cell"><span class="dot danger"></span>Failed</span></td><td>The worker reported failure after exhausting all retry attempts.</td></tr>
+              <tr><td><span class="status-cell"><span class="dot purple"></span>DeadLettered</span></td><td>Task moved to the dead-letter store after max retries were exhausted. Available for inspection and replay.</td></tr>
+              <tr><td><span class="status-cell"><span class="dot slate"></span>Cancelled</span></td><td>Task explicitly cancelled by the client before or during execution.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout-info">
+          <p class="callout-title">Terminal states</p>
+          <p>Completed, Failed, DeadLettered, and Cancelled are terminal — a task in any of these states will not transition further unless explicitly replayed.</p>
+        </div>
+      </article>
+
+      <!-- ===== SCHEDULING ===== -->
+      <article class="doc-page" id="page-scheduling" data-page="scheduling">
+        <h1>Scheduling &amp; Recurrence</h1>
+        <p class="doc-lede">A <code>Schedule</code> is a recurring or one-shot task template that the broker ticker materializes into <code>Task</code>s on a background ticker (one tick per second).</p>
+
+        <h2 id="schedule-kinds">Schedule kinds<a class="anchor" href="#schedule-kinds">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Kind</th><th>Field</th><th>Behavior</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Cron</strong></td><td><code>cron</code> (5-field)</td><td>A standard 5-field cron expression (e.g. <code>*/2 * * * *</code>, <code>0 9 * * *</code>). The broker normalizes it to the 6-field form the <code>cron</code> crate expects. Fires on every match.</td></tr>
+              <tr><td><strong>One-shot</strong></td><td><code>eta</code> (RFC3339)</td><td>Fires once at the given ETA, then self-disables.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="overlap-policies">Overlap policies<a class="anchor" href="#overlap-policies">#</a></h2>
+        <p>Each schedule carries an overlap policy that governs what happens when a fire is due but a previous run for the same schedule is still in flight (Queued or Running):</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Policy</th><th>Behavior</th></tr></thead>
+            <tbody>
+              <tr><td><code>skip</code></td><td>Skip this fire and advance <code>next_fire</code>. <strong>Default.</strong></td></tr>
+              <tr><td><code>coalesce</code></td><td>Treated like <code>skip</code> for now; reserved for future merging behavior.</td></tr>
+              <tr><td><code>allow</code></td><td>Materialize the task anyway — concurrent runs permitted.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="time-semantics">Time semantics<a class="anchor" href="#time-semantics">#</a></h2>
+        <div class="callout callout-warn">
+          <p class="callout-title">UTC only</p>
+          <p>The server evaluates cron and ETAs in <strong>UTC</strong>. The dashboard converts from the local picker before sending.</p>
+        </div>
+        <p>Missed cron runs are <strong>not</strong> backfilled. On broker startup, enabled cron schedules have their <code>next_fire</code> recomputed from <code>now</code>, so the ticker only fires future matches. A disabled one-shot with a past ETA stays disabled until re-enabled.</p>
+
+        <h2 id="task-template">Task template<a class="anchor" href="#task-template">#</a></h2>
+        <p>Every schedule carries a <code>TaskTemplate</code> — the <code>name</code>, <code>payload</code>, <code>tags</code>, <code>resources</code>, and <code>max_retries</code> that each materialized task inherits. The dashboard's "Run now" action enqueues a one-off task from the template without disturbing the schedule's overlap accounting.</p>
+
+        <p>Manage schedules via the <a href="#api-schedules" style="color:var(--primary);text-decoration:underline">HTTP API</a> or the <a href="#comp-cli" style="color:var(--primary);text-decoration:underline">CLI <code>schedule</code> subcommand</a>.</p>
+      </article>
+
+      <!-- ===== RETRY & DEAD-LETTER ===== -->
+      <article class="doc-page" id="page-retry-deadletter" data-page="retry-deadletter">
+        <h1>Retry &amp; Dead-Letter</h1>
+        <p class="doc-lede">Failed tasks retry with a configurable backoff strategy and a computed ETA. After the maximum number of retries is exhausted, tasks are dead-lettered.</p>
+
+        <h2 id="retry-policy">RetryPolicy<a class="anchor" href="#retry-policy">#</a></h2>
+        <p>The <code>RetryPolicy</code> enum (in <code>core/src/retry.rs</code>) defines three strategies:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Variant</th><th>Fields</th><th>Behavior</th></tr></thead>
+            <tbody>
+              <tr><td><code>NoRetry</code></td><td>—</td><td>No retries. A failure transitions straight to Failed/DeadLettered.</td></tr>
+              <tr><td><code>Fixed</code></td><td><code>delay_seconds</code>, <code>max_retries</code></td><td>Constant delay between every retry.</td></tr>
+              <tr><td><code>ExponentialBackoff</code></td><td><code>initial_delay_seconds</code>, <code>max_delay_seconds</code>, <code>max_retries</code>, <code>jitter</code></td><td>Delay doubles after each retry, capped at <code>max_delay_seconds</code>. Jitter (0.0–1.0) prevents retry storms.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="defaults">Defaults<a class="anchor" href="#defaults">#</a></h2>
+        <p>The <code>exponential_backoff(max_retries)</code> constructor produces a sensible default policy:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">core/src/retry.rs</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>ExponentialBackoff {
+    initial_delay_seconds: 5,
+    max_delay_seconds: 300,   // 5 minutes
+    max_retries,
+    jitter: 0.1,
+}</code></pre>
+        </div>
+
+        <h2 id="next-retry">Next retry time<a class="anchor" href="#next-retry">#</a></h2>
+        <p><code>next_retry_time(retry_count)</code> computes when a failed task becomes eligible again. It returns <code>None</code> when the retry count exceeds <code>max_retries</code> — at that point the task transitions to <strong>DeadLettered</strong> and is available for inspection and replay.</p>
+        <p>The computed ETA is stored on the task, so a retried task simply sits in <code>Queued</code> until its ETA arrives and a matching worker fetches it.</p>
+
+        <div class="callout callout-danger">
+          <p class="callout-title">Dead-letter is terminal</p>
+          <p>DeadLettered tasks will not retry further on their own. Replay them explicitly from the dashboard or the API.</p>
+        </div>
+      </article>
+
+      <!-- ===== RESOURCES & TAGS ===== -->
+      <article class="doc-page" id="page-resources-tags" data-page="resources-tags">
+        <h1>Resources &amp; Tags</h1>
+        <p class="doc-lede">Tags route tasks to matching workers. Resources declare per-worker capacity for CPU, GPU, and memory — the dispatcher only hands a task to a worker that can satisfy it.</p>
+
+        <h2 id="tags">Tags<a class="anchor" href="#tags">#</a></h2>
+        <p>A task carries a list of tags (e.g. <code>gpu</code>, <code>ml</code>). A worker registers with the tags it can handle. The broker only returns a task to a worker via <code>FetchTasks</code> when the worker's tags match the task's tags. This is how you keep GPU work on GPU workers and CI work on CI workers.</p>
+
+        <h2 id="resource-requirements">ResourceRequirements<a class="anchor" href="#resource-requirements">#</a></h2>
+        <p>A task declares the resources it needs as a map of resource name to amount (e.g. <code>{"gpu": 1, "cpu": 4}</code>). The <code>ResourceRequirements</code> type (<code>core/src/resources.rs</code>) is the task-side half of the contract.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">core/src/resources.rs</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>pub struct ResourceRequirements {
+    pub resources: HashMap&lt;String, u32&gt;,
+}
+
+impl ResourceRequirements {
+    pub fn can_be_satisfied_by(&self, availability: &ResourceAvailability) -> bool {
+        for (resource, required) in &self.resources {
+            match availability.available.get(resource) {
+                Some(available) if *required &lt;= *available =&gt; continue,
+                _ =&gt; return false,
+            }
+        }
+        true
+    }
+}</code></pre>
+        </div>
+
+        <h2 id="resource-availability">ResourceAvailability<a class="anchor" href="#resource-availability">#</a></h2>
+        <p>A worker declares <code>ResourceAvailability</code> with two maps: <code>total</code> (capacity) and <code>available</code> (currently free). When a worker claims a task, the broker decrements <code>available</code>; when the task is acked, it is returned. This prevents overcommitment — a worker never receives more work than it can run.</p>
+
+        <h2 id="matching">Matching, end to end<a class="anchor" href="#matching">#</a></h2>
+        <p>When a worker calls <code>FetchTasks</code>, the broker matches queued, ETA-eligible tasks against that worker:</p>
+        <ol>
+          <li>The task's tags must be a subset of the worker's tags.</li>
+          <li>The task's <code>ResourceRequirements</code> must be satisfiable by the worker's current <code>ResourceAvailability</code>.</li>
+          <li>The task's ETA must have arrived.</li>
+        </ol>
+        <p>Matching tasks are atomically transitioned Queued → Running and handed to the worker, up to <code>max_tasks</code>.</p>
+      </article>
+
+      <!-- ===== COMPONENTS ===== -->
+      <article class="doc-page" id="page-comp-core" data-page="comp-core">
+        <h1>Core (Rust library)</h1>
+        <p class="doc-lede">The <code>chopflow-core</code> crate provides shared task models, state transitions, retry/schedule primitives, and the storage trait used by the broker, worker, and CLI.</p>
+
+        <h2 id="modules">Modules<a class="anchor" href="#modules">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Module</th><th>What it provides</th></tr></thead>
+            <tbody>
+              <tr><td><code>task</code></td><td>The <code>Task</code> struct and <code>TaskStatus</code> enum, with builder methods (<code>with_tag</code>, <code>with_eta</code>, <code>with_max_retries</code>, <code>with_resource</code>) and state transitions (<code>mark_running</code>, <code>mark_completed</code>, <code>mark_failed</code>, <code>mark_cancelled</code>).</td></tr>
+              <tr><td><code>queue</code></td><td>The <code>Queue</code> abstraction over pending work.</td></tr>
+              <tr><td><code>dispatcher</code></td><td>The <code>Dispatcher</code> trait and an <code>InMemoryDispatcher</code> — worker registration, heartbeats, tag/resource matching.</td></tr>
+              <tr><td><code>resources</code></td><td><code>ResourceRequirements</code> (task-side) and <code>ResourceAvailability</code> (worker-side).</td></tr>
+              <tr><td><code>retry</code></td><td>The <code>RetryPolicy</code> enum (NoRetry / Fixed / ExponentialBackoff) and ETA computation.</td></tr>
+              <tr><td><code>schedule</code></td><td><code>Schedule</code>, <code>ScheduleKind</code> (Cron / OneShot), <code>OverlapPolicy</code>, and <code>TaskTemplate</code>.</td></tr>
+              <tr><td><code>storage</code></td><td>The <code>Storage</code> trait, <code>TaskFilter</code>, <code>StatusCounts</code>, and the <code>InMemoryStorage</code> / <code>SqliteStorage</code> implementations.</td></tr>
+              <tr><td><code>error</code></td><td>The crate's <code>Error</code> and <code>Result</code> types.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="re-exports">Public re-exports<a class="anchor" href="#re-exports">#</a></h2>
+        <p>The crate root re-exports the primary types so downstream crates can write <code>use chopflow_core::Task</code> rather than reaching into modules:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">core/src/lib.rs</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>pub use dispatcher::Dispatcher;
+pub use queue::Queue;
+pub use resources::ResourceRequirements;
+pub use retry::RetryPolicy;
+pub use schedule::{Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
+pub use storage::{Storage, TaskFilter, StatusCounts, InMemoryStorage, SqliteStorage};
+pub use task::Task;</code></pre>
+        </div>
+
+        <h2 id="task-builder">Task builder<a class="anchor" href="#task-builder">#</a></h2>
+        <p>Tasks are constructed with a fluent builder:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">rust</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>let task = Task::new("train_model".into(), json!({"lr": 0.001}))
+    .with_tags(["ml", "gpu"])
+    .with_eta(Utc::now() + Duration::minutes(5))
+    .with_max_retries(5)
+    .with_resource("gpu", 1)
+    .with_resource("cpu", 4);</code></pre>
+        </div>
+      </article>
+      <article class="doc-page" id="page-comp-broker" data-page="comp-broker">
+        <h1>Broker</h1>
+        <p class="doc-lede">The <code>chopflow-broker</code> crate is the server: it persists tasks, runs the schedule ticker, manages leases and retries, and serves both gRPC (for workers/CLI) and HTTP/JSON + the embedded dashboard (for browsers).</p>
+
+        <h2 id="single-state">One shared state<a class="anchor" href="#single-state">#</a></h2>
+        <p>Both the gRPC service and the HTTP layer read and write a single <code>BrokerState</code> backed by one <code>Storage</code> implementation. The dashboard sees live updates from workers and vice versa — there is no second source of truth.</p>
+
+        <h2 id="ports">Ports and protocols<a class="anchor" href="#ports">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Port flag</th><th>Default</th><th>Protocol</th><th>Consumers</th></tr></thead>
+            <tbody>
+              <tr><td><code>--port</code></td><td>8000</td><td>gRPC</td><td>Workers, CLI</td></tr>
+              <tr><td><code>--http-port</code></td><td>8080</td><td>HTTP/JSON + embedded UI</td><td>Browsers, external tooling</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="startup">Startup sequence<a class="anchor" href="#startup">#</a></h2>
+        <ol>
+          <li>Initialize tracing (<code>tracing_subscriber::fmt::init()</code>).</li>
+          <li>Build the storage backend (SQLite or in-memory).</li>
+          <li><strong>Reconcile</strong> in-flight tasks: any task left <code>Running</code> is reset to <code>Queued</code>.</li>
+          <li>Construct <code>BrokerState</code> and the <code>ChopFlowBrokerService</code>; spawn the timeout monitor.</li>
+          <li>Bind the HTTP listener and spawn the Axum server.</li>
+          <li>Serve gRPC via tonic (blocks until shutdown).</li>
+        </ol>
+        <p>With <code>--open</code>, the broker waits ~300ms for the HTTP listener to bind, then opens the dashboard URL in the platform's default browser.</p>
+
+        <h2 id="flags">Flags<a class="anchor" href="#flags">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--host</code></td><td>127.0.0.1</td><td>Bind address for both servers.</td></tr>
+              <tr><td><code>--port</code></td><td>8000</td><td>gRPC port.</td></tr>
+              <tr><td><code>--http-port</code></td><td>8080</td><td>HTTP/dashboard port.</td></tr>
+              <tr><td><code>--storage</code></td><td>sqlite</td><td><code>sqlite</code> or <code>memory</code>.</td></tr>
+              <tr><td><code>--db-path</code></td><td>chopflow.db</td><td>SQLite database file (sqlite backend only).</td></tr>
+              <tr><td><code>--open</code></td><td>false</td><td>Open the dashboard in the default browser on start.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="doc-page" id="page-comp-worker" data-page="comp-worker">
+        <h1>Worker</h1>
+        <p class="doc-lede">The <code>chopflow-worker</code> crate is a pull-based executor: it registers with the broker, polls for matching work, runs a handler, and acknowledges the result.</p>
+
+        <h2 id="registration">Registration<a class="anchor" href="#registration">#</a></h2>
+        <p>On start, the worker calls <code>RegisterWorker</code> with its address, tags, and resource capacity. The broker returns a worker ID used for all subsequent calls.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_worker start \
+    --broker http://localhost:8000 \
+    --tags gpu,ml --resources gpu:1,cpu:4</span></code></pre>
+        </div>
+
+        <h2 id="poll-loop">Poll loop<a class="anchor" href="#poll-loop">#</a></h2>
+        <p>The worker repeatedly calls <code>FetchTasks</code> with its worker ID and a <code>max_tasks</code> bound. The broker matches queued, ETA-eligible tasks against the worker's tags and available resources, atomically transitions them to Running, and returns them. If no work matches, the worker sleeps for its poll interval and tries again.</p>
+
+        <h2 id="ack">Acknowledgment<a class="anchor" href="#ack">#</a></h2>
+        <p>After executing a handler, the worker calls <code>AcknowledgeTask</code> with <code>success: true</code> (and a JSON result) or <code>success: false</code> (and an error message). The broker records the outcome and either persists the result or applies the retry policy.</p>
+
+        <h2 id="flags">Flags<a class="anchor" href="#flags">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>-b, --broker</code></td><td>http://localhost:8000</td><td>Broker gRPC address.</td></tr>
+              <tr><td><code>-t, --tags</code></td><td>default</td><td>Comma-separated tags this worker handles.</td></tr>
+              <tr><td><code>-r, --resources</code></td><td>cpu:1</td><td>Comma-separated <code>name:amount</code> capacity.</td></tr>
+              <tr><td><code>--poll-interval</code></td><td>30</td><td>Seconds between fetch attempts when idle.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout-info">
+          <p class="callout-title">Writing a worker</p>
+          <p>The demo worker (<code>demos</code> crate) is the reference implementation. It registers a handler map keyed by task name; the generic <code>chopflow_worker</code> binary uses the same loop. See <a href="#comp-demos" style="color:var(--primary);text-decoration:underline">Demos</a>.</p>
+        </div>
+      </article>
+      <article class="doc-page" id="page-comp-cli" data-page="comp-cli">
+        <h1>CLI</h1>
+        <p class="doc-lede">The <code>chopflow-cli</code> binary is the operator's interface to a running broker: enqueue tasks, inspect status, and manage schedules.</p>
+
+        <h2 id="enqueue">enqueue<a class="anchor" href="#enqueue">#</a></h2>
+        <p>Submit a task from a JSON payload file:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli enqueue \
+    --task task.json --name training --tags gpu,ml --eta 2026-09-04T15:00:00Z</span></code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>-f, --task</code></td><td>Path to the task JSON payload file (required).</td></tr>
+              <tr><td><code>-n, --name</code></td><td>Task name.</td></tr>
+              <tr><td><code>-g, --tags</code></td><td>Comma-separated tags.</td></tr>
+              <tr><td><code>--eta</code></td><td>Earliest eligible time (ISO 8601).</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="status">status<a class="anchor" href="#status">#</a></h2>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli status --id 9f4a2c</span>
+<span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli status --all</span></code></pre>
+        </div>
+
+        <h2 id="schedule">schedule<a class="anchor" href="#schedule">#</a></h2>
+        <p>Manage recurring and one-shot schedules (see <a href="#scheduling" style="color:var(--primary);text-decoration:underline">Scheduling &amp; Recurrence</a> for semantics):</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli schedule create \
+    --name nightly-build --task build --cron "0 9 * * *" \
+    --tags ci --resources cpu:4 --overlap skip</span>
+<span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli schedule create \
+    --name one-off-report --task report \
+    --eta 2026-09-04T14:30:00Z --overlap allow</span>
+<span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli schedule list</span>
+<span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli schedule delete &lt;schedule-id&gt;</span></code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--cron</code></td><td>—</td><td>5-field cron expression (mutually exclusive with <code>--eta</code>).</td></tr>
+              <tr><td><code>--eta</code></td><td>—</td><td>RFC3339 one-shot time.</td></tr>
+              <tr><td><code>--payload</code></td><td><code>{}</code></td><td>Inline JSON payload.</td></tr>
+              <tr><td><code>--tags</code></td><td>—</td><td>Comma-separated tags.</td></tr>
+              <tr><td><code>--resources</code></td><td>—</td><td>Comma-separated <code>name:amount</code>.</td></tr>
+              <tr><td><code>--max-retries</code></td><td>3</td><td>Retries per materialized task.</td></tr>
+              <tr><td><code>--overlap</code></td><td>skip</td><td><code>skip</code> / <code>coalesce</code> / <code>allow</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="doc-page" id="page-comp-dashboard" data-page="comp-dashboard">
+        <h1>Embedded Dashboard</h1>
+        <p class="doc-lede">The broker embeds a live operations dashboard — no separate frontend deployment required. Serve it from the same binary with <code>--open</code>.</p>
+
+        <p>The dashboard is a React + Vite + Tailwind SPA in <code>broker/ui/</code> (TypeScript, TanStack Query, framer-motion). The built bundle in <code>broker/ui/dist/</code> is embedded into the broker binary via <code>rust-embed</code>, so a fresh clone runs the UI with no Node toolchain. The HTTP handler serves the SPA from any non-API path, falling back to <code>index.html</code> for client-side routing.</p>
+
+        <h2 id="dashboard-views">Views<a class="anchor" href="#dashboard-views">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>View</th><th>What it shows</th></tr></thead>
+            <tbody>
+              <tr><td>Overview</td><td>Live cluster stats: queue length, processing, completed, failed, active workers, enabled schedules.</td></tr>
+              <tr><td>Tasks</td><td>Filterable task ledger with status badges, attempts, timing, and result previews. Click a row for the detail drawer.</td></tr>
+              <tr><td>Workers</td><td>Registered workers with live resource meters (available vs total CPU/GPU/memory) and liveness.</td></tr>
+              <tr><td>Schedules</td><td>Every schedule with enable/disable, "run now", next-fire, overlap policy, and delete.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="dashboard-poll">Data freshness<a class="anchor" href="#dashboard-poll">#</a></h2>
+        <p>The SPA polls the HTTP API (see <a href="#http-api" style="color:var(--primary);text-decoration:underline">HTTP API Reference</a>) every 2 seconds. There is no separate data plane — the dashboard is a first-class client of the same <code>/api</code> endpoints any external tooling would use, reading the same live <code>BrokerState</code> as the gRPC workers.</p>
+
+        <div class="callout callout-info"><p class="callout-title">Native app</p><p>The same React frontend is wrapped as a native macOS app via Tauri 2 (<code>app/src-tauri/</code>). It points at <code>http://127.0.0.1:8080</code> — nothing is forked or re-implemented.</p></div>
+
+        <div class="callout callout-warn"><p class="callout-title">The desktop app does not run the broker</p><p>The Tauri shell is a thin window around the React console — it is a client of the broker, not a host. It does <strong>not</strong> start the broker, a worker, or any ChopFlow server process. You must start <code>chopflow_broker</code> separately (gRPC :8000, HTTP :8080); the desktop app then connects to it just like a browser tab would.</p></div>
+
+        <h2 id="dashboard-iter">Iterative development<a class="anchor" href="#dashboard-iter">#</a></h2>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>pnpm --dir broker/ui install     # first time only</span>
+<span class="term-line"><span class="term-prompt">$ </span>pnpm --dir broker/ui dev         # http://localhost:5173, hot reload</span></code></pre>
+        </div>
+        <p>The Vite dev server proxies <code>/api</code> to <code>http://localhost:8080</code>, so it runs against a live broker. After changes, rebuild the embedded bundle:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>pnpm --dir broker/ui build</span>
+<span class="term-line"><span class="term-prompt">$ </span>touch broker/src/http.rs   # force rust-embed to re-read ui/dist</span>
+<span class="term-line"><span class="term-prompt">$ </span>cargo build</span></code></pre>
+        </div>
+      </article>
+      <article class="doc-page" id="page-comp-demos" data-page="comp-demos">
+        <h1>Demos</h1>
+        <p class="doc-lede">The <code>chopflow-demos</code> crate ships a drop-in demo worker and a seeding tool so <code>cargo run</code> produces a live dashboard end-to-end.</p>
+
+        <p>The demo worker is structurally identical to <code>worker/src/main.rs</code> — the only difference is its handler registry. It registers four showcase handlers (plus <code>echo</code> and a <code>default</code> fallback):</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Handler</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td><code>resize_image</code></td><td>Generates a synthetic gradient PNG and resizes it (image-rs).</td></tr>
+              <tr><td><code>batch_compute</code></td><td>CPU-bound <code>n × n</code> f64 matrix multiply (nalgebra), reports timings.</td></tr>
+              <tr><td><code>simulate_pipeline</code></td><td>Multi-stage pipeline (download / process / upload) with staged sleeps.</td></tr>
+              <tr><td><code>flaky_handler</code></td><td>Fails ~30% of the time (seeded) to exercise the retry policy.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="demos-one-command">One-command run<a class="anchor" href="#demos-one-command">#</a></h2>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>bash demos/run.sh</span></code></pre>
+        </div>
+        <p>This builds the workspace, starts an <strong>in-memory</strong> broker with <code>--open</code> (dashboard at <code>http://localhost:8080</code>), starts a demo worker (<code>--tags demo,ml --resources cpu:4</code>), then seeds:</p>
+        <ul>
+          <li>One task of each handler type — the <code>flaky_handler</code> one with <code>max_retries: 5</code> so you can watch it retry.</li>
+          <li>A <code>*/2 * * * *</code> cron schedule running <code>batch_compute</code> with overlap <code>skip</code>.</li>
+          <li>A one-shot <code>simulate_pipeline</code> schedule 5 minutes out with overlap <code>allow</code>.</li>
+        </ul>
+        <p>Ctrl+C stops the broker and worker. You'll see four tasks flow through distinct lifecycles, the flaky handler visibly retrying, and two schedules ticking in the Schedules view.</p>
+
+        <h2 id="demos-seed">Seeding a running broker<a class="anchor" href="#demos-seed">#</a></h2>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>cargo run -p chopflow_demos --bin chopflow_demo_seed -- [broker_base_url]</span>
+<span class="term-line"># broker_base_url defaults to http://localhost:8080</span></code></pre>
+        </div>
+        <div class="callout callout-info"><p class="callout-title">Demo worker</p><p>The demo worker binary is <code>chopflow_demo_worker</code>, started with the same flags as the production worker (<code>--broker</code>, <code>--tags</code>, <code>--resources</code>).</p></div>
+      </article>
+
+      <!-- ===== CLIENT LIBRARIES ===== -->
+      <article class="doc-page" id="page-client-rust" data-page="client-rust">
+        <h1>Rust Client</h1>
+        <p class="doc-lede">Rust is the first-class client language. Speak gRPC to the broker with the tonic client generated from <code>broker/proto/chopflow.proto</code>, or embed <code>chopflow-core</code> in-process for tests.</p>
+
+        <h2 id="rust-grpc">gRPC client<a class="anchor" href="#rust-grpc">#</a></h2>
+        <p>The proto compiles to a <code>ChopFlowBrokerClient</code> under the <code>chopflow</code> module. This is the same client the worker and CLI use internally:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">rust</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">use</span> chopflow::chop_flow_broker_client::<span class="tok-ty">ChopFlowBrokerClient</span>;
+<span class="tok-kw">use</span> chopflow::{<span class="tok-ty">EnqueueTaskRequest</span>, <span class="tok-ty">GetTaskStatusRequest</span>};
+<span class="tok-kw">use</span> tonic::<span class="tok-ty">Request</span>;
+
+<span class="tok-kw">let mut</span> client = <span class="tok-ty">ChopFlowBrokerClient</span>::<span class="tok-fn">connect</span>(<span class="tok-str">"http://localhost:8000"</span>).<span class="tok-kw">await</span>?;
+
+<span class="tok-kw">let</span> resp = client.<span class="tok-fn">enqueue_task</span>(<span class="tok-ty">Request</span>::<span class="tok-fn">new</span>(<span class="tok-ty">EnqueueTaskRequest</span> {
+    name: <span class="tok-str">"resize_image"</span>.<span class="tok-fn">into</span>(),
+    payload: <span class="tok-str">r#"{"path":"img.png","w":128}"#</span>.<span class="tok-fn">into</span>(),
+    tags: <span class="tok-fn">vec!</span>[<span class="tok-str">"gpu"</span>.<span class="tok-fn">into</span>()],
+    eta: <span class="tok-kw">None</span>,
+    max_retries: <span class="tok-num">3</span>,
+    resources: <span class="tok-ty">HashMap</span>::<span class="tok-fn">from</span>[(<span class="tok-str">"cpu"</span>.<span class="tok-fn">into</span>(), <span class="tok-num">4</span>)],
+})).<span class="tok-kw">await</span>?;
+
+<span class="tok-kw">let</span> task_id = resp.<span class="tok-fn">into_inner</span>().task_id;
+<span class="tok-kw">let</span> status = client
+    .<span class="tok-fn">get_task_status</span>(<span class="tok-ty">Request</span>::<span class="tok-fn">new</span>(<span class="tok-ty">GetTaskStatusRequest</span> { task_id }))
+    .<span class="tok-kw">await</span>?
+    .<span class="tok-fn">into_inner</span>()
+    .task
+    .<span class="tok-fn">unwrap</span>()
+    .status;</code></pre>
+        </div>
+
+        <h2 id="rust-in-process">In-process (core)<a class="anchor" href="#rust-in-process">#</a></h2>
+        <p>For tests or single-process embedding, use <code>chopflow-core</code> directly against an <code>InMemoryStorage</code> — no broker process needed:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">rust</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">use</span> chopflow_core::storage::<span class="tok-ty">InMemoryStorage</span>;
+<span class="tok-kw">use</span> chopflow_core::task::{<span class="tok-ty">Task</span>, <span class="tok-ty">TaskStatus</span>};
+
+<span class="tok-kw">let</span> storage = <span class="tok-ty">InMemoryStorage</span>::<span class="tok-fn">new</span>();
+<span class="tok-kw">let mut</span> task = <span class="tok-ty">Task</span>::<span class="tok-fn">new</span>(<span class="tok-str">"echo"</span>, serde_json::<span class="tok-fn">json!</span>({<span class="tok-str">"msg"</span>:<span class="tok-str">"hi"</span>}))
+    .<span class="tok-fn">with_tags</span>(<span class="tok-fn">vec!</span>[<span class="tok-str">"demo"</span>.<span class="tok-fn">into</span>()]);
+task.status = <span class="tok-ty">TaskStatus</span>::Queued;
+storage.<span class="tok-fn">insert</span>(task.<span class="tok-fn">clone</span>()).<span class="tok-kw">await</span>?;</code></pre>
+        </div>
+
+        <div class="callout callout-info"><p class="callout-title">Where the client lives</p><p>There is no separate <code>chopflow-client</code> crate today. The gRPC client is generated from the proto by whichever crate needs it (<code>worker</code>, <code>cli</code>, <code>demos</code>). Reuse <code>broker/proto/chopflow.proto</code> to generate it in your own crate.</p></div>
+      </article>
+      <article class="doc-page" id="page-client-python" data-page="client-python">
+        <h1>Python Client</h1>
+        <p class="doc-lede">The intended Python client brings Celery-like ergonomics — a <code>@task</code> decorator, <code>.delay()</code>, and an <code>AsyncResult</code> handle — speaking gRPC to the broker.</p>
+
+        <div class="callout callout-warn"><p class="callout-title">Roadmap</p><p>This client is on the roadmap and has not landed yet. The gRPC contract it targets is already stable in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/broker/proto/chopflow.proto" style="color:var(--primary);text-decoration:underline"><code>broker/proto/chopflow.proto</code></a>. See <a href="#grpc" style="color:var(--primary);text-decoration:underline">gRPC Reference</a> for the methods it will call, and CONTRIBUTING §8 if you want to help land it.</p></div>
+
+        <h2 id="python-intended">Intended ergonomics<a class="anchor" href="#python-intended">#</a></h2>
+        <p>The target API surface, mirroring the Celery idiom Python developers already know:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">python</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">from</span> chopflow <span class="tok-kw">import</span> task, Client
+
+client = <span class="tok-fn">Client</span>(<span class="tok-str">"http://localhost:8000"</span>)
+
+<span class="tok-dec">@task</span>(client, tags=[<span class="tok-str">"ml"</span>], resources={<span class="tok-str">"gpu"</span>: <span class="tok-num">1</span>}, max_retries=<span class="tok-num">3</span>)
+<span class="tok-kw">def</span> <span class="tok-fn">train_model</span>(dataset, hyperparams):
+    <span class="tok-com"># Your training code here</span>
+    <span class="tok-kw">return</span> {<span class="tok-str">"accuracy"</span>: <span class="tok-num">0.95</span>}
+
+<span class="tok-com"># Enqueue for asynchronous execution</span>
+result = train_model.<span class="tok-fn">delay</span>(<span class="tok-str">"imagenet"</span>, {<span class="tok-str">"lr"</span>: <span class="tok-num">0.001</span>})
+
+<span class="tok-com"># Block until the task reaches a terminal state</span>
+output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">3600</span>)
+<span class="tok-fn">print</span>(output)  <span class="tok-com"># {"accuracy": 0.95}</span></code></pre>
+        </div>
+        <p>Under the hood, <code>.delay()</code> calls <code>EnqueueTask</code> and <code>.get()</code> polls <code>GetTaskStatus</code> until the task is <code>Completed</code>, <code>Failed</code>, or <code>DeadLettered</code>.</p>
+      </article>
+      <article class="doc-page" id="page-client-java" data-page="client-java">
+        <h1>Java Client</h1>
+        <p class="doc-lede">The intended Java client offers a typed task interface over the same gRPC contract — register handlers, submit tasks, and await results.</p>
+
+        <div class="callout callout-warn"><p class="callout-title">Roadmap</p><p>This client is on the roadmap and has not landed yet. The gRPC contract it targets is already stable in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/broker/proto/chopflow.proto" style="color:var(--primary);text-decoration:underline"><code>broker/proto/chopflow.proto</code></a>. See CONTRIBUTING §8 if you want to help land it.</p></div>
+
+        <h2 id="java-intended">Intended ergonomics<a class="anchor" href="#java-intended">#</a></h2>
+        <p>The target API surface — a typed <code>@ChopTask</code> annotation and a future-backed result handle, speaking gRPC via the generated stub:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">java</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-ty">ChopFlowClient</span> client = <span class="tok-ty">ChopFlowClient</span>.<span class="tok-fn">connect</span>(<span class="tok-str">"localhost:8000"</span>);
+
+<span class="tok-dec">@ChopTask</span>(tags = {<span class="tok-str">"ml"</span>}, resources = {<span class="tok-str">"gpu:1"</span>}, maxRetries = <span class="tok-num">3</span>)
+<span class="tok-kw">public</span> <span class="tok-ty">Map</span>&lt;<span class="tok-ty">String</span>, <span class="tok-ty">Object</span>&gt; <span class="tok-fn">trainModel</span>(<span class="tok-ty">String</span> dataset, <span class="tok-ty">Map</span>&lt;<span class="tok-ty">String</span>, <span class="tok-ty">Object</span>&gt; hyperparams) {
+    <span class="tok-com">// Your training code here</span>
+    <span class="tok-kw">return</span> <span class="tok-ty">Map</span>.<span class="tok-fn">of</span>(<span class="tok-str">"accuracy"</span>, <span class="tok-num">0.95</span>);
+}
+
+<span class="tok-com">// Enqueue for asynchronous execution</span>
+<span class="tok-ty">AsyncResult</span>&lt;<span class="tok-ty">Map</span>&lt;<span class="tok-ty">String</span>, <span class="tok-ty">Object</span>&gt;&gt; result =
+    client.<span class="tok-fn">submit</span>(<span class="tok-str">"trainModel"</span>, <span class="tok-str">"imagenet"</span>, <span class="tok-ty">Map</span>.<span class="tok-fn">of</span>(<span class="tok-str">"lr"</span>, <span class="tok-num">0.001</span>));
+
+<span class="tok-com">// Block until the task reaches a terminal state</span>
+<span class="tok-ty">Map</span>&lt;<span class="tok-ty">String</span>, <span class="tok-ty">Object</span>&gt; output = result.<span class="tok-fn">get</span>(<span class="tok-num">3600</span>, <span class="tok-ty">TimeUnit</span>.SECONDS);</code></pre>
+        </div>
+        <p>Under the hood, <code>submit</code> calls <code>EnqueueTask</code> and <code>get</code> polls <code>GetTaskStatus</code> until the task reaches a terminal state.</p>
+      </article>
+
+      <!-- ===== HTTP API REFERENCE ===== -->
+      <article class="doc-page" id="page-http-api" data-page="http-api">
+        <h1>HTTP API Reference</h1>
+        <p class="doc-lede">The broker exposes a JSON HTTP API on the configured <code>--http-port</code>. All endpoints are prefixed with <code>/api</code> except the health probe.</p>
+
+        <h2 id="endpoints">Endpoints<a class="anchor" href="#endpoints">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/api/stats</code></td><td>Cluster-wide statistics: queue depth, throughput, worker count.</td></tr>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/api/tasks?status=&amp;limit=&amp;offset=</code></td><td>List tasks with optional status filter and pagination.</td></tr>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/api/tasks/:id</code></td><td>Fetch a single task by ID including current state and attempts.</td></tr>
+              <tr><td><span class="method-badge method-post">POST</span></td><td><code>/api/tasks</code></td><td>Enqueue a new task with payload, tags, resources, and ETA.</td></tr>
+              <tr><td><span class="method-badge method-post">POST</span></td><td><code>/api/tasks/:id/cancel</code></td><td>Cancel a task by ID (transitions to Cancelled).</td></tr>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/api/workers</code></td><td>List all registered workers with capacity and utilization.</td></tr>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/api/schedules</code></td><td>List all recurring schedules.</td></tr>
+              <tr><td><span class="method-badge method-post">POST</span></td><td><code>/api/schedules</code></td><td>Create a recurring schedule with a cron expression or interval.</td></tr>
+              <tr><td><span class="method-badge method-patch">PATCH</span></td><td><code>/api/schedules/:id</code></td><td>Update an existing schedule (pause, resume, modify).</td></tr>
+              <tr><td><span class="method-badge method-delete">DELETE</span></td><td><code>/api/schedules/:id</code></td><td>Delete a schedule by ID.</td></tr>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/healthz</code></td><td>Liveness/readiness probe (returns 200 OK).</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="doc-page" id="page-api-stats" data-page="api-stats">
+        <h1>API — Stats</h1>
+        <p class="doc-lede">Cluster-wide statistics — a single call the dashboard polls every 2 seconds.</p>
+
+        <h2 id="stats-endpoint"><span class="method-badge method-get">GET</span> /api/stats<a class="anchor" href="#stats-endpoint">#</a></h2>
+        <p>Returns aggregate counts derived from storage and the live worker registry. No query parameters.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 200</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "queue_length": 12,
+  "tasks_processing": 2,
+  "tasks_completed": 184,
+  "tasks_failed": 7,
+  "active_workers": 3,
+  "total_tasks": 203,
+  "schedules": 2
+}</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>queue_length</code></td><td>Tasks currently in <code>Queued</code> status.</td></tr>
+              <tr><td><code>tasks_processing</code></td><td>Sum of assigned (in-flight) tasks across alive workers.</td></tr>
+              <tr><td><code>tasks_completed</code></td><td>Tasks in <code>Completed</code>.</td></tr>
+              <tr><td><code>tasks_failed</code></td><td><code>Failed</code> + <code>DeadLettered</code> combined.</td></tr>
+              <tr><td><code>active_workers</code></td><td>Registered workers whose heartbeat is alive.</td></tr>
+              <tr><td><code>total_tasks</code></td><td>All tasks in storage, any status.</td></tr>
+              <tr><td><code>schedules</code></td><td>Count of <strong>enabled</strong> schedules.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="doc-page" id="page-api-tasks" data-page="api-tasks">
+        <h1>API — Tasks</h1>
+        <p class="doc-lede">Task lifecycle endpoints: list with filters, fetch one, enqueue, and cancel.</p>
+
+        <h2 id="tasks-list"><span class="method-badge method-get">GET</span> /api/tasks<a class="anchor" href="#tasks-list">#</a></h2>
+        <p>Query params: <code>status</code> (one of <code>created|queued|running|completed|failed|dead-lettered|cancelled</code>), <code>limit</code>, <code>offset</code>. Returns a page plus the unfiltered total.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 200</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "tasks": [
+    {
+      "id": "9f4a2c1e-...",
+      "name": "resize_image",
+      "payload": {"path": "img.png", "w": 128},
+      "tags": ["gpu"],
+      "status": "running",
+      "retry_count": 0,
+      "max_retries": 3,
+      "enqueue_time": 1725446400000,
+      "eta": null,
+      "resources": {"cpu": 4},
+      "result": null,
+      "schedule_id": null
+    }
+  ],
+  "total": 203
+}</code></pre>
+        </div>
+
+        <h2 id="tasks-get"><span class="method-badge method-get">GET</span> /api/tasks/:id<a class="anchor" href="#tasks-get">#</a></h2>
+        <p>Returns a single task by UUID. <code>404</code> if not found, <code>400</code> on a malformed ID.</p>
+
+        <h2 id="tasks-enqueue"><span class="method-badge method-post">POST</span> /api/tasks<a class="anchor" href="#tasks-enqueue">#</a></h2>
+        <p>Enqueue a task. The broker sets <code>status = queued</code> and persists it; matching workers pick it up on their next <code>FetchTasks</code>.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">request body</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "name": "resize_image",
+  "payload": {"path": "img.png", "w": 128},
+  "tags": ["gpu"],
+  "max_retries": 3,
+  "resources": {"cpu": 4}
+}</code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 201</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{ "task_id": "9f4a2c1e-..." }</code></pre>
+        </div>
+
+        <h2 id="tasks-cancel"><span class="method-badge method-post">POST</span> /api/tasks/:id/cancel<a class="anchor" href="#tasks-cancel">#</a></h2>
+        <p>Cancels a non-terminal task. Returns <code>{"success": false}</code> if the task is already terminal (<code>Completed</code>, <code>Failed</code>, <code>DeadLettered</code>, <code>Cancelled</code>) or not found. If the task was <code>Running</code>, the broker also releases it from the assigned worker.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 200</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{ "success": true }</code></pre>
+        </div>
+      </article>
+      <article class="doc-page" id="page-api-schedules" data-page="api-schedules">
+        <h1>API — Schedules</h1>
+        <p class="doc-lede">Recurring and one-shot schedule endpoints: list, create, update, and delete. See <a href="#scheduling" style="color:var(--primary);text-decoration:underline">Scheduling &amp; Recurrence</a> for semantics.</p>
+
+        <h2 id="schedules-list"><span class="method-badge method-get">GET</span> /api/schedules<a class="anchor" href="#schedules-list">#</a></h2>
+        <p>Returns every schedule (enabled and disabled). Each carries a <code>kind</code> discriminated by <code>type</code>: <code>{"type":"cron","cron":"0 9 * * *"}</code> or <code>{"type":"oneshot","eta":"2026-09-04T14:30:00Z"}</code>.</p>
+
+        <h2 id="schedules-create"><span class="method-badge method-post">POST</span> /api/schedules<a class="anchor" href="#schedules-create">#</a></h2>
+        <p>Create a schedule. The broker validates the cron expression / ETA and computes <code>next_fire</code>. <code>overlap_policy</code> defaults to <code>skip</code>.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">request body</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "name": "nightly-build",
+  "task_template": {
+    "name": "build",
+    "payload": "{}",
+    "tags": ["ci"],
+    "resources": {"cpu": 4},
+    "max_retries": 3
+  },
+  "kind": {"type": "cron", "cron": "0 9 * * *"},
+  "overlap_policy": "skip"
+}</code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 201</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{ "schedule_id": "a1b2c3d4-..." }</code></pre>
+        </div>
+
+        <h2 id="schedules-patch"><span class="method-badge method-patch">PATCH</span> /api/schedules/:id<a class="anchor" href="#schedules-patch">#</a></h2>
+        <p>Partial update. All fields optional: <code>enabled</code> (pause/resume), <code>overlap_policy</code>, <code>cron</code> (replaces the kind and recomputes <code>next_fire</code>). Returns the updated schedule.</p>
+
+        <h2 id="schedules-delete"><span class="method-badge method-delete">DELETE</span> /api/schedules/:id<a class="anchor" href="#schedules-delete">#</a></h2>
+        <p>Delete a schedule by ID. Returns <code>{"success": true}</code>. Deleting a schedule does not affect tasks it already materialized.</p>
+      </article>
+      <article class="doc-page" id="page-api-workers" data-page="api-workers">
+        <h1>API — Workers</h1>
+        <p class="doc-lede">Worker registry, capacity, and liveness endpoints.</p>
+
+        <h2 id="workers-list"><span class="method-badge method-get">GET</span> /api/workers<a class="anchor" href="#workers-list">#</a></h2>
+        <p>Returns every registered worker with its tags, resource meters, assigned task count, and liveness (based on heartbeat age).</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 200</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>[
+  {
+    "id": "b7e1f0a2-...",
+    "address": "10.0.0.4:50051",
+    "tags": ["gpu", "ml"],
+    "alive": true,
+    "assigned_tasks": 2,
+    "resources_total": {"cpu": 8, "gpu": 1},
+    "resources_available": {"cpu": 4, "gpu": 0},
+    "last_heartbeat": 1725446412000
+  }
+]</code></pre>
+        </div>
+        <div class="callout callout-info"><p class="callout-title">Liveness</p><p><code>alive</code> is derived from <code>last_heartbeat</code> against the broker's heartbeat timeout. A dead worker's assigned tasks are eligible for reclamation on the next reconcile.</p></div>
+
+        <h2 id="workers-health"><span class="method-badge method-get">GET</span> /healthz<a class="anchor" href="#workers-health">#</a></h2>
+        <p>Liveness/readiness probe. Returns <code>200 OK</code> with body <code>ok</code>. Use it for load-balancer health checks and container orchestrators — it does not report broker internals.</p>
+      </article>
+
+      <!-- ===== gRPC REFERENCE ===== -->
+      <article class="doc-page" id="page-grpc" data-page="grpc">
+        <h1>gRPC Reference</h1>
+        <p class="doc-lede">The broker serves a gRPC API on the configured <code>--port</code> (default <code>8000</code>) via tonic. This is the wire protocol workers and clients speak; the HTTP API is a thin facade over the same <code>BrokerState</code>.</p>
+
+        <p>The service is defined in <code>broker/proto/chopflow.proto</code> (<code>package chopflow</code>). Generate a client in any language with gRPC tooling.</p>
+
+        <h2 id="grpc-methods">Service methods<a class="anchor" href="#grpc-methods">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>RPC</th><th>Direction</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>EnqueueTask</code></td><td>client → broker</td><td>Submit a task (name, JSON payload, tags, ETA, max_retries, resources). Returns <code>task_id</code>.</td></tr>
+              <tr><td><code>GetTaskStatus</code></td><td>client → broker</td><td>Fetch a full <code>Task</code> by ID — status, attempts, result.</td></tr>
+              <tr><td><code>CancelTask</code></td><td>client → broker</td><td>Cancel a non-terminal task. Returns <code>success</code>.</td></tr>
+              <tr><td><code>RegisterWorker</code></td><td>worker → broker</td><td>Register with address, tags, and total resources. Returns <code>worker_id</code>.</td></tr>
+              <tr><td><code>WorkerHeartbeat</code></td><td>worker → broker</td><td>Refresh liveness; optionally update resource availability.</td></tr>
+              <tr><td><code>FetchTasks</code></td><td>worker → broker</td><td><strong>Pull</strong> up to <code>max_tasks</code> ready tasks matching the worker's tags &amp; resources (Queued → Running). The core of the pull model.</td></tr>
+              <tr><td><code>AcknowledgeTask</code></td><td>worker → broker</td><td>Report success (with JSON result) or failure (with error). Drives retry / dead-letter.</td></tr>
+              <tr><td><code>GetQueueStats</code></td><td>client → broker</td><td>Queue length, processing, completed, failed, active workers.</td></tr>
+              <tr><td><code>ListTasks</code></td><td>client → broker</td><td>Paginated task list with optional status filter.</td></tr>
+              <tr><td><code>ListWorkers</code></td><td>client → broker</td><td>All registered workers.</td></tr>
+              <tr><td><code>CreateSchedule</code></td><td>client → broker</td><td>Create a cron or one-shot schedule.</td></tr>
+              <tr><td><code>ListSchedules</code></td><td>client → broker</td><td>All schedules.</td></tr>
+              <tr><td><code>DeleteSchedule</code></td><td>client → broker</td><td>Delete a schedule by ID.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="grpc-messages">Key messages<a class="anchor" href="#grpc-messages">#</a></h2>
+        <p><code>Task</code> carries <code>id</code>, <code>name</code>, JSON <code>payload</code>, <code>tags</code>, <code>enqueue_time</code>/<code>eta</code>, <code>retry_count</code>/<code>max_retries</code>, <code>status</code>, a <code>resources</code> map, <code>result</code> (empty until terminal), and <code>schedule_id</code> (set when materialized by a schedule). <code>TaskStatus</code> is the enum: <code>CREATED=0, QUEUED=1, RUNNING=2, COMPLETED=3, FAILED=4, DEADLETTERED=5, CANCELLED=6</code>.</p>
+
+        <div class="callout callout-info"><p class="callout-title">Pull, don't push</p><p>The broker never pushes tasks to workers. A worker calls <code>FetchTasks</code> on its own poll loop, so a slow worker simply stops pulling — backpressure is implicit, no flow-control signaling needed.</p></div>
+      </article>
+
+      <!-- ===== STORAGE BACKENDS ===== -->
+      <article class="doc-page" id="page-storage-sqlite" data-page="storage-sqlite">
+        <h1>Storage — SQLite</h1>
+        <p class="doc-lede">Default storage backend. SQLite in WAL mode for durable persistence with minimal operational overhead.</p>
+
+        <p><code>SqliteStorage</code> holds a single <code>rusqlite</code> connection behind a <code>std::sync::Mutex</code>, with the SQLite library bundled in (no system dependency). All methods are <code>async</code>; synchronous database work is offloaded to <code>tokio::task::spawn_blocking</code> so the runtime is never blocked.</p>
+
+        <h2 id="sqlite-config">Configuration<a class="anchor" href="#sqlite-config">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--storage</code></td><td><code>sqlite</code></td><td>Select the backend (<code>sqlite</code> or <code>memory</code>).</td></tr>
+              <tr><td><code>--db-path</code></td><td><code>chopflow.db</code></td><td>Path to the SQLite database file.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="sqlite-reconcile">Restart reconciliation<a class="anchor" href="#sqlite-reconcile">#</a></h2>
+        <p>On open, <code>SqliteStorage::reconcile</code> walks every <code>Running</code> task and resets it to <code>Queued</code>. After a broker restart the workers that claimed those tasks are gone, so leaving them <code>Running</code> would orphan them. Re-queuing makes them eligible for the next live worker to claim.</p>
+        <div class="callout callout-warn"><p class="callout-title">At-least-once</p><p>Reconciliation means a task that was mid-flight may execute again after a restart. Design handlers to be idempotent where the side effect matters.</p></div>
+      </article>
+      <article class="doc-page" id="page-storage-memory" data-page="storage-memory">
+        <h1>Storage — In-Memory</h1>
+        <p class="doc-lede">In-memory storage backend for testing and demos. Not durable — all state is lost on restart.</p>
+
+        <p><code>InMemoryStorage</code> is a <code>HashMap</code> behind a <code>tokio::Mutex</code>. It implements the same <code>Storage</code> trait as <code>SqliteStorage</code>, so it is a drop-in for ephemeral runs. Select it with <code>--storage memory</code>.</p>
+
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_broker start \
+    --storage memory --http-port 8080 --open</span></code></pre>
+        </div>
+
+        <div class="callout callout-warn"><p class="callout-title">Ephemeral</p><p>Nothing persists. Stop the broker and every task, worker, and schedule is gone. This is the backend <code>demos/run.sh</code> uses so demo runs start clean.</p></div>
+
+        <p>Because both backends implement the same trait, you can also construct an <code>InMemoryStorage</code> directly in a Rust test to exercise dispatch, retry, and scheduling logic with no I/O — see <a href="#client-rust" style="color:var(--primary);text-decoration:underline">Rust Client → In-process</a>.</p>
+      </article>
+
+      <!-- ===== ARCHITECTURE ===== -->
+      <article class="doc-page" id="page-architecture" data-page="architecture">
+        <h1>Architecture</h1>
+        <p class="doc-lede">ChopFlow is a single-binary system with a pull-based dispatch model, durable persistence, and an embedded dashboard. Five workspace crates, one shared broker state.</p>
+
+        <h2 id="arch-crates">The five crates<a class="anchor" href="#arch-crates">#</a></h2>
+        <div class="crate-grid">
+          <div class="crate-card"><h3>core</h3><p>Rust library: <code>Task</code>, <code>Queue</code>, <code>Dispatcher</code>, <code>RetryPolicy</code>, <code>Schedule</code>, <code>Storage</code>, resources. No I/O of its own.</p></div>
+          <div class="crate-card"><h3>broker</h3><p>gRPC + HTTP/JSON server, embeds the dashboard UI, owns shared <code>BrokerState</code>.</p></div>
+          <div class="crate-card"><h3>worker</h3><p>Pulls work from the broker by tag + resource match, acks results.</p></div>
+          <div class="crate-card"><h3>cli</h3><p><code>chopflow_cli</code> — enqueue, status, schedule management.</p></div>
+          <div class="crate-card"><h3>demos</h3><p>Example handlers, demo worker, seed tooling, run scripts.</p></div>
+        </div>
+
+        <h2 id="arch-state">Shared BrokerState<a class="anchor" href="#arch-state">#</a></h2>
+        <p>The broker holds a single <code>BrokerState</code> — a shared handle to the <code>Storage</code> and the <code>Dispatcher</code>. Both the gRPC service (<code>:8000</code>, for workers and clients) and the HTTP API + dashboard (<code>:8080</code>) read and write the same live state. A task enqueued from the web UI is immediately visible to a gRPC worker's next <code>FetchTasks</code>, and vice versa — no sync step, no separate data plane.</p>
+
+        <h2 id="arch-pull">Pull-based dispatch<a class="anchor" href="#arch-pull">#</a></h2>
+        <p>The broker never pushes tasks. A worker calls <code>FetchTasks</code> on its own poll loop; the broker atomically claims matching ready tasks (Queued → Running). A slow or saturated worker simply stops pulling, so backpressure is implicit — there is no flow-control signaling to implement or misconfigure.</p>
+
+        <h2 id="arch-single-binary">Why one binary<a class="anchor" href="#arch-single-binary">#</a></h2>
+        <p>The broker, the dashboard, and the HTTP API ship in a single binary so an operator deploys one process and gets a live, observable cluster. The dashboard is embedded via <code>rust-embed</code> (no separate frontend host); storage defaults to a local SQLite file (no external database to provision). Workers and the CLI are separate binaries that talk to the broker over gRPC.</p>
+
+        <div class="callout callout-info"><p class="callout-title">Category</p><p>ChopFlow is a <strong>task queue</strong> (Celery / Ray / Dask lineage), not a workflow engine. It moves independent units of work through an observable lifecycle across a worker fleet — it does not orchestrate multi-step sagas or long-running workflows the way Temporal does.</p></div>
+      </article>
+
+      <!-- ===== FAQ ===== -->
+      <article class="doc-page" id="page-faq" data-page="faq">
+        <h1>FAQ</h1>
+        <p class="doc-lede">Frequently asked questions about ChopFlow — the system, the model, and where it fits.</p>
+
+        <h2 id="faq-language">What language is ChopFlow written in, and what can talk to it?<a class="anchor" href="#faq-language">#</a></h2>
+        <p>The core broker and workers are written in Rust (2021 edition). Rust is the first-class client language; Python and Java clients are on the roadmap. Workers and the CLI speak gRPC to the broker; browsers and external tooling speak HTTP/JSON against the same live <code>BrokerState</code>.</p>
+
+        <h2 id="faq-restart">How does ChopFlow survive a broker restart?<a class="anchor" href="#faq-restart">#</a></h2>
+        <p>Tasks persist in SQLite (or the in-memory backend for tests). On boot the broker reconciles in-flight work: any task left <code>Running</code> from a previous run is reset to <code>Queued</code>, since its worker is gone. No silently dropped work — see <a href="#storage-sqlite" style="color:var(--primary);text-decoration:underline">Storage — SQLite → Restart reconciliation</a>.</p>
+
+        <h2 id="faq-frontend">Do I need to deploy a separate frontend?<a class="anchor" href="#faq-frontend">#</a></h2>
+        <p>No. The dashboard is embedded in the broker binary via <code>rust-embed</code> and served on the HTTP port — one process, no Node build required to run, no separate deploy. The same UI also ships as a native macOS app through Tauri.</p>
+
+        <h2 id="faq-failure">What happens when a task fails or times out?<a class="anchor" href="#faq-failure">#</a></h2>
+        <p>Workers acknowledge each task with a success or structured failure. Failed tasks follow a configurable <code>RetryPolicy</code> (fixed or exponential backoff). Tasks that exhaust their retries are <code>DeadLettered</code> so they stay visible instead of vanishing — see <a href="#retry-deadletter" style="color:var(--primary);text-decoration:underline">Retry &amp; Dead-Letter</a>.</p>
+
+        <h2 id="faq-routing">Can I route work to specific workers?<a class="anchor" href="#faq-routing">#</a></h2>
+        <p>Yes. Tasks carry tags and resource requirements; workers register with tags (e.g. <code>gpu,ml</code>) and capacity (CPU, GPU, memory). The dispatcher only hands a task to a worker whose tags match and whose resources are available — see <a href="#resources-tags" style="color:var(--primary);text-decoration:underline">Resources &amp; Tags</a>.</p>
+
+        <h2 id="faq-temporal">How is this different from Temporal?<a class="anchor" href="#faq-temporal">#</a></h2>
+        <p>Different category. Temporal is a durable <em>workflow</em> engine — it orchestrates long-running, multi-step processes via event-sourced replay. ChopFlow is a <em>task queue</em> in the Celery / Ray / Dask lineage: discrete units of work, a pull-based dispatch model, leases, retries, and dead-lettering. If you're scheduling background jobs across a worker fleet and observing them live, that's ChopFlow's shape; if you need saga-style workflows with checkpointed replay, Temporal is the right tool.</p>
+
+        <h2 id="faq-production">Is ChopFlow production-ready or research-only?<a class="anchor" href="#faq-production">#</a></h2>
+        <p>Both. It's built for production applications <em>and</em> for distributed-systems research. The <code>experiment</code> directory (reproducible configs and analysis scripts) is planned but not yet landed; the <code>demos</code> crate is the current way to exercise the system end-to-end.</p>
+
+        <h2 id="faq-backfill">Are missed cron runs backfilled?<a class="anchor" href="#faq-backfill">#</a></h2>
+        <p>No. On startup, enabled cron schedules have <code>next_fire</code> recomputed from <code>now</code>, so the ticker only fires future matches. A disabled one-shot with a past ETA stays disabled until re-enabled. See <a href="#scheduling" style="color:var(--primary);text-decoration:underline">Scheduling &amp; Recurrence</a>.</p>
+
+        <h2 id="faq-pull">Why pull-based dispatch?<a class="anchor" href="#faq-pull">#</a></h2>
+        <p>The broker never pushes tasks. A worker calls <code>FetchTasks</code> on its own poll loop, so a slow or saturated worker simply stops pulling — backpressure is implicit, with no flow-control signaling to implement or misconfigure.</p>
+      </article>
+
+      <footer class="doc-footer">
+        <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/docs/"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v16M4 12h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Edit this page on GitHub</a>
+      </footer>
+    </main>
+
+    <aside class="toc" id="toc" data-od-id="docs-toc">
+      <p class="toc-title">On this page</p>
+      <ul class="toc-list" id="toc-list"></ul>
+    </aside>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const themeToggle = document.querySelector('.theme-toggle');
+      function syncThemeLabel() {
+        const dark = root.dataset.theme === 'dark';
+        themeToggle.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#0a0c10' : '#f7f8fa');
+      }
+      syncThemeLabel();
+      themeToggle.addEventListener('click', () => {
+        root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('chopflow-theme', root.dataset.theme);
+        syncThemeLabel();
+      });
+    })();
+
+    (() => {
+      const pages = Array.from(document.querySelectorAll('.doc-page'));
+      const navLeaves = Array.from(document.querySelectorAll('[data-page]'));
+      const tocList = document.getElementById('toc-list');
+      const main = document.getElementById('doc-main');
+      const sidebar = document.getElementById('sidebar');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      let spyObs = null;
+
+      function buildTOC(page) {
+        tocList.innerHTML = '';
+        const headings = page.querySelectorAll('h2[id], h3[id]');
+        if (!headings.length) { tocList.innerHTML = '<li class="toc-empty">No sections</li>'; return; }
+        headings.forEach(h => {
+          const li = document.createElement('li');
+          li.className = 'toc-item';
+          const a = document.createElement('a');
+          a.className = 'toc-link' + (h.tagName === 'H3' ? ' sub' : '');
+          a.href = '#' + h.id;
+          a.textContent = h.textContent.replace(/#$/, '').trim();
+          a.dataset.target = h.id;
+          li.appendChild(a);
+          tocList.appendChild(li);
+        });
+      }
+
+      function setupSpy(page) {
+        if (spyObs) spyObs.disconnect();
+        const links = tocList.querySelectorAll('.toc-link');
+        if (!links.length) return;
+        const headings = page.querySelectorAll('h2[id], h3[id]');
+        spyObs = new IntersectionObserver((entries) => {
+          entries.forEach(e => {
+            if (e.isIntersecting) {
+              links.forEach(l => l.classList.toggle('active', l.dataset.target === e.target.id));
+            }
+          });
+        }, { rootMargin: '-80px 0px -70% 0px', threshold: 0 });
+        headings.forEach(h => spyObs.observe(h));
+      }
+
+      function navigate(pageId, push) {
+        const page = document.getElementById('page-' + pageId);
+        if (!page) return;
+        pages.forEach(p => p.classList.remove('active'));
+        page.classList.add('active');
+        navLeaves.forEach(l => l.classList.toggle('active', l.dataset.page === pageId));
+        const group = page.closest('.doc-layout');
+        const navItem = document.querySelector('[data-page="' + pageId + '"]');
+        if (navItem) {
+          const grp = navItem.closest('.nav-group');
+          if (grp) grp.classList.remove('collapsed');
+        }
+        buildTOC(page);
+        setupSpy(page);
+        window.scrollTo(0, 0);
+        if (push) history.pushState({ page: pageId }, '', '#' + pageId);
+        if (window.innerWidth <= 820) { sidebar.classList.remove('open'); backdrop.classList.remove('open'); }
+      }
+
+      navLeaves.forEach(leaf => {
+        leaf.addEventListener('click', (e) => {
+          e.preventDefault();
+          navigate(leaf.dataset.page, true);
+        });
+      });
+
+      document.querySelectorAll('.nav-group-header').forEach(header => {
+        header.addEventListener('click', () => {
+          header.closest('.nav-group').classList.toggle('collapsed');
+        });
+      });
+
+      const menuToggle = document.querySelector('.menu-toggle');
+      menuToggle.addEventListener('click', () => {
+        const open = sidebar.classList.toggle('open');
+        backdrop.classList.toggle('open', open);
+      });
+      backdrop.addEventListener('click', () => {
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('open');
+      });
+
+      if (window.location.hash) {
+        const id = window.location.hash.slice(1);
+        const target = document.querySelector('[data-page="' + id + '"]');
+        if (target) navigate(id, false);
+      }
+
+      // Allow in-content cross-links (e.g. <a href="#scheduling">) to switch
+      // pages, not just the nav leaves. navigate() uses pushState (no hash
+      // event), so there is no loop.
+      window.addEventListener('hashchange', () => {
+        const id = window.location.hash.slice(1);
+        if (document.querySelector('[data-page="' + id + '"]')) navigate(id, false);
+      });
+
+      document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const code = btn.closest('.code-block').querySelector('code');
+          const text = code.textContent;
+          navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = 'Copied';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+          });
+        });
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          const input = document.querySelector('.search-input');
+          if (input) input.focus();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

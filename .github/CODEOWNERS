@@ -1,0 +1,5 @@
+# CODEOWNERS — every path defaults to the repository owner.
+# Review requests are routed here for all changes. Add more owners only
+# when a contributor should own a specific subtree.
+
+*           @ricardoleal20

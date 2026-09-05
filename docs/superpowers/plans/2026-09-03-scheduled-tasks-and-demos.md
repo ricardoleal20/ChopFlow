@@ -276,7 +276,7 @@ Expected: PASS, no warnings about the new module.
 git add core/src/schedule.rs core/src/lib.rs core/Cargo.toml
 git commit -m ":sparkles: Add: Schedule entity + cron next-fire helpers in core
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -344,7 +344,7 @@ Expected: PASS (all core tests, including the storage round-trip tests which ser
 git add core/src/task.rs
 git commit -m ":sparkles: Add: schedule_id field on Task for schedule lineage
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -782,7 +782,7 @@ git commit -m ":sparkles: Add: schedule storage methods for InMemory + SQLite
 Adds the schedules table + 6 Storage trait methods (insert/get/list/delete/
 update/due_schedules/in_flight_for_schedule) on both backends.
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1029,7 +1029,7 @@ git commit -m ":sparkles: Add: broker schedule ticker + startup reconciliation
 Ticker materializes tasks from due schedules with overlap-skip; one-shots
 self-disable; cron advances next_fire. Reconciliation skips missed runs.
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1291,7 +1291,7 @@ Expected: PASS (existing grpc_flow + new schedule_ticker + http_schedules).
 git add broker/src/http.rs broker/tests/http_schedules.rs
 git commit -m ":sparkles: Add: HTTP /api/schedules CRUD + schedules count in stats
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1467,7 +1467,7 @@ Expected: PASS.
 git add broker/proto/chopflow.proto broker/src/lib.rs
 git commit -m ":sparkles: Add: gRPC Schedule RPCs + schedule_id on proto Task
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1596,7 +1596,7 @@ If a broker is up: `cargo run -p chopflow_cli -- schedule create --name demo --t
 git add cli/src/main.rs
 git commit -m ":sparkles: Add: CLI schedule subcommand (create/list/delete)
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1739,7 +1739,7 @@ Expected: PASS (rust-embed re-reads `ui/dist`).
 git add broker/ui/src broker/ui/dist
 git commit -m ":sparkles: Add: Schedules view + drawer in dashboard UI
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1781,7 +1781,7 @@ Expected: PASS.
 git add broker/ui/src broker/ui/dist
 git commit -m ":sparkles: Add: schedule toggle in enqueue modal + task lineage UI
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -1951,7 +1951,7 @@ Expected: PASS. Fix proto enum variant name mismatches as the compiler reports.
 git add Cargo.toml demos
 git commit -m":sparkles: Add: demos crate with 4 simulated demo handlers + worker
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -2066,7 +2066,7 @@ In `README.md`, after the dashboard section, add a `## Scheduled tasks` section 
 git add demos README.md
 git commit -m ":sparkles: Add: demo seed binary + run script + README sections
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
@@ -2096,7 +2096,7 @@ Expected (per spec section 12.3): browser shows 4 tasks flowing through distinct
 git add broker/tests/grpc_flow.rs
 git commit -m ":white_check_mark: Add: gRPC schedule materialization integration test
 
-Refs: INTM-SCHEDULE"
+Refs: SCHEDULE-1"
 ```
 
 ---
