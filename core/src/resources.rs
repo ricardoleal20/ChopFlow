@@ -130,6 +130,12 @@ pub struct ResourceUsageMetrics {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+impl Default for ResourceUsageMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceUsageMetrics {
     /// Create a new set of resource usage metrics
     pub fn new() -> Self {

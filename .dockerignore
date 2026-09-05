@@ -1,0 +1,25 @@
+# Build artifacts
+target/
+app/src-tauri/target/
+
+# Node / frontend sources not needed at Docker build time: the broker embeds
+# the committed broker/ui/dist bundle, so the JS toolchain is never invoked.
+broker/ui/node_modules/
+broker/ui/src/
+broker/ui/.env*
+broker/ui/vite.config.*
+broker/ui/tsconfig*.json
+broker/ui/package.json
+broker/ui/pnpm-lock.yaml
+
+# Local runtime state
+*.db
+*.db-shm
+*.db-wal
+
+# OS / editor noise
+.DS_Store
+.git/
+.github/
+docs/
+assets/render-demo-gif.js

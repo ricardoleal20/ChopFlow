@@ -34,3 +34,8 @@ chopflow.db-wal
 # standalone workspace writes here; ignore it explicitly along with gen/.
 app/src-tauri/target/
 app/src-tauri/gen/
+
+# Benchmark / Python harness caches
+__pycache__/
+*.pyc
+bench/.venv/

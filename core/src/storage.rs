@@ -161,7 +161,7 @@ impl Storage for InMemoryStorage {
             .filter(|t| filter.statuses.is_empty() || filter.statuses.contains(&t.status))
             .cloned()
             .collect();
-        all.sort_by(|a, b| a.enqueue_time.cmp(&b.enqueue_time));
+        all.sort_by_key(|t| t.enqueue_time);
 
         let limited: Vec<Task> = all
             .into_iter()
@@ -247,7 +247,7 @@ impl Storage for InMemoryStorage {
     async fn list_schedules(&self) -> Result<Vec<Schedule>> {
         let scheds = self.schedules.lock().await;
         let mut all: Vec<Schedule> = scheds.values().cloned().collect();
-        all.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        all.sort_by_key(|s| s.created_at);
         Ok(all)
     }
 
@@ -461,7 +461,7 @@ impl Storage for SqliteStorage {
             let mut sql = String::from("SELECT * FROM tasks");
             if !statuses.is_empty() {
                 sql.push_str(" WHERE status IN (");
-                sql.push_str(&std::iter::repeat("?").take(statuses.len()).collect::<Vec<_>>().join(","));
+                sql.push_str(&vec!["?"; statuses.len()].join(","));
                 sql.push(')');
             }
             sql.push_str(" ORDER BY enqueue_ms, id LIMIT ? OFFSET ?");
@@ -475,13 +475,13 @@ impl Storage for SqliteStorage {
                 .collect();
 
             let params: Vec<&dyn rusqlite::ToSql> =
-                params_iter.iter().map(|b| b.as_ref()).collect();
+                params_iter.iter().map(Box::as_ref).collect();
 
             let rows: rusqlite::Result<Vec<Task>> = stmt
-                .query_map(params.as_slice(), |row| Self::unmarshal(row))
+                .query_map(params.as_slice(), Self::unmarshal)
                 .map_err(rusqlite_err)?
                 .collect();
-            Ok(rows.map_err(rusqlite_err)?)
+            rows.map_err(rusqlite_err)
         })
         .await
         .map_err(|e| ChopFlowError::Other(e.into()))??;
@@ -674,7 +674,7 @@ impl Storage for SqliteStorage {
                 let json: String = row.get(0)?;
                 serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
             }).map_err(rusqlite_err)?.collect();
-            Ok(rows.map_err(rusqlite_err)?)
+            rows.map_err(rusqlite_err)
         }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(schs)
     }
@@ -707,7 +707,7 @@ impl Storage for SqliteStorage {
                 let json: String = row.get(0)?;
                 serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
             }).map_err(rusqlite_err)?.collect();
-            Ok(rows.map_err(rusqlite_err)?)
+            rows.map_err(rusqlite_err)
         }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(schs)
     }

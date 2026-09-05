@@ -1,35 +1,112 @@
-# ChopFlow
-
 <p align="center">
   <img src="assets/banner.png" alt="ChopFlow" width="100%">
 </p>
 
-> Durable task queue for distributed systems. A Rust-fast core with client
-> libraries for Rust, Python, and Java — plus a live operations dashboard,
-> all from one binary.
+<h1 align="center">ChopFlow</h1>
 
-🌐 **Landing page:** <https://chopflow.ricardoleal20.dev> ·
-📦 **Source:** <https://github.com/ricardoleal20/ChopFlow>
+<p align="center">
+  <strong>A durable distributed task queue built in Rust.</strong><br>
+  Run background jobs across a fleet of workers with retries, resource-aware
+  scheduling, task lifecycle tracking — and no heavyweight workflow engine.
+</p>
 
-ChopFlow is a distributed task queue written in Rust with multi-language
-client libraries, designed for both production applications and research in
-distributed systems. It is a task queue in the Celery / Ray / Dask lineage —
-**not** a workflow engine like Temporal.
+<p align="center">
+  <em>Celery-like task execution. Rust-native infrastructure. Built for distributed workloads.</em>
+</p>
 
-## What it does?
+<p align="center">
+  <a href="https://github.com/ricardoleal20/ChopFlow/actions"><img alt="CI" src="https://github.com/ricardoleal20/ChopFlow/actions/workflows/deploy-pages.yml/badge.svg"></a>
+  <a href="https://github.com/ricardoleal20/ChopFlow"><img alt="GitHub stars" src="https://img.shields.io/github/stars/ricardoleal20/ChopFlow?style=social"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange.svg">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-DEA584.svg">
+</p>
+
+<p align="center">
+  🌐 <a href="https://chopflow.ricardoleal20.dev">Landing page</a> ·
+  📦 <a href="https://github.com/ricardoleal20/ChopFlow">Source</a> ·
+  📒 <a href="CHANGELOG.md">Changelog</a> ·
+  🤝 <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+---
+
+<p align="center">
+  <img src="assets/demo.gif" alt="ChopFlow terminal demo" width="100%">
+</p>
+
+> **Status: experimental.** APIs may change between minor versions. Not
+> production-hardened yet — see the [roadmap](#roadmap) for what exists and
+> what's planned.
+
+## Why ChopFlow?
+
+Celery, BullMQ, Sidekiq, Ray and Apalis all exist. Why another queue?
+
+ChopFlow targets a specific gap: **durable distributed execution for
+heterogeneous workers**, without becoming a workflow engine. Workers declare
+real resources (CPU, GPU, memory) and pull work they can actually run; the
+broker persists every task and reconciles in-flight work on restart so nothing
+is silently dropped. The whole system — gRPC broker, HTTP/JSON API, and a live
+operations dashboard — ships from **one binary**.
+
+|                                   | ChopFlow | Celery  | BullMQ  | Ray     |
+| --------------------------------- | -------- | ------- | ------- | ------- |
+| Rust-native core                  | ✅        | ❌       | partial¹| ❌       |
+| Dedicated task broker (1 binary)  | ✅        | ✅       | ✅       | —       |
+| Pull-based workers                | ✅        | ❌       | ✅       | partial |
+| Resource-aware dispatch (CPU/GPU) | ✅        | limited | limited | ✅       |
+| Worker tags / routing             | ✅        | ✅       | ✅       | limited |
+| Explicit task lifecycle           | ✅        | ✅       | ✅       | ✅       |
+| Retries + dead-letter             | ✅        | ✅       | ✅       | limited |
+| Cron + one-shot scheduling        | ✅        | ✅       | —       | ❌       |
+| Embedded ops dashboard            | ✅        | ❌       | partial | partial |
+| Workflow engine / DAGs            | ❌        | ❌       | ❌       | partial |
+
+> ¹ BullMQ added an official Rust client recently; its core remains Node/Redis.
+>
+> Only features ChopFlow has **today** are marked ✅. If something is missing,
+> it's not on this table — see the [roadmap](#roadmap).
+
+If you need DAG orchestration, Temporal-class workflows, or a battle-tested
+fleet running millions of jobs/day in production, ChopFlow isn't there yet.
+If you want a small, inspectable distributed queue you can actually read
+end-to-end and extend — read on.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Clients
+        CLI["CLI / HTTP API"]
+        PY["Python / Java client\n(roadmap)"]
+    end
+
+    BROKER["Broker (1 binary)\n— gRPC + HTTP/JSON\n— SQLite / in-memory storage\n— schedule ticker\n— embedded dashboard"]
+    W1["Worker A\ntags: gpu,ml\ncpu:8 gpu:1"]
+    W2["Worker B\ntags: cpu\nmemory:32"]
+
+    CLI -->|"enqueue / cancel"| BROKER
+    PY -.->|"gRPC (roadmap)"| BROKER
+    BROKER -->|"pull matching work"| W1
+    BROKER -->|"pull matching work"| W2
+    W1 -->|"ack success/failure"| BROKER
+    W2 -->|"ack success/failure"| BROKER
+    BROKER -->|"HTTP :8080"| DASH["Live dashboard\n(browser / Tauri app)"]
+```
 
 ChopFlow takes units of background work — training jobs, reports, pipeline
 stages, image processing — and moves them through an explicit, observable
 lifecycle from submission to a terminal state, across a fleet of workers.
 
-- **You enqueue a task** (from Rust, Python, Java, or the CLI) with a payload,
-  tags, an optional ETA, resource requirements, and a retry policy.
+- **You enqueue a task** (from the CLI or HTTP API) with a payload, tags, an
+  optional ETA, resource requirements, and a retry policy.
 - **The broker persists it** (SQLite by default, in-memory for tests) and
   reconciles in-flight work on restart — no silently dropped tasks.
 - **Workers pull matching work** by tag and available resources (CPU, GPU,
   memory). Dispatch is pull-based, so backpressure is implicit.
 - **Workers acknowledge** each task with a success or structured failure;
-  failures retry with backoff, then dead-letter.
+  failures retry with exponential backoff, then dead-letter.
 - **You watch it live** in the embedded dashboard — queue depth, worker
   capacity, task attempts, timing, and terminal failures — served from the
   same binary, no separate frontend deploy.
@@ -37,70 +114,157 @@ lifecycle from submission to a terminal state, across a fleet of workers.
 Optionally, schedule recurring or one-shot work with cron and overlap
 policies, and run the whole dashboard as a native macOS app via Tauri.
 
-## Features
-
-- **Task Queue Management**: Enqueue and dequeue tasks with metadata (tags, ETA)
-- **Worker Dispatch**: Pull-based assignment by tag and resource availability
-- **Acknowledgments & Retries**: Workers ack success or failure; failures retry with exponential backoff, then dead-letter
-- **Resource Tracking**: CPU, GPU, and memory allocation and live utilization per worker
-- **Multi-language Interface**: Client libraries for Rust, Python, and Java — Celery-like `@task` decorator and `AsyncResult` on the Python side
-- **Scheduling**: Cron and one-shot schedules with overlap policies (skip / coalesce / allow)
-- **Metrics**: Queue length, latency, throughput, and resource utilization metrics
-- **Research Focus**: Designed for reproducible experiments and performance comparison
-
-## Components
-
-- **Core** (`core`): Rust library — `Task`, `Queue`, `Dispatcher`, `RetryPolicy`, `Schedule`, `Storage`, resources
-- **Broker** (`broker`): gRPC + HTTP/JSON server, embeds the dashboard UI, owns shared `BrokerState`
-- **Worker** (`worker`): Pulls work from the broker by tag + resource match, acks results
-- **CLI** (`cli`): `chopflow_cli` — enqueue, status, schedule management
-- **Demos** (`demos`): Example handlers, seed tooling, one-command demo run
-- **Client libraries**: Python and Java clients speak gRPC to the broker
-
-## Getting Started
+## Quick start
 
 ### Prerequisites
 
-- Rust (2021 edition)
-- Python 3.8+
-- Cargo
+- Rust (2021 edition) and Cargo
+- (optional) `pnpm` for dashboard dev, Docker for the container path
 
-### Building from Source
+### From source
 
 ```bash
-# Clone the repository
 git clone https://github.com/ricardoleal20/ChopFlow.git
 cd ChopFlow
-
-# Build the Rust workspace (core, broker, worker, cli, demos)
 cargo build --release
 ```
 
-> Python and Java client libraries are gRPC clients over the broker's proto
-> (`broker/proto/chopflow.proto`). They are on the roadmap — see
-> [CONTRIBUTING.md](CONTRIBUTING.md) §8 if you want to help land one.
-
-### Basic Usage
-
-Start the broker:
+Start the broker (gRPC on `:8000`, dashboard + HTTP API on `:8080`):
 
 ```bash
-./target/release/chopflow_broker start --host 127.0.0.1 --port 8000
+./target/release/chopflow_broker start --port 8000 --http-port 8080 --open
 ```
 
-Start a worker:
+In a second terminal, start a worker:
 
 ```bash
-./target/release/chopflow_worker start --broker http://localhost:8000 --tags gpu,ml --resources gpu:1,cpu:4
+./target/release/chopflow_worker start \
+    --broker http://localhost:8000 --tags gpu,ml --resources cpu:8,gpu:1
 ```
 
-Use the CLI to enqueue a task:
+In a third, enqueue a task:
 
 ```bash
-./target/release/chopflow_cli enqueue --task task.json --name training --tags gpu,ml
+echo '{"message":"hello"}' > /tmp/task.json
+./target/release/chopflow_cli --broker http://localhost:8000 \
+    enqueue --task /tmp/task.json --name echo --tags gpu,ml
 ```
 
-### Operations Dashboard UI
+Open <http://localhost:8080> to watch it flow through the dashboard.
+
+### With Docker
+
+```bash
+docker compose up --build      # broker + one worker, dashboard on :8080
+```
+
+### One-command demo
+
+```bash
+bash demos/run.sh
+```
+
+This builds the workspace, starts an in-memory broker with `--open`, starts a
+demo worker wired to four showcase handlers, and seeds one task of each type
+plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
+
+## The 20-second demo
+
+Three terminals, one queue:
+
+```text
+┌─ Terminal 1 ───────────────────────────────────────────────────┐
+│ $ chopflow broker start --port 7331 --storage memory           │
+│ ChopFlow gRPC  on 127.0.0.1:7331                               │
+│ ChopFlow HTTP/ on 127.0.0.1:8080  (dashboard)                  │
+│ ✓ storage initialized (memory)                                 │
+│ ✓ reconciled in-flight tasks: 0 reset                          │
+└────────────────────────────────────────────────────────────────┘
+┌─ Terminal 2 ───────────────────────────────────────────────────┐
+│ $ chopflow worker --broker http://localhost:7331 \             │
+│     --tags gpu,ml --resources cpu:8,gpu:1                      │
+│ Worker registered with ID: a7cd3a11-…d1459a81d                 │
+│ worker-01 connected · resources: cpu=8 gpu=1                   │
+└────────────────────────────────────────────────────────────────┘
+┌─ Terminal 3 ───────────────────────────────────────────────────┐
+│ $ chopflow submit train-model.json --tags gpu,ml               │
+│ task 7f821a… queued                                            │
+│ task 7f821a… → running on worker-01                            │
+│ task 7f821a… → completed (1.42s)                               │
+└────────────────────────────────────────────────────────────────┘
+```
+
+> The animated GIF at the top of this README is rendered from real broker
+> output. The renderer is at `assets/render-demo-gif.js` (regenerate with
+> `node assets/render-demo-gif.js`).
+
+## Features
+
+- **Task Queue Management**: enqueue and dequeue tasks with metadata (tags, ETA)
+- **Worker Dispatch**: pull-based assignment by tag and resource availability
+- **Acknowledgments & Retries**: workers ack success or failure; failures retry
+  with exponential backoff, then dead-letter
+- **Resource Tracking**: CPU, GPU, and memory allocation and live utilization
+  per worker; a worker only claims a task whose requirements it can satisfy
+- **Scheduling**: cron (5-field) and one-shot schedules with overlap policies
+  (`skip` / `coalesce` / `allow`)
+- **Durability & Reconciliation**: SQLite persistence; on broker restart,
+  in-flight `Running` tasks reset to `Queued` and schedule fires recompute —
+  no silently dropped tasks
+- **Metrics**: queue length, latency, throughput, and resource utilization
+- **Operations Dashboard**: embedded React UI served from the broker binary,
+  also available as a native macOS app via Tauri
+- **Research Focus**: designed for reproducible experiments and performance
+  comparison (see [BENCHMARKS.md](BENCHMARKS.md))
+
+## Components
+
+- **Core** (`core`): Rust library — `Task`, `Queue`, `Dispatcher`,
+  `RetryPolicy`, `Schedule`, `Storage`, resources
+- **Broker** (`broker`): gRPC + HTTP/JSON server, embeds the dashboard UI,
+  owns shared `BrokerState`, runs the schedule ticker and timeout monitor
+- **Worker** (`worker`): pulls work from the broker by tag + resource match,
+  acks results, sends heartbeats
+- **CLI** (`cli`): `chopflow_cli` — enqueue, status, schedule management
+- **Demos** (`demos`): example handlers, seed tooling, one-command demo run
+- **Client libraries**: Python and Java clients speak gRPC to the broker — on
+  the roadmap; the proto contract is in `broker/proto/chopflow.proto`
+
+## Architecture
+
+### Task lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: enqueue
+    Created --> Queued: persisted
+    Queued --> Running: worker claims
+    Running --> Completed: ack success
+    Running --> Failed: ack failure (retryable)
+    Failed --> Queued: retry with backoff
+    Failed --> DeadLettered: max_retries exceeded
+    Running --> Queued: worker timeout / restart reconcile
+    Queued --> Cancelled: cancel
+    Running --> Cancelled: cancel
+    Completed --> [*]
+    DeadLettered --> [*]
+    Cancelled --> [*]
+```
+
+A task moves through `Created → Queued → Running` and terminates at
+`Completed`, `DeadLettered`, or `Cancelled`. Failures retry with exponential
+backoff up to `max_retries`. If a worker dies or a task times out, the broker's
+reconciliation resets it to `Queued` so another worker can pick it up —
+at-least-once execution.
+
+### Storage backends
+
+| Backend   | Use case                          | Durable? |
+| --------- | --------------------------------- | -------- |
+| `sqlite`  | Default; production-ish single node | ✅        |
+| `memory`  | Tests, demos, ephemeral runs      | ❌        |
+
+## Operations Dashboard UI
 
 The broker ships with an embedded web dashboard — no separate frontend deploy
 needed. It serves HTTP/JSON (for the UI and any external tooling) alongside
@@ -237,12 +401,12 @@ The `demos` workspace crate ships a drop-in demo worker plus a seeding tool so
 `cargo run` produces a live dashboard end-to-end. The demo worker registers
 four showcase handlers (plus `echo` and a `default` fallback):
 
-| Handler           | What it does                                                        |
-|-------------------|---------------------------------------------------------------------|
-| `resize_image`    | Generates a synthetic gradient PNG and resizes it (image-rs).        |
-| `batch_compute`   | CPU-bound `n x n` f64 matrix multiply (nalgebra), reports timings.  |
+| Handler            | What it does                                                        |
+|--------------------|---------------------------------------------------------------------|
+| `resize_image`     | Generates a synthetic gradient PNG and resizes it (image-rs).        |
+| `batch_compute`    | CPU-bound `n x n` f64 matrix multiply (nalgebra), reports timings.  |
 | `simulate_pipeline`| Multi-stage pipeline (download/process/upload) with staged sleeps. |
-| `flaky_handler`   | Fails ~30% of the time (seeded) to exercise the retry policy.        |
+| `flaky_handler`    | Fails ~30% of the time (seeded) to exercise the retry policy.        |
 
 ### One-command demo run
 
@@ -270,7 +434,67 @@ cargo run -p chopflow_demos --bin chopflow_demo_seed -- [broker_base_url]
 # broker_base_url defaults to http://localhost:8080
 ```
 
-### Client libraries (Python / Java)
+### More demos
+
+A few focused scripts live in `demos/` to exercise specific behaviors — see
+[`demos/README.md`](demos/README.md):
+
+- **Multi-worker dispatch** — two workers with different tags/resources share the queue.
+- **Worker failure & retry** — kill a worker mid-task and watch the broker
+  requeue and re-dispatch the work.
+
+## Benchmarks
+
+Reproducible throughput and latency benchmarks live in
+[`BENCHMARKS.md`](BENCHMARKS.md), with a runnable harness in `bench/`.
+End-to-end through the HTTP API + one worker, Apple M3 Pro, in-memory storage:
+
+| Tasks  | Throughput (drain) | p50 latency | p99 latency |
+|--------|--------------------|-------------|-------------|
+| 1,000  | 540 tasks/s        | 2,067 ms    | 2,344 ms    |
+| 10,000 | 3,462 tasks/s      | 7,481 ms    | 10,786 ms   |
+
+Reproduce with:
+
+```bash
+bash bench/run.sh
+```
+
+## Roadmap
+
+Only real, implemented work is marked ✅. Everything else is planned, not
+promised.
+
+### v0.1 — initial public preview
+- ✅ Durable task storage (SQLite + in-memory)
+- ✅ Worker registration with tags + resources
+- ✅ Pull-based dispatch
+- ✅ Retries with exponential backoff + dead-letter
+- ✅ Resource-aware scheduling (CPU / GPU / memory)
+- ✅ Cron + one-shot schedules with overlap policies
+- ✅ Broker reconciliation on restart
+- ✅ CLI (enqueue, status, schedules)
+- ✅ Embedded operations dashboard
+- ✅ Native macOS app (Tauri)
+
+### v0.2 — next
+- ⬜ Priority queues
+- ⬜ Improved observability (metrics export, OpenTelemetry traces)
+- ⬜ Docker images published to a registry
+- ⬜ Python client library (over the existing gRPC proto)
+- ⬜ Java client library
+- ⬜ Result store / `AsyncResult` handle
+
+### v0.3 — later
+- ⬜ Worker autoscaling hooks
+- ⬜ Distributed / multi-broker benchmarks
+- ⬜ At-most-once delivery option (idempotency keys)
+- ⬜ Pluggable storage backends (Postgres)
+
+Have an opinion on what should be here? Open an issue — the roadmap is shaped
+by the people who'd use it.
+
+## Client libraries (Python / Java)
 
 The intended client ergonomics — a Celery-like `@task` decorator and an
 `AsyncResult` handle, speaking gRPC to the broker:
@@ -291,21 +515,15 @@ output = result.get(timeout=3600)
 ```
 
 These client libraries are on the roadmap; the gRPC contract they target is
-already defined in `broker/proto/chopflow.proto`.
-
-## Research Experiments
-
-ChopFlow is designed to facilitate research in distributed task queues. The
-`experiment` directory (configuration and analysis tools for reproducible
-experiments) is planned but not yet landed; the `demos` crate is the current
-way to exercise the system end-to-end. See `demos/run.sh` for a one-command
-live demo.
+already defined in `broker/proto/chopflow.proto`. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) §8 if you want to help land one — it's a
+great first contribution.
 
 ## Documentation
 
 - **Landing page:** <https://chopflow.ricardoleal20.dev>
-- **Docs site:** <https://chopflow.ricardoleal20.dev/docs.html> (source: `docs/design/chopflow-docs.html`)
 - **Design system (canonical):** [`docs/design/DESIGN.md`](docs/design/DESIGN.md)
+- **Docs site (in progress):** `docs/design/chopflow-docs.html`
 
 ## License
 
@@ -320,9 +538,10 @@ Contributions are welcome. A quick guide:
    covers dev setup, branch naming, the gitmoji + Action commit format, PR
    rules, the design system, and how to add a new client library.
 2. **Pick something to work on** — browse
-   [open issues](https://github.com/ricardoleal20/ChopFlow/issues). For
-   non-trivial work, open an issue first so we can align on scope before you
-   code.
+   [open issues](https://github.com/ricardoleal20/ChopFlow/issues), especially
+   [`good first issue`](https://github.com/ricardoleal20/ChopFlow/labels/good%20first%20issue).
+   For non-trivial work, open an issue first so we can align on scope before
+   you code.
 3. **Branch from `main`** using `ricardo/{topic}-{what-it-solves}`.
 4. **Keep the tree clean** — `cargo fmt`, `cargo clippy -- -D warnings`,
    `cargo test` should all pass.
