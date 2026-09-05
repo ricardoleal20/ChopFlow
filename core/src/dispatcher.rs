@@ -22,15 +22,13 @@ ensuring tasks are routed to workers with the right capabilities and resources.
 */
 
 use crate::error::{ChopFlowError, Result};
-use crate::queue::Queue;
 use crate::resources::{ResourceAvailability, ResourceRequirements};
-use crate::task::{Task, TaskStatus};
+use crate::task::Task;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 /// A worker that can execute tasks
@@ -120,7 +118,12 @@ impl Worker {
     }
 }
 
-/// Trait for dispatching tasks to workers
+/// Trait for the worker registry and resource allocator.
+///
+/// Under ChopFlow's pull model the broker drives task delivery via the
+/// `FetchTasks` RPC; the dispatcher no longer pulls from a queue itself. Its
+/// only responsibilities are tracking registered workers (and their liveness
+/// via heartbeats) and allocating/releasing task resources on those workers.
 #[async_trait]
 pub trait Dispatcher: Send + Sync + 'static {
     /// Register a new worker
@@ -129,94 +132,43 @@ pub trait Dispatcher: Send + Sync + 'static {
     /// Update a worker's heartbeat
     async fn heartbeat(&mut self, worker_id: &Uuid) -> Result<()>;
 
-    /// Dispatch any available tasks to workers
-    async fn dispatch(&mut self) -> Result<usize>;
-
-    /// Handle a task completion acknowledgment
-    async fn ack_task(&mut self, worker_id: &Uuid, task_id: &Uuid, success: bool) -> Result<()>;
-
     /// Get a list of all registered workers
     async fn list_workers(&self) -> Result<Vec<Worker>>;
 
-    /// Start the dispatcher background task
-    async fn start(&mut self) -> Result<()>;
+    /// Look up a single worker by id.
+    async fn get_worker(&self, worker_id: &Uuid) -> Result<Option<Worker>>;
+
+    /// Assign a task to a worker: allocate its resources on the worker and
+    /// record it in the worker's `assigned_tasks`. Returns
+    /// [`ChopFlowError::DispatcherError`] if the worker is unknown or cannot
+    /// satisfy the task's resource requirements. Does **not** mutate task
+    /// state — the caller (broker) owns task lifecycle via its storage.
+    async fn assign_task(&mut self, worker_id: &Uuid, task: &Task) -> Result<()>;
+
+    /// Release a task's resources from a worker and drop it from the
+    /// worker's `assigned_tasks`. Idempotent: a missing assignment is not an
+    /// error (useful for cancellation / crash recovery).
+    async fn release_task(&mut self, worker_id: &Uuid, task: &Task) -> Result<()>;
 }
 
 /// In-memory implementation of the Dispatcher trait
 pub struct InMemoryDispatcher {
-    /// The queue to pull tasks from
-    queue: Arc<dyn Queue>,
-
     /// Registered workers
     workers: Arc<Mutex<HashMap<Uuid, Worker>>>,
-
-    /// Dispatcher configuration
-    config: DispatcherConfig,
-}
-
-/// Configuration for the dispatcher
-#[derive(Debug, Clone)]
-pub struct DispatcherConfig {
-    /// How often to poll the queue for new tasks (in milliseconds)
-    pub poll_interval_ms: u64,
-
-    /// Maximum number of tasks to dispatch in a single poll
-    pub max_batch_size: usize,
-}
-
-impl Default for DispatcherConfig {
-    fn default() -> Self {
-        Self {
-            poll_interval_ms: 100,
-            max_batch_size: 10,
-        }
-    }
 }
 
 impl InMemoryDispatcher {
     /// Create a new in-memory dispatcher
-    pub fn new(queue: Arc<dyn Queue>) -> Self {
+    pub fn new() -> Self {
         Self {
-            queue,
             workers: Arc::new(Mutex::new(HashMap::new())),
-            config: DispatcherConfig::default(),
         }
     }
+}
 
-    /// Create a new in-memory dispatcher with custom configuration
-    pub fn with_config(queue: Arc<dyn Queue>, config: DispatcherConfig) -> Self {
-        Self {
-            queue,
-            workers: Arc::new(Mutex::new(HashMap::new())),
-            config,
-        }
-    }
-
-    /// Handle task cancellation
-    /// Unassigns the task from any worker and updates worker resources
-    pub async fn handle_task_cancellation(&mut self, task_id: &Uuid) -> Result<()> {
-        let mut workers = self.workers.lock().await;
-
-        // Find any worker that has this task assigned
-        for (worker_id, worker) in workers.iter_mut() {
-            if let Some(pos) = worker.assigned_tasks.iter().position(|id| id == task_id) {
-                // Remove the task from the worker's assigned tasks
-                worker.assigned_tasks.remove(pos);
-
-                // * NOTE (WIP):
-                // In the final system, we would also:
-                // 1. Update the worker's available resources
-                // 2. Send a cancellation notification to the worker
-                // 3. Handle any cleanup required
-
-                info!(
-                    "Removed cancelled task {} from worker {}",
-                    task_id, worker_id
-                );
-            }
-        }
-
-        Ok(())
+impl Default for InMemoryDispatcher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -247,183 +199,61 @@ impl Dispatcher for InMemoryDispatcher {
         }
     }
 
-    async fn dispatch(&mut self) -> Result<usize> {
-        // Find available workers
-        let mut workers = self.workers.lock().await;
-
-        // Find workers that are alive
-        let alive_workers: Vec<Uuid> = workers
-            .iter()
-            .filter(|(_, worker)| worker.is_alive())
-            .map(|(id, _)| *id)
-            .collect();
-
-        if alive_workers.is_empty() {
-            return Ok(0);
-        }
-
-        // Collect all tags that our workers support
-        let all_worker_tags: Vec<String> = workers.values().flat_map(|w| w.tags.clone()).collect();
-
-        // Dequeue tasks matching those tags
-        let mut dispatched = 0;
-
-        for _ in 0..self.config.max_batch_size {
-            let task = match self.queue.dequeue_matching(&all_worker_tags).await? {
-                Some(task) => task,
-                None => break,
-            };
-
-            // Find a worker for this task
-            let mut assigned = false;
-
-            for worker_id in &alive_workers {
-                let worker = workers.get_mut(worker_id).unwrap();
-
-                if worker.can_handle(&task) {
-                    // Allocate resources
-                    let requirements = ResourceRequirements {
-                        resources: task.resources.clone(),
-                    };
-
-                    if worker.resources.allocate(&requirements) {
-                        // Assign task to worker
-                        worker.assigned_tasks.push(task.id);
-
-                        // Mark task as running
-                        let mut running_task = task.clone();
-                        running_task.mark_running();
-                        self.queue.update(running_task).await?;
-
-                        info!("Dispatched task {} to worker {}", task.id, worker_id);
-
-                        assigned = true;
-                        dispatched += 1;
-                        break;
-                    }
-                }
-            }
-
-            if !assigned {
-                // No suitable worker found, put task back in queue
-                warn!("No suitable worker found for task {}, requeueing", task.id);
-                self.queue.enqueue(task).await?;
-            }
-        }
-
-        Ok(dispatched)
+    async fn list_workers(&self) -> Result<Vec<Worker>> {
+        let workers = self.workers.lock().await;
+        Ok(workers.values().cloned().collect())
     }
 
-    async fn ack_task(&mut self, worker_id: &Uuid, task_id: &Uuid, success: bool) -> Result<()> {
+    async fn get_worker(&self, worker_id: &Uuid) -> Result<Option<Worker>> {
+        let workers = self.workers.lock().await;
+        Ok(workers.get(worker_id).cloned())
+    }
+
+    async fn assign_task(&mut self, worker_id: &Uuid, task: &Task) -> Result<()> {
         let mut workers = self.workers.lock().await;
 
         let worker = workers.get_mut(worker_id).ok_or_else(|| {
             ChopFlowError::DispatcherError(format!("Worker not found: {}", worker_id))
         })?;
 
-        // Find and remove the task from assigned tasks
-        let task_idx = worker
-            .assigned_tasks
-            .iter()
-            .position(|id| id == task_id)
-            .ok_or_else(|| {
-                ChopFlowError::DispatcherError(format!(
-                    "Task {} not assigned to worker {}",
-                    task_id, worker_id
-                ))
-            })?;
+        // Allocate the task's resources on the worker. `allocate` returns
+        // false if the requirements cannot be satisfied, so translate that
+        // into a dispatcher error rather than silently dropping the task.
+        let requirements = ResourceRequirements {
+            resources: task.resources.clone(),
+        };
+        if !worker.resources.allocate(&requirements) {
+            return Err(ChopFlowError::DispatcherError(format!(
+                "Worker {} cannot satisfy resources {:?} for task {}",
+                worker_id, task.resources, task.id
+            )));
+        }
 
-        worker.assigned_tasks.remove(task_idx);
+        worker.assigned_tasks.push(task.id);
+        debug!("Assigned task {} to worker {}", task.id, worker_id);
+        Ok(())
+    }
 
-        // Get the task from the queue
-        let mut task = match self.queue.get(task_id).await? {
-            Some(task) => task,
-            None => return Err(ChopFlowError::TaskNotFound(task_id.to_string())),
+    async fn release_task(&mut self, worker_id: &Uuid, task: &Task) -> Result<()> {
+        let mut workers = self.workers.lock().await;
+
+        let Some(worker) = workers.get_mut(worker_id) else {
+            // Worker gone (crashed / evicted) — nothing to release.
+            return Ok(());
         };
 
-        // Release resources on the worker
+        // Release the resources the task had reserved.
         let requirements = ResourceRequirements {
             resources: task.resources.clone(),
         };
         worker.resources.release(&requirements);
 
-        // Update task status
-        if success {
-            task.mark_completed();
-            info!("Task {} completed successfully", task_id);
-        } else {
-            task.mark_failed();
-
-            if task.status == TaskStatus::Failed {
-                // Task should be retried, enqueue it again
-                info!(
-                    "Task {} failed, will retry (attempt {}/{})",
-                    task_id, task.retry_count, task.max_retries
-                );
-                self.queue.enqueue(task.clone()).await?;
-            } else {
-                // Task moved to dead letter queue
-                warn!(
-                    "Task {} failed permanently after {} retries",
-                    task_id,
-                    task.retry_count - 1
-                );
-            }
+        // Drop the task from the worker's assigned list if present.
+        if let Some(pos) = worker.assigned_tasks.iter().position(|id| id == &task.id) {
+            worker.assigned_tasks.remove(pos);
         }
 
-        // Update the task in the queue
-        self.queue.update(task).await?;
-
-        Ok(())
-    }
-
-    async fn list_workers(&self) -> Result<Vec<Worker>> {
-        let workers = self.workers.lock().await;
-        Ok(workers.values().cloned().collect())
-    }
-
-    async fn start(&mut self) -> Result<()> {
-        let queue = self.queue.clone();
-        let workers = self.workers.clone();
-        let config = self.config.clone();
-
-        // Start a background task for polling the queue and dispatching tasks
-        tokio::spawn(async move {
-            loop {
-                // Remove dead workers
-                {
-                    let mut workers_lock = match workers.lock().await {
-                        lock => lock,
-                    };
-
-                    let dead_workers: Vec<Uuid> = workers_lock
-                        .iter()
-                        .filter(|(_, worker)| !worker.is_alive())
-                        .map(|(id, _)| *id)
-                        .collect();
-
-                    for worker_id in dead_workers {
-                        workers_lock.remove(&worker_id);
-                        info!("Removed dead worker {}", worker_id);
-                    }
-                }
-
-                // Create a temporary dispatcher to use for this iteration
-                let mut dispatcher = InMemoryDispatcher {
-                    queue: queue.clone(),
-                    workers: workers.clone(),
-                    config: config.clone(),
-                };
-
-                if let Err(e) = dispatcher.dispatch().await {
-                    warn!("Error dispatching tasks: {}", e);
-                }
-
-                // Sleep before next poll
-                time::sleep(time::Duration::from_millis(config.poll_interval_ms)).await;
-            }
-        });
-
+        debug!("Released task {} from worker {}", task.id, worker_id);
         Ok(())
     }
 }

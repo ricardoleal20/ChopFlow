@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Dual-theme tokens. Values are space-separated RGB channels so Tailwind can
+  apply alpha via `rgb(var(--x) / <alpha-value>)`. Light is the default
+  (:root); dark applies under `.dark` on <html>. The navy sidebar tokens are
+  identical in both — Temporal keeps its rail dark even in light mode.
+*/
+
+:root {
+  --canvas: 247 248 250;
+  --surface: 255 255 255;
+  --surface2: 242 244 247;
+  --elevated: 255 255 255;
+  --border: 226 230 237;
+  --border-strong: 205 212 223;
+  --text: 23 27 38;
+  --muted: 88 98 116;
+  --subtle: 132 142 160;
+
+  --sidebar-bg: 20 26 39;
+  --sidebar-surface: 30 38 55;
+  --sidebar-border: 38 47 66;
+  --sidebar-text: 206 214 230;
+  --sidebar-muted: 124 135 158;
+
+  /* Accents (constant across themes) — Temporal-leaning. */
+  --primary: 64 96 255;
+  --info: 59 130 246;
+  --success: 34 197 94;
+  --danger: 239 68 68;
+  --warn: 245 158 11;
+  --purple: 168 85 247;
+  --slate: 100 116 139;
+}
+
+.dark {
+  --canvas: 10 12 16;
+  --surface: 17 20 27;
+  --surface2: 23 27 36;
+  --elevated: 28 33 47;
+  --border: 35 41 56;
+  --border-strong: 47 54 72;
+  --text: 231 235 243;
+  --muted: 138 147 166;
+  --subtle: 92 101 120;
+
+  --sidebar-bg: 14 18 27;
+  --sidebar-surface: 24 30 43;
+  --sidebar-border: 34 42 58;
+  --sidebar-text: 206 214 230;
+  --sidebar-muted: 116 127 150;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-text font-sans antialiased;
+    background-image: none;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary/60 ring-offset-2 ring-offset-canvas;
+  }
+
+  ::selection {
+    @apply bg-primary/25 text-text;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-borderStrong;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply bg-surface border border-border rounded-2xl;
+  }
+
+  /* Status badge — text + dot, never color alone. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+
+  .cf-input {
+    @apply w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-text ring-1 ring-border transition-colors duration-150 ease-out placeholder:text-subtle focus-visible:ring-2 focus-visible:ring-primary/60;
+  }
+
+  /* Sidebar nav button. */
+  .nav-item {
+    @apply flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ease-out active:scale-[0.98];
+  }
+}

@@ -155,3 +155,62 @@ impl RetryPolicy {
         Some(StdDuration::from_secs(delay_seconds))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_retry_returns_none() {
+        assert!(RetryPolicy::NoRetry.next_retry_time(1).is_none());
+        assert!(RetryPolicy::NoRetry.to_duration(1).is_none());
+    }
+
+    #[test]
+    fn exponential_backoff_grows_and_caps() {
+        let policy = RetryPolicy::ExponentialBackoff {
+            initial_delay_seconds: 1,
+            max_delay_seconds: 10,
+            max_retries: 3,
+            jitter: 0.0,
+        };
+        // retry_count 1 -> 1s, 2 -> 2s, 3 -> 4s (capped by max_retries=3);
+        // 4 exceeds max_retries -> None.
+        assert_eq!(policy.to_duration(1).unwrap(), StdDuration::from_secs(1));
+        assert_eq!(policy.to_duration(2).unwrap(), StdDuration::from_secs(2));
+        assert_eq!(policy.to_duration(3).unwrap(), StdDuration::from_secs(4));
+        assert!(policy.to_duration(4).is_none());
+    }
+
+    #[test]
+    fn exponential_capped_at_max_delay() {
+        let policy = RetryPolicy::ExponentialBackoff {
+            initial_delay_seconds: 8,
+            max_delay_seconds: 10,
+            max_retries: 5,
+            jitter: 0.0,
+        };
+        // 8 * 2^0 = 8 (count 1), 8*2 = 16 -> capped at 10 (count 2).
+        assert_eq!(policy.to_duration(1).unwrap(), StdDuration::from_secs(8));
+        assert_eq!(policy.to_duration(2).unwrap(), StdDuration::from_secs(10));
+    }
+
+    #[test]
+    fn next_retry_time_is_in_the_future() {
+        let policy = RetryPolicy::exponential_backoff(3);
+        let now = Utc::now();
+        let next = policy.next_retry_time(1).unwrap();
+        assert!(next > now);
+    }
+
+    #[test]
+    fn fixed_policy_uses_constant_delay() {
+        let policy = RetryPolicy::Fixed {
+            delay_seconds: 7,
+            max_retries: 2,
+        };
+        assert_eq!(policy.to_duration(1).unwrap(), StdDuration::from_secs(7));
+        assert_eq!(policy.to_duration(2).unwrap(), StdDuration::from_secs(7));
+        assert!(policy.to_duration(3).is_none());
+    }
+}

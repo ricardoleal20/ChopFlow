@@ -18,3 +18,8 @@ thiserror.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 rand = "0.8"
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+tokio = { version = "1.34", features = ["full", "test-util"] }
+tempfile = "3"

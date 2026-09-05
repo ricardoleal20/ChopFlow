@@ -64,6 +64,44 @@ Use the CLI to enqueue a task:
 ./target/release/chopflow_cli enqueue --task task.json --name training --tags gpu,ml
 ```
 
+### Embedded Dashboard UI
+
+The broker ships with an embedded web dashboard — no separate frontend deploy
+needed. It serves HTTP/JSON (for the UI and any external tooling) alongside
+gRPC, both reading the same live broker state.
+
+```bash
+# gRPC on :8000 (workers/CLI), dashboard + HTTP API on :8080
+./target/release/chopflow_broker start --host 127.0.0.1 --port 8000 --http-port 8080
+```
+
+Open `http://localhost:8080` in a browser to:
+
+- Watch live cluster stats (queue length, processing, completed, failed, workers)
+- Browse and filter the task ledger, with status badges and result previews
+- See connected workers with live resource meters
+- Enqueue tasks and cancel queued/running ones from the UI
+
+The HTTP API is also available directly:
+
+| Method | Endpoint                  | Purpose                  |
+|--------|---------------------------|--------------------------|
+| GET    | `/api/stats`              | Cluster counts           |
+| GET    | `/api/tasks?status=`      | List/filter tasks        |
+| GET    | `/api/tasks/:id`          | Single task              |
+| POST   | `/api/tasks`              | Enqueue a task           |
+| POST   | `/api/tasks/:id/cancel`   | Cancel a non-terminal task |
+| GET    | `/api/workers`            | Registered workers       |
+
+**Rebuilding the UI:** the built `broker/ui/dist` is committed so the broker
+compiles from a fresh clone. To modify the frontend, install Node and run:
+
+```bash
+pnpm --dir broker/ui install
+pnpm --dir broker/ui dev      # dev server at http://localhost:5173 (proxies /api)
+pnpm --dir broker/ui build    # rebuild into broker/ui/dist, then `cargo build`
+```
+
 ### Python Interface
 
 ```python

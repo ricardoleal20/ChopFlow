@@ -17,7 +17,12 @@ service ChopFlowBroker {
   rpc RegisterWorker (RegisterWorkerRequest) returns (RegisterWorkerResponse);
   rpc WorkerHeartbeat (WorkerHeartbeatRequest) returns (WorkerHeartbeatResponse);
   rpc AcknowledgeTask (AcknowledgeTaskRequest) returns (AcknowledgeTaskResponse);
-  
+
+  // Task delivery: workers pull tasks they are capable of executing.
+  // The broker matches queued tasks against the worker's tags and
+  // available resources and returns up to `max_tasks` ready tasks.
+  rpc FetchTasks (FetchTasksRequest) returns (FetchTasksResponse);
+
   // Queue stats
   rpc GetQueueStats (GetQueueStatsRequest) returns (GetQueueStatsResponse);
   rpc ListTasks (ListTasksRequest) returns (ListTasksResponse);
@@ -36,6 +41,9 @@ message Task {
   uint32 max_retries = 8;
   TaskStatus status = 9;
   map<string, uint32> resources = 10; // Resource requirements
+  // JSON serialized result of the task once it reaches COMPLETED, or the
+  // error message if it reached FAILED/DEADLETTERED. Empty until terminal.
+  string result = 11;
 }
 
 // Worker definition
@@ -62,6 +70,7 @@ enum TaskStatus {
   COMPLETED = 3;
   FAILED = 4;
   DEADLETTERED = 5;
+  CANCELLED = 6;
 }
 
 // EnqueueTask RPC
@@ -128,6 +137,17 @@ message AcknowledgeTaskRequest {
 
 message AcknowledgeTaskResponse {
   bool success = 1;
+}
+
+// FetchTasks RPC — workers pull tasks they can execute.
+message FetchTasksRequest {
+  string worker_id = 1;
+  // Maximum number of tasks to pull in this request.
+  uint32 max_tasks = 2;
+}
+
+message FetchTasksResponse {
+  repeated Task tasks = 1;
 }
 
 // GetQueueStats RPC

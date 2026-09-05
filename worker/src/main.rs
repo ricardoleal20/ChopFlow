@@ -39,8 +39,9 @@ pub mod chopflow {
 }
 
 use chopflow::{
-    chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, RegisterWorkerRequest,
-    ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask, WorkerHeartbeatRequest,
+    chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, FetchTasksRequest,
+    RegisterWorkerRequest, ResourceAvailability as ProtoResourceAvailability,
+    Task as ProtoTask, WorkerHeartbeatRequest,
 };
 
 /// ChopFlow Worker - Task Executor
@@ -92,6 +93,12 @@ impl WorkerState {
     ) -> Self {
         let mut registry = TaskRegistry::new();
 
+        // Register a built-in `echo` handler and a `default` fallback so the
+        // worker can execute tasks out of the box. Real deployments register
+        // their own handlers (e.g. loaded from a plugin/WASM module).
+        registry.register("echo", echo_handler);
+        registry.register("default", echo_handler);
+
         Self {
             id,
             broker_address,
@@ -101,6 +108,15 @@ impl WorkerState {
             task_registry: registry,
         }
     }
+}
+
+/// Built-in task handler: echoes the payload back as the result. Useful as a
+/// smoke test and as the default when no specific handler is registered.
+fn echo_handler(payload: serde_json::Value) -> Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "status": "ok",
+        "echo": payload,
+    }))
 }
 
 /// A function that can handle a task
@@ -161,16 +177,36 @@ async fn start_worker(
     // Parse tags
     let tags: Vec<String> = tags_str.split(',').map(|s| s.trim().to_string()).collect();
 
-    // Parse resources
+    // Parse resources. Each entry is `name:amount`. A malformed entry is an
+    // error, not a silent skip — otherwise the worker would register with no
+    // resources and the broker would reject it with a confusing message.
     let mut resource_map = HashMap::new();
     for resource_str in resources_str.split(',') {
-        let parts: Vec<&str> = resource_str.split(':').collect();
-        if parts.len() == 2 {
-            let resource_name = parts[0].trim().to_string();
-            if let Ok(amount) = parts[1].trim().parse::<u32>() {
-                resource_map.insert(resource_name, amount);
-            }
+        let entry = resource_str.trim();
+        if entry.is_empty() {
+            continue;
         }
+        let parts: Vec<&str> = entry.split(':').collect();
+        if parts.len() != 2 {
+            return Err(chopflow_core::error::ChopFlowError::NetworkError(format!(
+                "invalid resource '{}': expected 'name:amount' (e.g. cpu:2)",
+                entry
+            )));
+        }
+        let resource_name = parts[0].trim().to_string();
+        let amount = parts[1].trim().parse::<u32>().map_err(|e| {
+            chopflow_core::error::ChopFlowError::NetworkError(format!(
+                "invalid resource amount in '{}': {}",
+                entry, e
+            ))
+        })?;
+        resource_map.insert(resource_name, amount);
+    }
+
+    if resource_map.is_empty() {
+        return Err(chopflow_core::error::ChopFlowError::NetworkError(
+            "a worker must declare at least one resource (use -r, e.g. -r cpu:1)".into(),
+        ));
     }
 
     let resources = ResourceAvailability {
@@ -181,30 +217,11 @@ async fn start_worker(
     info!("Worker configured with tags: {:?}", tags);
     info!("Worker resources: {:?}", resources);
 
-    // Connect to broker
-    let mut client = ChopFlowBrokerClient::connect(broker_address.clone())
-        .await
-        .map_err(|e| {
-            error!("Failed to connect to broker: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
+    // Connect to the broker and register. We retry with backoff so the worker
+    // can be started before the broker, or survive a broker restart, instead
+    // of dying on the first failed connection with a cryptic "transport error".
+    let worker_id = connect_and_register(&broker_address, &tags, &resource_map).await?;
 
-    // Register worker with broker
-    let register_request = Request::new(RegisterWorkerRequest {
-        address: "localhost".to_string(), // In production, this would be the actual address
-        tags: tags.clone(),
-        resources: resource_map,
-    });
-
-    let response = client
-        .register_worker(register_request)
-        .await
-        .map_err(|e| {
-            error!("Failed to register worker: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
-
-    let worker_id = response.into_inner().worker_id;
     info!("Worker registered with ID: {}", worker_id);
 
     // Create shared worker state
@@ -250,6 +267,62 @@ async fn start_worker(
     process_handle.abort();
 
     Ok(())
+}
+
+/// Connect to the broker and register the worker, retrying with backoff until
+/// it succeeds. This makes startup resilient to the broker not being ready yet
+/// (or restarting) — instead of exiting with a bare "transport error".
+async fn connect_and_register(
+    broker_address: &str,
+    tags: &[String],
+    resources: &HashMap<String, u32>,
+) -> Result<String> {
+    info!("Connecting to broker at {}", broker_address);
+
+    let mut backoff = Duration::from_millis(500);
+    const MAX_BACKOFF: Duration = Duration::from_secs(5);
+
+    loop {
+        match try_connect_and_register(broker_address, tags, resources).await {
+            Ok(id) => return Ok(id),
+            Err(e) => {
+                error!(
+                    "Could not reach broker at {} ({}). Retrying in {:?}.",
+                    broker_address, e, backoff
+                );
+                info!(
+                    "Hint: the broker's gRPC port is --port (default 8000). The dashboard/HTTP \
+                     port --http-port (default 8080) is not a gRPC endpoint."
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
+            }
+        }
+    }
+}
+
+/// A single best-effort attempt to connect + register.
+async fn try_connect_and_register(
+    broker_address: &str,
+    tags: &[String],
+    resources: &HashMap<String, u32>,
+) -> Result<String> {
+    let mut client = ChopFlowBrokerClient::connect(broker_address.to_string())
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::NetworkError(e.to_string()))?;
+
+    let register_request = Request::new(RegisterWorkerRequest {
+        address: "localhost".to_string(), // In production, this would be the actual address
+        tags: tags.to_vec(),
+        resources: resources.clone(),
+    });
+
+    let response = client
+        .register_worker(register_request)
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::NetworkError(e.to_string()))?;
+
+    Ok(response.into_inner().worker_id)
 }
 
 async fn send_heartbeat(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()> {
@@ -408,62 +481,67 @@ async fn send_task_acknowledgment(
     Ok(result_json)
 }
 
-/// Start processing tasks
-/// * NOTE (WIP):
-/// In the final system, this would fetch tasks from the broker using
-/// either polling or a streaming connection
+/// Start processing tasks.
+///
+/// Polls the broker for tasks this worker can execute (pull model). Each
+/// fetched task is executed and acknowledged. Tasks run sequentially for
+/// now; a future version will dispatch them to a bounded concurrency pool
+/// sized by the worker's declared resources.
 async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()> {
     info!("Starting task processing loop");
 
-    // * NOTE (WIP):
-    // In the final system, this would:
-    // 1. Poll for available tasks or maintain a streaming connection
-    // 2. Dispatch tasks to worker threads for parallel execution
-    // 3. Manage task timeouts and retries
-    // 4. Handle worker shutdown gracefully
-
-    let mut interval = time::interval(Duration::from_secs(5));
+    let poll_interval = Duration::from_secs(2);
 
     loop {
-        interval.tick().await;
-
-        info!("Polling for tasks...");
-
-        // * NOTE (WIP):
-        // In the final system, this would fetch tasks from the broker
-        let example_task = ProtoTask {
-            id: format!("test-task-{}", uuid::Uuid::new_v4()),
-            name: "example_task".to_string(),
-            payload: r#"{"param1": "value1", "param2": 42}"#.to_string(),
-            tags: vec!["test".to_string()],
-            enqueue_time: None,
-            eta: None,
-            retry_count: 0,
-            max_retries: 3,
-            status: 0, // CREATED
-            resources: HashMap::new(),
-        };
-
-        // Execute the task
-        if let Err(e) = execute_task(worker_state, example_task).await {
-            error!("Failed to execute task: {}", e);
+        // Fetch a batch of tasks from the broker.
+        match fetch_tasks(worker_state).await {
+            Ok(tasks) if !tasks.is_empty() => {
+                for task in tasks {
+                    if let Err(e) = execute_task(worker_state, task).await {
+                        error!("Failed to execute task: {}", e);
+                    }
+                }
+            }
+            Ok(_) => {
+                // No tasks available — wait before polling again.
+                tokio::time::sleep(poll_interval).await;
+            }
+            Err(e) => {
+                error!("Failed to fetch tasks: {}", e);
+                // Back off on errors to avoid hammering the broker.
+                tokio::time::sleep(poll_interval).await;
+            }
         }
-
-        // * NOTE (WIP):
-        // In the final system, this would be more sophisticated:
-        // - Poll multiple tasks
-        // - Track running tasks
-        // - Manage concurrency/parallelism
-        // - Handle failures and retries
-
-        // For the MVP purposes, sleep for 30 seconds before polling again
-        // This prevents excessive log spam
-        tokio::time::sleep(Duration::from_secs(30)).await;
     }
+}
 
-    // Note: This is unreachable in practice since the loop is infinite
-    // * NOTE (WIP):
-    // In the final system, we'd have a proper shutdown mechanism
-    #[allow(unreachable_code)]
-    Ok(())
+/// Pull a batch of ready tasks from the broker for this worker.
+async fn fetch_tasks(worker_state: &Arc<Mutex<WorkerState>>) -> Result<Vec<ProtoTask>> {
+    let (broker_address, worker_id) = {
+        let state = worker_state.lock().await;
+        (state.broker_address.clone(), state.id.clone())
+    };
+
+    let mut client = ChopFlowBrokerClient::connect(broker_address)
+        .await
+        .map_err(|e| {
+            error!("Failed to connect to broker for fetch: {}", e);
+            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
+        })?;
+
+    let request = Request::new(FetchTasksRequest {
+        worker_id,
+        max_tasks: 4,
+    });
+
+    let response = client
+        .fetch_tasks(request)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch tasks: {}", e);
+            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
+        })?
+        .into_inner();
+
+    Ok(response.tasks)
 }

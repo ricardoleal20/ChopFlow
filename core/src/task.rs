@@ -36,6 +36,8 @@ pub enum TaskStatus {
     Failed,
     /// Task failed permanently and was moved to the dead-letter queue
     DeadLettered,
+    /// Task was cancelled before reaching a terminal state
+    Cancelled,
 }
 
 /// A task to be executed by a worker
@@ -70,6 +72,11 @@ pub struct Task {
 
     /// Resources required by this task (CPU, GPU, etc.)
     pub resources: HashMap<String, u32>,
+
+    /// Serialized result of the task (JSON). `None` until the task reaches a
+    /// terminal state. On success this holds the task output; on failure it
+    /// holds a serialized error description.
+    pub result: Option<String>,
 }
 
 impl Task {
@@ -86,6 +93,7 @@ impl Task {
             max_retries: 3, // Default to 3 retries
             status: TaskStatus::Created,
             resources: HashMap::new(),
+            result: None,
         }
     }
 
@@ -127,14 +135,30 @@ impl Task {
         }
     }
 
+    /// Check if the task is ready relative to an explicit `now`. Useful for
+    /// storage backends and tests that need deterministic time comparisons
+    /// without depending on the wall clock.
+    pub fn is_ready_at(&self, now: DateTime<Utc>) -> bool {
+        match self.eta {
+            Some(eta) => now >= eta,
+            None => true,
+        }
+    }
+
     /// Mark the task as running
     pub fn mark_running(&mut self) {
         self.status = TaskStatus::Running;
     }
 
-    /// Mark the task as completed
+    /// Mark the task as completed and store its serialized result
     pub fn mark_completed(&mut self) {
         self.status = TaskStatus::Completed;
+    }
+
+    /// Mark the task as completed and store its serialized result
+    pub fn mark_completed_with_result(&mut self, result: String) {
+        self.status = TaskStatus::Completed;
+        self.result = Some(result);
     }
 
     /// Mark the task as failed and increment retry count
@@ -147,5 +171,96 @@ impl Task {
         } else {
             self.status = TaskStatus::Failed;
         }
+    }
+
+    /// Mark the task as cancelled (terminal state)
+    pub fn mark_cancelled(&mut self) {
+        self.status = TaskStatus::Cancelled;
+    }
+
+    /// Record a failure result without changing retry semantics
+    pub fn with_result(mut self, result: String) -> Self {
+        self.result = Some(result);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_task_has_sensible_defaults() {
+        let task = Task::new("train".into(), serde_json::json!({"x": 1}));
+        assert_eq!(task.name, "train");
+        assert_eq!(task.status, TaskStatus::Created);
+        assert_eq!(task.max_retries, 3);
+        assert_eq!(task.retry_count, 0);
+        assert!(task.result.is_none());
+        assert!(task.is_ready()); // no ETA -> ready immediately
+    }
+
+    #[test]
+    fn mark_completed_with_result_stores_result() {
+        let mut task = Task::new("train".into(), serde_json::json!({}));
+        task.mark_completed_with_result(r#"{"acc":0.9}"#.into());
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert_eq!(task.result.as_deref(), Some(r#"{"acc":0.9}"#));
+    }
+
+    #[test]
+    fn mark_failed_retries_until_max_then_deadletters() {
+        let mut task = Task::new("train".into(), serde_json::json!({})).with_max_retries(2);
+
+        // retry_count 0 -> 1: still Failed (retryable)
+        task.mark_failed();
+        assert_eq!(task.status, TaskStatus::Failed);
+        assert_eq!(task.retry_count, 1);
+
+        // retry_count 1 -> 2: still Failed
+        task.mark_failed();
+        assert_eq!(task.status, TaskStatus::Failed);
+        assert_eq!(task.retry_count, 2);
+
+        // retry_count 2 -> 3: exceeds max_retries(2) -> DeadLettered
+        task.mark_failed();
+        assert_eq!(task.status, TaskStatus::DeadLettered);
+        assert_eq!(task.retry_count, 3);
+    }
+
+    #[test]
+    fn mark_cancelled_sets_terminal_status() {
+        let mut task = Task::new("train".into(), serde_json::json!({}));
+        task.mark_cancelled();
+        assert_eq!(task.status, TaskStatus::Cancelled);
+    }
+
+    #[test]
+    fn is_ready_respects_eta() {
+        let now = Utc::now();
+        let future = now + chrono::Duration::seconds(60);
+        let past = now - chrono::Duration::seconds(60);
+
+        let mut task = Task::new("train".into(), serde_json::json!({})).with_eta(future);
+        assert!(!task.is_ready_at(now));
+
+        task.eta = Some(past);
+        assert!(task.is_ready_at(now));
+
+        task.eta = None;
+        assert!(task.is_ready_at(now));
+    }
+
+    #[test]
+    fn builders_are_chainable() {
+        let task = Task::new("train".into(), serde_json::json!({}))
+            .with_tag("ml")
+            .with_tags(["gpu", "fast"])
+            .with_resource("gpu", 1)
+            .with_max_retries(5);
+
+        assert_eq!(task.tags, vec!["ml", "gpu", "fast"]);
+        assert_eq!(task.resources.get("gpu"), Some(&1));
+        assert_eq!(task.max_retries, 5);
     }
 }
