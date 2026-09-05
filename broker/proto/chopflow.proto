@@ -27,6 +27,11 @@ service ChopFlowBroker {
   rpc GetQueueStats (GetQueueStatsRequest) returns (GetQueueStatsResponse);
   rpc ListTasks (ListTasksRequest) returns (ListTasksResponse);
   rpc ListWorkers (google.protobuf.Empty) returns (ListWorkersResponse);
+
+  // Schedule management
+  rpc CreateSchedule (CreateScheduleRequest) returns (CreateScheduleResponse);
+  rpc ListSchedules (ListSchedulesRequest) returns (ListSchedulesResponse);
+  rpc DeleteSchedule (DeleteScheduleRequest) returns (DeleteScheduleResponse);
 }
 
 // Task object definition
@@ -44,6 +49,8 @@ message Task {
   // JSON serialized result of the task once it reaches COMPLETED, or the
   // error message if it reached FAILED/DEADLETTERED. Empty until terminal.
   string result = 11;
+  // Set when this task was materialized by a schedule ticker.
+  string schedule_id = 12;
 }
 
 // Worker definition
@@ -176,4 +183,42 @@ message ListTasksResponse {
 // ListWorkers RPC
 message ListWorkersResponse {
   repeated Worker workers = 1;
-} 
+}
+
+// Schedule management messages
+
+message TaskTemplate {
+  string name = 1;
+  string payload = 2;
+  repeated string tags = 3;
+  map<string, uint32> resources = 4;
+  uint32 max_retries = 5;
+}
+
+enum OverlapPolicy { OVERLAP_SKIP = 0; OVERLAP_COALESCE = 1; OVERLAP_ALLOW = 2; }
+
+message ScheduleKind {
+  oneof kind {
+    string cron = 1;
+    google.protobuf.Timestamp eta = 2;
+  }
+}
+
+message Schedule {
+  string id = 1;
+  string name = 2;
+  TaskTemplate task_template = 3;
+  ScheduleKind kind = 4;
+  OverlapPolicy overlap_policy = 5;
+  bool enabled = 6;
+  google.protobuf.Timestamp last_fired = 7;
+  google.protobuf.Timestamp next_fire = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message CreateScheduleRequest { Schedule schedule = 1; }
+message CreateScheduleResponse { string schedule_id = 1; }
+message ListSchedulesRequest {}
+message ListSchedulesResponse { repeated Schedule schedules = 1; }
+message DeleteScheduleRequest { string id = 1; }
+message DeleteScheduleResponse { bool success = 1; }

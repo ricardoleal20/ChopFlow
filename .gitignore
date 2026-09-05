@@ -23,3 +23,14 @@ broker/ui/node_modules/
 # TS build cache
 broker/ui/tsconfig.tsbuildinfo
 .DS_Store
+
+# Runtime SQLite database files (default broker persistence target).
+chopflow.db
+chopflow.db-shm
+chopflow.db-wal
+
+# Tauri desktop app (app/src-tauri): build artifacts + generated schemas.
+# The Rust target dir is covered by the top-level target/ rule, but Tauri's
+# standalone workspace writes here; ignore it explicitly along with gen/.
+app/src-tauri/target/
+app/src-tauri/gen/

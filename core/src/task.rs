@@ -77,6 +77,10 @@ pub struct Task {
     /// terminal state. On success this holds the task output; on failure it
     /// holds a serialized error description.
     pub result: Option<String>,
+
+    /// If this task was spawned by a schedule, the schedule's id. `None` for
+    /// ad-hoc enqueues. The ticker sets it; the overlap check queries by it.
+    pub schedule_id: Option<Uuid>,
 }
 
 impl Task {
@@ -94,6 +98,7 @@ impl Task {
             status: TaskStatus::Created,
             resources: HashMap::new(),
             result: None,
+            schedule_id: None,
         }
     }
 
@@ -262,5 +267,21 @@ mod tests {
         assert_eq!(task.tags, vec!["ml", "gpu", "fast"]);
         assert_eq!(task.resources.get("gpu"), Some(&1));
         assert_eq!(task.max_retries, 5);
+    }
+
+    #[test]
+    fn new_task_has_no_schedule_id() {
+        let task = Task::new("train".into(), serde_json::json!({}));
+        assert!(task.schedule_id.is_none());
+    }
+
+    #[test]
+    fn schedule_id_round_trips_through_serde() {
+        let mut task = Task::new("train".into(), serde_json::json!({}));
+        let sid = Uuid::new_v4();
+        task.schedule_id = Some(sid);
+        let json = serde_json::to_string(&task).unwrap();
+        let back: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.schedule_id, Some(sid));
     }
 }

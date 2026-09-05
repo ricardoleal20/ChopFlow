@@ -61,6 +61,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let service = ChopFlowBrokerService::from_state(state.clone());
     service.spawn_timeout_monitor();
 
+    // Recompute schedule next_fire times (skip missed cron runs), then spawn
+    // the 1s schedule ticker.
+    if let Err(e) = chopflow_broker::reconcile_schedules(state.storage.as_ref()).await {
+        tracing::warn!("schedule reconcile failed: {}", e);
+    }
+    service.spawn_schedule_ticker();
+
     let grpc_addr: std::net::SocketAddr = format!("{}:{}", host, port).parse()?;
     let http_addr: std::net::SocketAddr = format!("{}:{}", host, http_port).parse()?;
 

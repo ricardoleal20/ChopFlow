@@ -77,6 +77,41 @@ enum Commands {
         #[arg(long, short)]
         all: bool,
     },
+
+    /// Manage schedules
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum ScheduleCmd {
+    /// Create a schedule
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        cron: Option<String>,
+        #[arg(long)]
+        eta: Option<String>,
+        #[arg(long, default_value = "{}")]
+        payload: String,
+        #[arg(long, default_value = "")]
+        tags: String,
+        #[arg(long, default_value = "")]
+        resources: String,
+        #[arg(long, default_value_t = 3)]
+        max_retries: u32,
+        #[arg(long, default_value = "skip")]
+        overlap: String,
+    },
+    /// List schedules
+    List,
+    /// Delete a schedule
+    Delete { id: String },
 }
 
 #[tokio::main]
@@ -98,6 +133,35 @@ async fn main() -> Result<()> {
         Commands::Status { id, all } => {
             get_status(cli.broker, id, all).await?;
         }
+        Commands::Schedule { action } => match action {
+            ScheduleCmd::Create {
+                name,
+                task,
+                cron,
+                eta,
+                payload,
+                tags,
+                resources,
+                max_retries,
+                overlap,
+            } => {
+                schedule_create(
+                    cli.broker,
+                    name,
+                    task,
+                    cron,
+                    eta,
+                    payload,
+                    tags,
+                    resources,
+                    max_retries,
+                    overlap,
+                )
+                .await?;
+            }
+            ScheduleCmd::List => schedule_list(cli.broker).await?,
+            ScheduleCmd::Delete { id } => schedule_delete(cli.broker, id).await?,
+        },
     }
 
     Ok(())
@@ -277,6 +341,127 @@ async fn get_status(broker_address: String, id: Option<String>, all: bool) -> Re
             }
         }
     }
+}
+
+async fn schedule_create(
+    broker: String,
+    name: String,
+    task: String,
+    cron: Option<String>,
+    eta: Option<String>,
+    payload: String,
+    tags: String,
+    resources: String,
+    max_retries: u32,
+    overlap: String,
+) -> Result<()> {
+    let mut client = connect_to_broker(&broker).await?;
+    let payload_val: serde_json::Value = serde_json::from_str(&payload)
+        .map_err(|e| chopflow_core::error::ChopFlowError::SerializationError(e.to_string()))?;
+    let tags_vec: Vec<String> = if tags.is_empty() {
+        vec![]
+    } else {
+        tags.split(',').map(|s| s.trim().to_string()).collect()
+    };
+    let mut res_map = std::collections::HashMap::new();
+    for entry in resources.split(',') {
+        let e = entry.trim();
+        if e.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = e.split(':').collect();
+        if parts.len() == 2 {
+            res_map.insert(parts[0].to_string(), parts[1].parse().unwrap_or(0));
+        }
+    }
+    let kind = match (cron, eta) {
+        (Some(c), None) => Some(chopflow::schedule_kind::Kind::Cron(c)),
+        (None, Some(e)) => {
+            let dt = chrono::DateTime::parse_from_rfc3339(&e)
+                .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?
+                .with_timezone(&chrono::Utc);
+            Some(chopflow::schedule_kind::Kind::Eta(prost_types::Timestamp {
+                seconds: dt.timestamp(),
+                nanos: dt.timestamp_subsec_nanos() as i32,
+            }))
+        }
+        _ => {
+            return Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+                "exactly one of --cron or --eta is required"
+            )))
+        }
+    };
+    let overlap_enum = match overlap.as_str() {
+        "skip" => chopflow::OverlapPolicy::OverlapSkip,
+        "coalesce" => chopflow::OverlapPolicy::OverlapCoalesce,
+        "allow" => chopflow::OverlapPolicy::OverlapAllow,
+        _ => {
+            return Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+                "invalid overlap (skip|coalesce|allow)"
+            )))
+        }
+    };
+    let schedule = chopflow::Schedule {
+        id: String::new(),
+        name,
+        task_template: Some(chopflow::TaskTemplate {
+            name: task,
+            payload: serde_json::to_string(&payload_val).unwrap_or_default(),
+            tags: tags_vec,
+            resources: res_map,
+            max_retries,
+        }),
+        kind: Some(chopflow::ScheduleKind { kind }),
+        overlap_policy: overlap_enum as i32,
+        enabled: true,
+        last_fired: None,
+        next_fire: None,
+        created_at: None,
+    };
+    let resp = client
+        .create_schedule(chopflow::CreateScheduleRequest {
+            schedule: Some(schedule),
+        })
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?;
+    println!("Created schedule: {}", resp.get_ref().schedule_id);
+    Ok(())
+}
+
+async fn schedule_list(broker: String) -> Result<()> {
+    let mut client = connect_to_broker(&broker).await?;
+    let resp = client
+        .list_schedules(chopflow::ListSchedulesRequest {})
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?;
+    for s in &resp.get_ref().schedules {
+        let kind = match &s.kind {
+            Some(k) => match &k.kind {
+                Some(chopflow::schedule_kind::Kind::Cron(c)) => format!("cron {}", c),
+                Some(chopflow::schedule_kind::Kind::Eta(_)) => "oneshot".into(),
+                None => "?".into(),
+            },
+            None => "?".into(),
+        };
+        println!(
+            "  {} [{}] {} ({})",
+            s.id,
+            if s.enabled { "on" } else { "off" },
+            s.name,
+            kind
+        );
+    }
+    Ok(())
+}
+
+async fn schedule_delete(broker: String, id: String) -> Result<()> {
+    let mut client = connect_to_broker(&broker).await?;
+    client
+        .delete_schedule(chopflow::DeleteScheduleRequest { id })
+        .await
+        .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?;
+    println!("Deleted.");
+    Ok(())
 }
 
 // Helper function to connect to the broker

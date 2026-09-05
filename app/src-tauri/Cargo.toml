@@ -1,0 +1,30 @@
+[package]
+name = "chopflow-app"
+version = "0.1.0"
+description = "ChopFlow operations console desktop app (Tauri shell)"
+authors = ["Ricardo Leal"]
+license = "Apache-2.0"
+edition = "2021"
+# Deliberately NOT part of the core workspace: the broker/worker/cli crates use
+# tonic + prost build scripts that this app does not need, and keeping it
+# standalone avoids pulling the whole gRPC toolchain into a desktop build.
+# Build/run via: pnpm --dir broker/ui tauri dev   (or)   tauri build
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# This feature is used for production builds or when a dev server is not
+# specified, DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
+# Keep this crate OUT of the core ChopFlow Rust workspace. The broker/worker/cli
+# crates pull tonic + prost build scripts and the gRPC toolchain, none of which
+# a desktop console build needs. An empty [workspace] table makes cargo treat
+# this as its own workspace root.
+[workspace]
