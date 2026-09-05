@@ -30,6 +30,8 @@ jobs:
           mkdir -p _site/assets
           # Landing page becomes the site index.
           cp docs/design/chopflow-landing.html _site/index.html
+          # Documentation site, linked from the landing's Docs / Quickstart.
+          cp docs/design/chopflow-docs.html _site/docs.html
           # Custom 404.
           cp docs/design/404.html _site/404.html
           # Open Graph share image, referenced by og:image meta tags.

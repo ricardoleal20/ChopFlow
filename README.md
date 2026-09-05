@@ -304,8 +304,8 @@ live demo.
 ## Documentation
 
 - **Landing page:** <https://chopflow.ricardoleal20.dev>
+- **Docs site:** <https://chopflow.ricardoleal20.dev/docs.html> (source: `docs/design/chopflow-docs.html`)
 - **Design system (canonical):** [`docs/design/DESIGN.md`](docs/design/DESIGN.md)
-- **Docs site (in progress):** `docs/design/chopflow-docs.html`
 
 ## License
 
