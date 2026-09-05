@@ -100,11 +100,10 @@ input, textarea { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 16px; }
 .brand-mark {
   width: 30px; height: 30px; border-radius: 8px; flex: none;
-  background: linear-gradient(135deg, #4060ff, #7b5bff);
   display: grid; place-items: center;
-  box-shadow: 0 2px 8px rgba(64,96,255,.4), inset 0 1px 0 rgba(255,255,255,.25);
+  overflow: hidden;
 }
-.brand-mark svg { width: 17px; height: 17px; }
+.brand-mark img { width: 100%; height: 100%; display: block; }
 .brand-word { font-size: 16px; font-weight: 600; letter-spacing: -.01em; color: var(--sidebar-fg-strong); }
 .brand-word b { color: #fff; }
 .brand-word span { color: var(--sidebar-muted); font-weight: 450; }
