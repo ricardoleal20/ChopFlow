@@ -1,0 +1,20 @@
+[package]
+name = "chopflow-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "MCP (Model Context Protocol) server exposing the ChopFlow broker as AI-friendly tools"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+rmcp = { workspace = true }
+schemars = "0.8"
