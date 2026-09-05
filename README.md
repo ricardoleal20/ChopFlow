@@ -1,25 +1,57 @@
 # ChopFlow
 
-ChopFlow is a distributed task queue written in Rust with a Python interface, designed for both production applications and research in distributed systems.
+> Durable task queue for distributed systems. A Rust-fast core with client
+> libraries for Rust, Python, and Java — plus a live operations dashboard,
+> all from one binary.
+
+🌐 **Landing page:** <https://chopflow.ricardoleal20.dev> ·
+📦 **Source:** <https://github.com/ricardoleal20/ChopFlow>
+
+ChopFlow is a distributed task queue written in Rust with multi-language
+client libraries, designed for both production applications and research in
+distributed systems. It is a task queue in the Celery / Ray / Dask lineage —
+**not** a workflow engine like Temporal.
+
+## What it does?
+
+ChopFlow takes units of background work — training jobs, reports, pipeline
+stages, image processing — and moves them through an explicit, observable
+lifecycle from submission to a terminal state, across a fleet of workers.
+
+- **You enqueue a task** (from Rust, Python, Java, or the CLI) with a payload,
+  tags, an optional ETA, resource requirements, and a retry policy.
+- **The broker persists it** (SQLite by default, in-memory for tests) and
+  reconciles in-flight work on restart — no silently dropped tasks.
+- **Workers pull matching work** by tag and available resources (CPU, GPU,
+  memory). Dispatch is pull-based, so backpressure is implicit.
+- **Workers acknowledge** each task with a success or structured failure;
+  failures retry with backoff, then dead-letter.
+- **You watch it live** in the embedded dashboard — queue depth, worker
+  capacity, task attempts, timing, and terminal failures — served from the
+  same binary, no separate frontend deploy.
+
+Optionally, schedule recurring or one-shot work with cron and overlap
+policies, and run the whole dashboard as a native macOS app via Tauri.
 
 ## Features
 
 - **Task Queue Management**: Enqueue and dequeue tasks with metadata (tags, ETA)
-- **Worker Dispatch**: Assign tasks to worker instances based on tags and resource availability
-- **Acknowledgments**: Workers confirm success or failure, with retry policies
-- **Resource Tracking**: CPU, GPU, and memory resource allocation and tracking
-- **Python Interface**: Familiar Celery-like interface with `@task` decorator and `AsyncResult`
+- **Worker Dispatch**: Pull-based assignment by tag and resource availability
+- **Acknowledgments & Retries**: Workers ack success or failure; failures retry with exponential backoff, then dead-letter
+- **Resource Tracking**: CPU, GPU, and memory allocation and live utilization per worker
+- **Multi-language Interface**: Client libraries for Rust, Python, and Java — Celery-like `@task` decorator and `AsyncResult` on the Python side
+- **Scheduling**: Cron and one-shot schedules with overlap policies (skip / coalesce / allow)
 - **Metrics**: Queue length, latency, throughput, and resource utilization metrics
 - **Research Focus**: Designed for reproducible experiments and performance comparison
 
 ## Components
 
-- **Core**: Rust library with queue, dispatcher, and worker implementations
-- **Broker**: Rust executable for the broker service
-- **Worker**: Rust executable for task execution
-- **CLI**: Command-line interface for interacting with ChopFlow
-- **Python Interface**: Python package for easy integration with Python applications
-- **Experiment**: Configuration and analysis tools for research experiments
+- **Core** (`core`): Rust library — `Task`, `Queue`, `Dispatcher`, `RetryPolicy`, `Schedule`, `Storage`, resources
+- **Broker** (`broker`): gRPC + HTTP/JSON server, embeds the dashboard UI, owns shared `BrokerState`
+- **Worker** (`worker`): Pulls work from the broker by tag + resource match, acks results
+- **CLI** (`cli`): `chopflow_cli` — enqueue, status, schedule management
+- **Demos** (`demos`): Example handlers, seed tooling, one-command demo run
+- **Client libraries**: Python and Java clients speak gRPC to the broker
 
 ## Getting Started
 
@@ -36,13 +68,13 @@ ChopFlow is a distributed task queue written in Rust with a Python interface, de
 git clone https://github.com/ricardoleal20/ChopFlow.git
 cd ChopFlow
 
-# Build Rust components
+# Build the Rust workspace (core, broker, worker, cli, demos)
 cargo build --release
-
-# Install Python interface
-cd python_interface
-pip install -e .
 ```
+
+> Python and Java client libraries are gRPC clients over the broker's proto
+> (`broker/proto/chopflow.proto`). They are on the roadmap — see
+> [CONTRIBUTING.md](CONTRIBUTING.md) §8 if you want to help land one.
 
 ### Basic Usage
 
@@ -234,7 +266,10 @@ cargo run -p chopflow_demos --bin chopflow_demo_seed -- [broker_base_url]
 # broker_base_url defaults to http://localhost:8080
 ```
 
-### Python Interface
+### Client libraries (Python / Java)
+
+The intended client ergonomics — a Celery-like `@task` decorator and an
+`AsyncResult` handle, speaking gRPC to the broker:
 
 ```python
 from chopflow import task, Client
@@ -251,31 +286,50 @@ result = train_model.delay("imagenet", {"lr": 0.001})
 output = result.get(timeout=3600)
 ```
 
+These client libraries are on the roadmap; the gRPC contract they target is
+already defined in `broker/proto/chopflow.proto`.
+
 ## Research Experiments
 
-ChopFlow is designed to facilitate research in distributed task queues. The `experiment` directory contains tools for running reproducible experiments and analyzing results.
+ChopFlow is designed to facilitate research in distributed task queues. The
+`experiment` directory (configuration and analysis tools for reproducible
+experiments) is planned but not yet landed; the `demos` crate is the current
+way to exercise the system end-to-end. See `demos/run.sh` for a one-command
+live demo.
 
-To run an experiment:
+## Documentation
 
-```bash
-# Configure experiment
-nano experiment/configs/exp01_ml_training.yml
-
-# Run experiment (implementation details TBD)
-python experiment/run_experiment.py --config experiment/configs/exp01_ml_training.yml
-
-# Analyze results
-python experiment/analysis_scripts/analyze_results.py --db experiment/results/exp01.db
-```
+- **Landing page:** <https://chopflow.ricardoleal20.dev>
+- **Design system (canonical):** [`docs/design/DESIGN.md`](docs/design/DESIGN.md)
+- **Docs site (in progress):** `docs/design/chopflow-docs.html`
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache-2.0 License — see the
+[LICENSE](LICENSE) file for details.
 
-## Contributing
+## How to participate?
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome. A quick guide:
+
+1. **Read the working agreement** — [`CONTRIBUTING.md`](CONTRIBUTING.md)
+   covers dev setup, branch naming, the gitmoji + Action commit format, PR
+   rules, the design system, and how to add a new client library.
+2. **Pick something to work on** — browse
+   [open issues](https://github.com/ricardoleal20/ChopFlow/issues). For
+   non-trivial work, open an issue first so we can align on scope before you
+   code.
+3. **Branch from `main`** using `ricardo/{topic}-{what-it-solves}`.
+4. **Keep the tree clean** — `cargo fmt`, `cargo clippy -- -D warnings`,
+   `cargo test` should all pass.
+5. **Open a PR** with the four-section description (`Summary`, `Changes`,
+   `Test plan`, `Refs`) and assign yourself. All changes require review from
+   the codeowner (see [`.github/CODEOWNERS`](.github/CODEOWNERS)).
+
+Good first contributions: landing-page / docs polish, additional demo
+handlers, a new client library (Python or Java over the existing gRPC proto),
+and expanding the docs site.
 
 ## Acknowledgments
 
-- Inspired by systems like Celery, Ray, and Dask
+- Inspired by systems like Celery, Ray, and Dask.
