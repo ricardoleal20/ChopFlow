@@ -20,6 +20,10 @@ pub struct TaskTemplate {
     pub tags: Vec<String>,
     pub resources: HashMap<String, u32>,
     pub max_retries: u32,
+    /// Dispatch priority for tasks materialized from this template. Defaults to
+    /// `0` (FIFO among unprioritized tasks).
+    #[serde(default)]
+    pub priority: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -151,6 +155,7 @@ mod tests {
             tags: vec![],
             resources: HashMap::new(),
             max_retries: 3,
+            priority: 0,
         };
         let s = Schedule::new("n".into(), tmpl, cron_kind("*/5 * * * *"), OverlapPolicy::Skip).unwrap();
         assert!(s.enabled);

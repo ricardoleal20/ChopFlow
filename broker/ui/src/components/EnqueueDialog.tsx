@@ -30,6 +30,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
   const [tags, setTags] = useState("default");
   const [payload, setPayload] = useState('{\n  "message": "hello"\n}');
   const [maxRetries, setMaxRetries] = useState("3");
+  const [priority, setPriority] = useState("0");
   const [resources, setResources] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -91,6 +92,12 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
       return;
     }
 
+    const prio = Number(priority);
+    if (Number.isNaN(prio)) {
+      setFormError("Priority must be an integer.");
+      return;
+    }
+
     const taskName = name.trim() || "task";
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
 
@@ -102,6 +109,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
           tags: tagList,
           max_retries: retries,
           resources: parsedResources,
+          priority: prio,
         },
         {
           onSuccess: () => onClose(),
@@ -118,6 +126,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
       tags: tagList,
       resources: parsedResources,
       max_retries: retries,
+      priority: prio,
     };
 
     if (schedKind === "oneshot") {
@@ -252,11 +261,19 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
                 />
               </Field>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <Field label="Max retries">
                   <input
                     value={maxRetries}
                     onChange={(e) => setMaxRetries(e.target.value)}
+                    className="cf-input"
+                    inputMode="numeric"
+                  />
+                </Field>
+                <Field label="Priority" hint="higher = first">
+                  <input
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
                     className="cf-input"
                     inputMode="numeric"
                   />

@@ -140,6 +140,9 @@ struct EnqueueTaskParams {
     /// Resource requirements, e.g. {"gpu": 1}.
     #[serde(default)]
     resources: std::collections::BTreeMap<String, u32>,
+    /// Dispatch priority (higher = claimed first). Default 0.
+    #[serde(default)]
+    priority: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -170,6 +173,9 @@ struct TaskTemplateInput {
     /// Max retries for materialized tasks.
     #[serde(default)]
     max_retries: Option<u32>,
+    /// Dispatch priority for materialized tasks (higher = first). Default 0.
+    #[serde(default)]
+    priority: Option<i32>,
 }
 
 /// Schedule kind, mirroring the broker's tagged union.
@@ -291,6 +297,9 @@ impl ChopFlowMcp {
         if !p.resources.is_empty() {
             body["resources"] = json!(p.resources);
         }
+        if let Some(pr) = p.priority {
+            body["priority"] = json!(pr);
+        }
         self.http(reqwest::Method::POST, "/api/tasks", Some(body)).await
     }
 
@@ -345,6 +354,9 @@ impl ChopFlowMcp {
         }
         if let Some(mr) = p.task_template.max_retries {
             template["max_retries"] = json!(mr);
+        }
+        if let Some(pr) = p.task_template.priority {
+            template["priority"] = json!(pr);
         }
 
         let mut kind = json!({ "type": p.kind.kind_type });

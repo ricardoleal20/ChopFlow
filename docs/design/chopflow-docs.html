@@ -331,6 +331,7 @@
           <li><a class="nav-leaf" href="#task-states" data-page="task-states">Task States &amp; Statuses</a></li>
           <li><a class="nav-leaf" href="#scheduling" data-page="scheduling">Scheduling &amp; Recurrence</a></li>
           <li><a class="nav-leaf" href="#retry-deadletter" data-page="retry-deadletter">Retry &amp; Dead-Letter</a></li>
+          <li><a class="nav-leaf" href="#priority-ordering" data-page="priority-ordering">Priority &amp; Ordering</a></li>
           <li><a class="nav-leaf" href="#resources-tags" data-page="resources-tags">Resources &amp; Tags</a></li>
         </ul>
       </div>
@@ -693,6 +694,46 @@ Polling broker at http://localhost:8000 (interval: 2s)</span></code></pre>
         </div>
       </article>
 
+      <!-- ===== PRIORITY & ORDERING ===== -->
+      <article class="doc-page" id="page-priority-ordering" data-page="priority-ordering">
+        <h1>Priority &amp; Ordering</h1>
+        <p class="doc-lede">Every task carries an integer priority. The broker dispatches the highest-priority ready tasks first, so urgent work jumps ahead of a backlog of batch jobs. The default priority is <code>0</code>, which preserves FIFO ordering.</p>
+
+        <h2 id="priority-field">The priority field<a class="anchor" href="#priority-field">#</a></h2>
+        <p><code>Task.priority</code> is a signed 32-bit integer (<code>core/src/task.rs</code>). Higher numbers are claimed before lower ones. The default is <code>0</code>; negative values are allowed and dispatch last. Priority is set at enqueue time and rides along on a schedule's <code>TaskTemplate</code>.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">core/src/task.rs</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">let</span> task = <span class="tok-ty">Task</span>::<span class="tok-fn">new</span>(<span class="tok-str">"resize_image"</span>, payload, tags)
+    .<span class="tok-fn">with_priority</span>(<span class="tok-num">5</span>);</code></pre>
+        </div>
+
+        <h2 id="ordering-key">How claim_ready orders<a class="anchor" href="#ordering-key">#</a></h2>
+        <p>When a worker fetches tasks, the broker's <code>claim_ready</code> selects ready tasks (matching tags, ETA elapsed, resources satisfied) and orders them by:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tiebreaker</th><th>Direction</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>priority</code></td><td>DESC</td><td>Higher priority claimed first.</td></tr>
+              <tr><td><code>eta</code></td><td>ASC</td><td>Within a tier, no-ETA (run ASAP) before scheduled.</td></tr>
+              <tr><td><code>enqueue_time</code></td><td>ASC</td><td>Within a tier and ETA, oldest first (FIFO).</td></tr>
+              <tr><td><code>id</code></td><td>ASC</td><td>Final deterministic tiebreaker (SQLite).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The same ordering applies to both storage backends. The in-memory backend sorts a candidate scan; SQLite uses <code>ORDER BY priority DESC, eta_ms, enqueue_ms, id</code> backed by a <code>tasks_priority</code> index on <code>(status, priority)</code>.</p>
+
+        <h2 id="setting-priority">Setting priority<a class="anchor" href="#setting-priority">#</a></h2>
+        <p>Priority is accepted everywhere a task is enqueued — the CLI (<code>--priority</code>), the HTTP <code>POST /api/tasks</code> body, the gRPC <code>EnqueueTask</code> request, the MCP <code>enqueue_task</code> tool, and the Java/Python client builders. Omitting it defaults to <code>0</code>.</p>
+
+        <div class="callout callout-info">
+          <p class="callout-title">FIFO by default</p>
+          <p>Because the default priority is <code>0</code>, a fleet of tasks enqueued without a priority still dispatches in enqueue order — priority is strictly opt-in.</p>
+        </div>
+
+        <h2 id="sqlite-migration">SQLite migration<a class="anchor" href="#sqlite-migration">#</a></h2>
+        <p>Existing SQLite databases gain a <code>priority INTEGER NOT NULL DEFAULT 0</code> column via an idempotent <code>ALTER TABLE</code> on broker startup; old rows default to priority <code>0</code>. No manual migration step is required.</p>
+      </article>
+
       <!-- ===== RESOURCES & TAGS ===== -->
       <article class="doc-page" id="page-resources-tags" data-page="resources-tags">
         <h1>Resources &amp; Tags</h1>
@@ -872,7 +913,7 @@ pub use task::Task;</code></pre>
         <div class="code-block">
           <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
           <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow_cli enqueue \
-    --task task.json --name training --tags gpu,ml --eta 2026-09-04T15:00:00Z</span></code></pre>
+    --task task.json --name training --tags gpu,ml --eta 2026-09-04T15:00:00Z --priority 5</span></code></pre>
         </div>
         <div class="table-wrap">
           <table>
@@ -882,6 +923,7 @@ pub use task::Task;</code></pre>
               <tr><td><code>-n, --name</code></td><td>Task name.</td></tr>
               <tr><td><code>-g, --tags</code></td><td>Comma-separated tags.</td></tr>
               <tr><td><code>--eta</code></td><td>Earliest eligible time (ISO 8601).</td></tr>
+              <tr><td><code>--priority</code></td><td>Dispatch priority (higher = claimed first). Default <code>0</code>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -916,6 +958,7 @@ pub use task::Task;</code></pre>
               <tr><td><code>--tags</code></td><td>—</td><td>Comma-separated tags.</td></tr>
               <tr><td><code>--resources</code></td><td>—</td><td>Comma-separated <code>name:amount</code>.</td></tr>
               <tr><td><code>--max-retries</code></td><td>3</td><td>Retries per materialized task.</td></tr>
+              <tr><td><code>--priority</code></td><td>0</td><td>Dispatch priority for materialized tasks (higher = first).</td></tr>
               <tr><td><code>--overlap</code></td><td>skip</td><td><code>skip</code> / <code>coalesce</code> / <code>allow</code>.</td></tr>
             </tbody>
           </table>
@@ -1067,6 +1110,7 @@ pub use task::Task;</code></pre>
     eta: <span class="tok-kw">None</span>,
     max_retries: <span class="tok-num">3</span>,
     resources: <span class="tok-ty">HashMap</span>::<span class="tok-fn">from</span>[(<span class="tok-str">"cpu"</span>.<span class="tok-fn">into</span>(), <span class="tok-num">4</span>)],
+    priority: <span class="tok-num">5</span>,
 })).<span class="tok-kw">await</span>?;
 
 <span class="tok-kw">let</span> task_id = resp.<span class="tok-fn">into_inner</span>().task_id;
@@ -1231,7 +1275,8 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
       "eta": null,
       "resources": {"cpu": 4},
       "result": null,
-      "schedule_id": null
+      "schedule_id": null,
+      "priority": 0
     }
   ],
   "total": 203
@@ -1250,7 +1295,8 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
   "payload": {"path": "img.png", "w": 128},
   "tags": ["gpu"],
   "max_retries": 3,
-  "resources": {"cpu": 4}
+  "resources": {"cpu": 4},
+  "priority": 5
 }</code></pre>
         </div>
         <div class="code-block">
@@ -1283,7 +1329,8 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
     "payload": "{}",
     "tags": ["ci"],
     "resources": {"cpu": 4},
-    "max_retries": 3
+    "max_retries": 3,
+    "priority": 0
   },
   "kind": {"type": "cron", "cron": "0 9 * * *"},
   "overlap_policy": "skip"
@@ -1339,7 +1386,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
           <table>
             <thead><tr><th>RPC</th><th>Direction</th><th>Purpose</th></tr></thead>
             <tbody>
-              <tr><td><code>EnqueueTask</code></td><td>client → broker</td><td>Submit a task (name, JSON payload, tags, ETA, max_retries, resources). Returns <code>task_id</code>.</td></tr>
+              <tr><td><code>EnqueueTask</code></td><td>client → broker</td><td>Submit a task (name, JSON payload, tags, ETA, max_retries, resources, priority). Returns <code>task_id</code>.</td></tr>
               <tr><td><code>GetTaskStatus</code></td><td>client → broker</td><td>Fetch a full <code>Task</code> by ID — status, attempts, result.</td></tr>
               <tr><td><code>CancelTask</code></td><td>client → broker</td><td>Cancel a non-terminal task. Returns <code>success</code>.</td></tr>
               <tr><td><code>RegisterWorker</code></td><td>worker → broker</td><td>Register with address, tags, and total resources. Returns <code>worker_id</code>.</td></tr>
@@ -1357,7 +1404,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         </div>
 
         <h2 id="grpc-messages">Key messages<a class="anchor" href="#grpc-messages">#</a></h2>
-        <p><code>Task</code> carries <code>id</code>, <code>name</code>, JSON <code>payload</code>, <code>tags</code>, <code>enqueue_time</code>/<code>eta</code>, <code>retry_count</code>/<code>max_retries</code>, <code>status</code>, a <code>resources</code> map, <code>result</code> (empty until terminal), and <code>schedule_id</code> (set when materialized by a schedule). <code>TaskStatus</code> is the enum: <code>CREATED=0, QUEUED=1, RUNNING=2, COMPLETED=3, FAILED=4, DEADLETTERED=5, CANCELLED=6</code>.</p>
+        <p><code>Task</code> carries <code>id</code>, <code>name</code>, JSON <code>payload</code>, <code>tags</code>, <code>enqueue_time</code>/<code>eta</code>, <code>retry_count</code>/<code>max_retries</code>, <code>status</code>, a <code>resources</code> map, <code>result</code> (empty until terminal), <code>schedule_id</code> (set when materialized by a schedule), and <code>priority</code> (default <code>0</code>; higher is claimed first — see <a href="#priority-ordering" style="color:var(--primary);text-decoration:underline">Priority &amp; Ordering</a>). <code>TaskStatus</code> is the enum: <code>CREATED=0, QUEUED=1, RUNNING=2, COMPLETED=3, FAILED=4, DEADLETTERED=5, CANCELLED=6</code>.</p>
 
         <div class="callout callout-info"><p class="callout-title">Pull, don't push</p><p>The broker never pushes tasks to workers. A worker calls <code>FetchTasks</code> on its own poll loop, so a slow worker simply stops pulling — backpressure is implicit, no flow-control signaling needed.</p></div>
       </article>
@@ -1457,6 +1504,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
               <tr><td><code>tags</code></td><td>string[]</td><td>no</td><td>Tags a worker must be subscribed to in order to pick the task up.</td></tr>
               <tr><td><code>max_retries</code></td><td>u32</td><td>no</td><td>Max retry attempts before dead-lettering (<code>0</code> = no retries).</td></tr>
               <tr><td><code>resources</code></td><td>object&lt;string,u32&gt;</td><td>no</td><td>Resource requirements, e.g. <code>{"gpu": 1}</code>.</td></tr>
+              <tr><td><code>priority</code></td><td>i32</td><td>no</td><td>Dispatch priority (higher = claimed first). Default <code>0</code>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1467,7 +1515,8 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
   "payload": {"width": 128, "height": 128},
   "tags": ["image"],
   "max_retries": 2,
-  "resources": {"cpu": 1}
+  "resources": {"cpu": 1},
+  "priority": 5
 }</code></pre>
         </div>
 
@@ -1483,7 +1532,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
             </tbody>
           </table>
         </div>
-        <p><strong><code>task_template</code></strong> accepts the same shape as <code>enqueue_task</code>: <code>name</code> (required), <code>payload</code> (required), <code>tags</code>, <code>resources</code>, <code>max_retries</code>.</p>
+        <p><strong><code>task_template</code></strong> accepts the same shape as <code>enqueue_task</code>: <code>name</code> (required), <code>payload</code> (required), <code>tags</code>, <code>resources</code>, <code>max_retries</code>, <code>priority</code>.</p>
         <p><strong><code>kind</code></strong> is a tagged union mirroring the broker's schedule type:</p>
         <div class="table-wrap">
           <table>

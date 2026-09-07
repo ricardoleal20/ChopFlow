@@ -55,6 +55,7 @@ struct TaskDto {
     status: String,
     retry_count: u32,
     max_retries: u32,
+    priority: i32,
     enqueue_time: i64,
     eta: Option<i64>,
     resources: HashMap<String, u32>,
@@ -72,6 +73,7 @@ impl From<Task> for TaskDto {
             status: status_str(t.status).to_string(),
             retry_count: t.retry_count,
             max_retries: t.max_retries,
+            priority: t.priority,
             enqueue_time: t.enqueue_time.timestamp_millis(),
             eta: t.eta.map(|e| e.timestamp_millis()),
             resources: t.resources,
@@ -146,6 +148,8 @@ struct EnqueueBody {
     max_retries: u32,
     #[serde(default)]
     resources: HashMap<String, u32>,
+    #[serde(default)]
+    priority: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -413,6 +417,7 @@ async fn enqueue(
     for (resource, amount) in body.resources {
         task = task.with_resource(resource, amount);
     }
+    task = task.with_priority(body.priority);
     task.status = TaskStatus::Queued;
 
     state.storage.insert(task.clone()).await.map_err(|e| internal(e))?;

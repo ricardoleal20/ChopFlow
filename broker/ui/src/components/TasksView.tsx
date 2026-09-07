@@ -83,6 +83,9 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                 <th className="num" style={{ width: 80 }}>
                   Retries
                 </th>
+                <th className="num" style={{ width: 80 }}>
+                  Priority
+                </th>
                 <th style={{ width: 110 }}>Enqueued</th>
                 <th style={{ width: 160 }}>Result</th>
               </tr>
@@ -91,7 +94,7 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={`sk-${i}`}>
-                    {Array.from({ length: 7 }).map((__, j) => (
+                    {Array.from({ length: 8 }).map((__, j) => (
                       <td key={j}>
                         <div style={{ height: 14, borderRadius: 4, background: "var(--surface-3)", opacity: 0.5 }} />
                       </td>
@@ -100,7 +103,7 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                 ))
               ) : error ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <div className="empty-state">
                       <p style={{ color: "var(--danger)" }}>Failed to load tasks: {error.message}</p>
                     </div>
@@ -108,7 +111,7 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                 </tr>
               ) : seen.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <div className="empty-state">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                         <circle cx="11" cy="11" r="7" />
@@ -166,6 +169,7 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                       <td className={`retries${retryWarn ? " warn" : ""}`}>
                         {t.retry_count}/{t.max_retries}
                       </td>
+                      <td className="num">{t.priority}</td>
                       <td>
                         <span className="enq" title={clockTime(t.enqueue_time)}>
                           {timeAgo(t.enqueue_time)}

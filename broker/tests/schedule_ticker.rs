@@ -5,7 +5,7 @@ use chopflow_core::task::TaskStatus;
 use std::collections::HashMap;
 
 fn tmpl(name: &str) -> TaskTemplate {
-    TaskTemplate { name: name.into(), payload: serde_json::json!({}), tags: vec![], resources: HashMap::new(), max_retries: 3 }
+    TaskTemplate { name: name.into(), payload: serde_json::json!({}), tags: vec![], resources: HashMap::new(), max_retries: 3, priority: 0 }
 }
 
 #[tokio::test]

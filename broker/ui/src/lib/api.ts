@@ -23,6 +23,7 @@ export interface Task {
   resources: Record<string, number>;
   result: string | null;
   schedule_id: string | null;
+  priority: number;
 }
 
 export interface TaskListResponse {
@@ -57,6 +58,7 @@ export interface EnqueueBody {
   tags?: string[];
   max_retries?: number;
   resources?: Record<string, number>;
+  priority?: number;
 }
 
 // ---- Schedules --------------------------------------------------------------
@@ -75,6 +77,7 @@ export interface TaskTemplate {
   tags: string[];
   resources: Record<string, number>;
   max_retries: number;
+  priority: number;
 }
 
 export interface Schedule {

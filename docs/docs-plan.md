@@ -19,6 +19,7 @@ authoritative files per topic:
 | Topic | Source files |
 |---|---|
 | Task model & statuses | `core/src/task.rs` |
+| Task priority & ordering | `core/src/task.rs`, `core/src/storage.rs` |
 | Queue | `core/src/queue.rs` |
 | Dispatcher (pull model) | `core/src/dispatcher.rs` |
 | Retry & dead-letter | `core/src/retry.rs` |
@@ -53,6 +54,9 @@ The nav is fixed by the OpenDesign shell. Group order and page ownership:
    semantics, no backfill. *(filled in v1)*
 7. **Retry & Dead-Letter** — `RetryPolicy`, exponential backoff, computed
    ETA, terminal dead-letter. *(filled in v1)*
+7b. **Priority & Ordering** — `Task.priority` (default 0, higher = claimed
+    first), the `claim_ready` ordering key `(priority DESC, eta ASC,
+    enqueue_time ASC)`, FIFO within a tier, SQLite index + migration. *(filled in v1)*
 8. **Resources & Tags** — `ResourceRequirements`, `ResourceAvailability`,
    tag matching, pull-based dispatch. *(filled in v1)*
 
@@ -196,7 +200,11 @@ permanent future-clients space.
 - Docs live in `docs/`; the rendered site is `docs/design/chopflow-docs.html`
   (single self-contained file, same design system).
 - When a status, endpoint, or CLI flag changes in code, update the matching
-  docs page in the same PR.
+  docs page in the same PR. The same applies to `Task.priority` / the
+  `claim_ready` ordering key — the "Priority & Ordering" concept page and the
+  enqueue examples (CLI `--priority`, HTTP/gRPC `priority`, client `.priority()`)
+  are the canonical user-facing reference and must track
+  `core/src/task.rs` + `core/src/storage.rs`.
 - Keep the "More clients soon" placeholder — do not delete it when adding a
   client; instead graduate that client to its own filled page and leave the
   placeholder for the next one.

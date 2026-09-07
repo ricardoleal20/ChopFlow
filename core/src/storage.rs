@@ -202,14 +202,22 @@ impl Storage for InMemoryStorage {
         let mut tasks = self.tasks.lock().await;
         let now = chrono::Utc::now();
 
-        // Collect ids of ready, matching, queued tasks (must collect first
-        // because we can't mutate while iterating the borrow).
-        let ids: Vec<Uuid> = tasks
+        // Collect ready, matching, queued candidates, then pick the
+        // highest-priority ones: priority desc, then eta asc (None-first via
+        // `Option::cmp`), then enqueue_time asc as a FIFO tie-breaker. We
+        // collect first because we can't mutate while iterating the borrow.
+        let mut candidates: Vec<Task> = tasks
             .values()
             .filter(|t| t.status == TaskStatus::Queued && t.is_ready_at(now) && Self::tags_match(t, tags))
-            .take(max)
-            .map(|t| t.id)
+            .cloned()
             .collect();
+        candidates.sort_by(|a, b| {
+            b.priority
+                .cmp(&a.priority)
+                .then(a.eta.cmp(&b.eta))
+                .then(a.enqueue_time.cmp(&b.enqueue_time))
+        });
+        let ids: Vec<Uuid> = candidates.into_iter().take(max).map(|t| t.id).collect();
 
         let mut claimed = Vec::with_capacity(ids.len());
         for id in ids {
@@ -310,6 +318,7 @@ impl SqliteStorage {
                  status      INTEGER NOT NULL,
                  eta_ms      INTEGER,
                  enqueue_ms  INTEGER NOT NULL,
+                 priority    INTEGER NOT NULL DEFAULT 0,
                  task_json   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
@@ -322,6 +331,21 @@ impl SqliteStorage {
                  schedule_json   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS schedules_next_fire ON schedules(next_fire_ms);",
+        )
+        .map_err(rusqlite_err)?;
+
+        // Idempotent migration for DBs created before priority existed. The only
+        // failure mode is "duplicate column name" (column already present), which
+        // is the desired end state — so we discard the result. The tasks_priority
+        // index references this column, so it must be created *after* the ALTER
+        // (a legacy DB has no priority column until this runs).
+        let _ = conn.execute(
+            "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority)",
+            [],
         )
         .map_err(rusqlite_err)?;
 
@@ -339,11 +363,13 @@ impl SqliteStorage {
                  status      INTEGER NOT NULL,
                  eta_ms      INTEGER,
                  enqueue_ms  INTEGER NOT NULL,
+                 priority    INTEGER NOT NULL DEFAULT 0,
                  task_json   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
              CREATE INDEX IF NOT EXISTS tasks_eta ON tasks(eta_ms);
              CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);
+             CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority);
              CREATE TABLE IF NOT EXISTS schedules (
                  id              TEXT PRIMARY KEY,
                  next_fire_ms    INTEGER NOT NULL,
@@ -359,15 +385,16 @@ impl SqliteStorage {
     }
 
     /// Serialize a task to its JSON blob and extract the indexed columns.
-    fn marshal(task: &Task) -> Result<(String, i64, Option<i64>, i64, String)> {
+    fn marshal(task: &Task) -> Result<(String, i64, Option<i64>, i64, i64, String)> {
         let id = task.id.to_string();
         let status = task.status as i64;
         let eta_ms = task.eta.map(|eta| eta.timestamp_millis());
         let enqueue_ms = task.enqueue_time.timestamp_millis();
+        let priority = task.priority as i64;
         let json = serde_json::to_string(task).map_err(|e| {
             ChopFlowError::SerializationError(format!("failed to serialize task: {}", e))
         })?;
-        Ok((id, status, eta_ms, enqueue_ms, json))
+        Ok((id, status, eta_ms, enqueue_ms, priority, json))
     }
 
     /// Deserialize a row into a `Task`.
@@ -411,11 +438,11 @@ impl Storage for SqliteStorage {
     async fn insert(&self, task: Task) -> Result<()> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let (id, status, eta_ms, enqueue_ms, json) = Self::marshal(&task)?;
+            let (id, status, eta_ms, enqueue_ms, priority, json) = Self::marshal(&task)?;
             let conn = lock_conn(&conn)?;
             conn.execute(
-                "INSERT OR REPLACE INTO tasks (id, status, eta_ms, enqueue_ms, task_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![id, status, eta_ms, enqueue_ms, json],
+                "INSERT OR REPLACE INTO tasks (id, status, eta_ms, enqueue_ms, priority, task_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![id, status, eta_ms, enqueue_ms, priority, json],
             )
             .map_err(rusqlite_err)?;
             Ok(())
@@ -548,15 +575,16 @@ impl Storage for SqliteStorage {
             let conn = lock_conn(&conn)?;
             let now_ms = chrono::Utc::now().timestamp_millis();
 
-            // Select candidate ready, queued tasks ordered by enqueue time.
-            // Tag filtering happens in Rust (tags live inside the JSON blob);
-            // the connection Mutex guarantees atomicity between select and
-            // update so no two callers claim the same task.
+            // Select candidate ready, queued tasks ordered by priority (desc),
+            // then eta, then enqueue time. Tag filtering happens in Rust (tags
+            // live inside the JSON blob); the connection Mutex guarantees
+            // atomicity between select and update so no two callers claim the
+            // same task.
             let mut stmt = conn
                 .prepare(
                     "SELECT * FROM tasks
                      WHERE status = ?1 AND (eta_ms IS NULL OR eta_ms <= ?2)
-                     ORDER BY enqueue_ms, id",
+                     ORDER BY priority DESC, eta_ms, enqueue_ms, id",
                 )
                 .map_err(rusqlite_err)?;
             let mut rows = stmt
@@ -580,10 +608,10 @@ impl Storage for SqliteStorage {
             // Mark the chosen tasks Running.
             for task in &mut claimed {
                 task.mark_running();
-                let (id, status, eta_ms, enqueue_ms, json) = Self::marshal(task)?;
+                let (id, status, eta_ms, enqueue_ms, priority, json) = Self::marshal(task)?;
                 conn.execute(
-                    "UPDATE tasks SET status = ?2, eta_ms = ?3, enqueue_ms = ?4, task_json = ?5 WHERE id = ?1",
-                    rusqlite::params![id, status, eta_ms, enqueue_ms, json],
+                    "UPDATE tasks SET status = ?2, eta_ms = ?3, enqueue_ms = ?4, priority = ?5, task_json = ?6 WHERE id = ?1",
+                    rusqlite::params![id, status, eta_ms, enqueue_ms, priority, json],
                 )
                 .map_err(rusqlite_err)?;
             }
@@ -618,7 +646,7 @@ impl Storage for SqliteStorage {
 
             for task in &mut running {
                 task.status = TaskStatus::Queued;
-                let (id, status, _eta_ms, _enqueue_ms, json) = Self::marshal(task)?;
+                let (id, status, _eta_ms, _enqueue_ms, _priority, json) = Self::marshal(task)?;
                 conn.execute(
                     "UPDATE tasks SET status = ?2, task_json = ?3 WHERE id = ?1",
                     rusqlite::params![id, status, json],
@@ -759,6 +787,7 @@ mod tests {
             tags: vec![],
             resources: HashMap::new(),
             max_retries: 3,
+            priority: 0,
         }
     }
 
@@ -1010,5 +1039,96 @@ mod tests {
         t.schedule_id = Some(due.id);
         s.insert(t).await.unwrap();
         assert_eq!(s.in_flight_for_schedule(&due.id).await.unwrap().len(), 1);
+    }
+
+    fn priority_task(name: &str, priority: i32) -> Task {
+        let mut t = queued(name, &[]);
+        t.priority = priority;
+        t
+    }
+
+    #[tokio::test]
+    async fn in_memory_claim_ready_respects_priority() {
+        let s = InMemoryStorage::new();
+        // Low-priority enqueued first, high-priority second.
+        s.insert(priority_task("low", 1)).await.unwrap();
+        s.insert(priority_task("high", 9)).await.unwrap();
+
+        // Claim one: the high-priority task wins despite being enqueued second.
+        let claimed = s.claim_ready(&[], 1).await.unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].name, "high");
+        assert_eq!(claimed[0].priority, 9);
+    }
+
+    #[tokio::test]
+    async fn sqlite_claim_ready_respects_priority() {
+        let s = SqliteStorage::open_in_memory().unwrap();
+        s.insert(priority_task("low", 1)).await.unwrap();
+        s.insert(priority_task("high", 9)).await.unwrap();
+
+        let claimed = s.claim_ready(&[], 1).await.unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].name, "high");
+    }
+
+    #[tokio::test]
+    async fn claim_ready_priority_then_fifo_within_tier() {
+        // Same priority: FIFO by enqueue_time (low enqueued first wins).
+        let s = InMemoryStorage::new();
+        s.insert(priority_task("first", 5)).await.unwrap();
+        s.insert(priority_task("second", 5)).await.unwrap();
+        let claimed = s.claim_ready(&[], 1).await.unwrap();
+        assert_eq!(claimed[0].name, "first");
+    }
+
+    #[tokio::test]
+    async fn sqlite_priority_persists_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pq.db");
+        let p = path.to_str().unwrap().to_string();
+
+        let t = priority_task("vip", 7);
+        let id = t.id;
+        {
+            let s = SqliteStorage::open(&p).unwrap();
+            s.insert(t).await.unwrap();
+        }
+        // Drop the storage, reopen the same file — priority must survive.
+        let s = SqliteStorage::open(&p).unwrap();
+        let got = s.get(&id).await.unwrap().unwrap();
+        assert_eq!(got.priority, 7);
+    }
+
+    #[tokio::test]
+    async fn sqlite_migrates_pre_existing_db_without_priority_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+
+        // A real task serialized the old way (no priority in JSON is fine — serde
+        // would default it, but here we just need a valid row to round-trip).
+        let t = priority_task("legacy", 0);
+        let id = t.id;
+        let json = serde_json::to_string(&t).unwrap();
+        let enqueue_ms = t.enqueue_time.timestamp_millis();
+
+        // Build a DB with the OLD schema (no priority column) and insert the row.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, status INTEGER, eta_ms INTEGER, enqueue_ms INTEGER, task_json TEXT);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, status, eta_ms, enqueue_ms, task_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![t.id.to_string(), t.status as i64, Option::<i64>::None, enqueue_ms, json],
+        )
+        .unwrap();
+        drop(conn);
+
+        // Opening via SqliteStorage must add the priority column idempotently
+        // and the legacy row must read back with priority 0.
+        let s = SqliteStorage::open(path.to_str().unwrap()).unwrap();
+        let got = s.get(&id).await.unwrap().unwrap();
+        assert_eq!(got.priority, 0, "legacy row should default to priority 0");
     }
 }

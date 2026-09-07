@@ -35,6 +35,10 @@ enum Commands {
         /// ETA (earliest time of arrival) in ISO 8601 format
         #[arg(long)]
         eta: Option<String>,
+
+        /// Dispatch priority (higher = claimed first). Default 0.
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
     },
 
     /// Get task status
@@ -77,6 +81,9 @@ enum ScheduleCmd {
         max_retries: u32,
         #[arg(long, default_value = "skip")]
         overlap: String,
+        /// Dispatch priority for materialized tasks (higher = first). Default 0.
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
     },
     /// List schedules
     List,
@@ -97,8 +104,9 @@ async fn main() -> Result<()> {
             name,
             tags,
             eta,
+            priority,
         } => {
-            chopflow_cli::enqueue_task(cli.broker, task, name, tags, eta).await?;
+            chopflow_cli::enqueue_task(cli.broker, task, name, tags, eta, priority).await?;
         }
         Commands::Status { id, all } => {
             chopflow_cli::get_status(cli.broker, id, all).await?;
@@ -114,6 +122,7 @@ async fn main() -> Result<()> {
                 resources,
                 max_retries,
                 overlap,
+                priority,
             } => {
                 chopflow_cli::schedule_create(
                     cli.broker,
@@ -126,6 +135,7 @@ async fn main() -> Result<()> {
                     resources,
                     max_retries,
                     overlap,
+                    priority,
                 )
                 .await?;
             }
