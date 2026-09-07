@@ -27,7 +27,7 @@ pub use dispatcher::Dispatcher;
 pub use queue::Queue;
 pub use resources::ResourceRequirements;
 pub use retry::RetryPolicy;
-pub use schedule::{Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
-pub use storage::{Storage, TaskFilter, StatusCounts, InMemoryStorage, SqliteStorage};
+pub use schedule::{OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
+pub use storage::{InMemoryStorage, SqliteStorage, StatusCounts, Storage, TaskFilter};
 /// Re-export core types for convenience
 pub use task::Task;

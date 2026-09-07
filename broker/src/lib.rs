@@ -12,17 +12,17 @@ tests in `broker/tests/`. The `main.rs` binary is a thin CLI wrapper.
 use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
 use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::retry::RetryPolicy;
-use chopflow_core::schedule::{next_fire, Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
+use chopflow_core::schedule::{next_fire, OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
 use chopflow_core::storage::{Storage, TaskFilter};
 use chopflow_core::task::{Task, TaskStatus};
 
 use clap::{Parser, Subcommand};
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-use std::time::Duration;
-use tokio::time::sleep;
 
 // Generate code from protobuf definitions
 pub mod chopflow {
@@ -33,39 +33,16 @@ pub mod chopflow {
 pub mod http;
 
 use chopflow::{
-    AcknowledgeTaskRequest,
-    AcknowledgeTaskResponse,
-    CancelTaskRequest,
-    CancelTaskResponse,
-    CreateScheduleRequest,
-    CreateScheduleResponse,
-    DeleteScheduleRequest,
-    DeleteScheduleResponse,
-    EnqueueTaskRequest,
-    EnqueueTaskResponse,
-    FetchTasksRequest,
-    FetchTasksResponse,
-    GetQueueStatsRequest,
-    GetQueueStatsResponse,
-    GetTaskStatusRequest,
-    GetTaskStatusResponse,
-    ListSchedulesRequest,
-    ListSchedulesResponse,
-    ListTasksRequest,
-    ListTasksResponse,
-    ListWorkersResponse,
-    OverlapPolicy as ProtoOverlapPolicy,
-    RegisterWorkerRequest,
-    RegisterWorkerResponse,
-    ResourceAvailability as ProtoResourceAvailability,
-    Schedule as ProtoSchedule,
-    ScheduleKind as ProtoScheduleKind,
-    Task as ProtoTask,
-    TaskStatus as ProtoTaskStatus,
-    TaskTemplate as ProtoTaskTemplate,
-    Worker as ProtoWorker,
-    WorkerHeartbeatRequest,
-    WorkerHeartbeatResponse,
+    AcknowledgeTaskRequest, AcknowledgeTaskResponse, CancelTaskRequest, CancelTaskResponse,
+    CreateScheduleRequest, CreateScheduleResponse, DeleteScheduleRequest, DeleteScheduleResponse,
+    EnqueueTaskRequest, EnqueueTaskResponse, FetchTasksRequest, FetchTasksResponse,
+    GetQueueStatsRequest, GetQueueStatsResponse, GetTaskStatusRequest, GetTaskStatusResponse,
+    ListSchedulesRequest, ListSchedulesResponse, ListTasksRequest, ListTasksResponse,
+    ListWorkersResponse, OverlapPolicy as ProtoOverlapPolicy, RegisterWorkerRequest,
+    RegisterWorkerResponse, ResourceAvailability as ProtoResourceAvailability,
+    Schedule as ProtoSchedule, ScheduleKind as ProtoScheduleKind, Task as ProtoTask,
+    TaskStatus as ProtoTaskStatus, TaskTemplate as ProtoTaskTemplate, Worker as ProtoWorker,
+    WorkerHeartbeatRequest, WorkerHeartbeatResponse,
 };
 
 use chopflow::chop_flow_broker_server::{ChopFlowBroker, ChopFlowBrokerServer};
@@ -196,18 +173,37 @@ impl From<Worker> for ProtoWorker {
 
 /// Convert a proto `TaskTemplate` into the core type. The proto payload is a
 /// JSON string; we parse it into a `serde_json::Value` here.
+// TODO: box the `Status` error variant to drop below the 128-byte threshold and
+// remove this allow. Left for a focused refactor — touching it risks the gRPC
+// error-mapping surface.
+#[allow(clippy::result_large_err)]
 fn proto_to_template(p: ProtoTaskTemplate) -> std::result::Result<TaskTemplate, Status> {
     let payload: serde_json::Value = serde_json::from_str(&p.payload)
         .map_err(|e| Status::invalid_argument(format!("invalid template payload: {}", e)))?;
-    Ok(TaskTemplate { name: p.name, payload, tags: p.tags, resources: p.resources, max_retries: p.max_retries, priority: p.priority })
+    Ok(TaskTemplate {
+        name: p.name,
+        payload,
+        tags: p.tags,
+        resources: p.resources,
+        max_retries: p.max_retries,
+        priority: p.priority,
+    })
 }
 
 /// Convert a proto `Schedule` into the core `Schedule` (computing `next_fire`
 /// via [`Schedule::new`]).
+// TODO: box the `Status` error variant to drop below the 128-byte threshold and
+// remove this allow. Left for a focused refactor — touching it risks the gRPC
+// error-mapping surface.
+#[allow(clippy::result_large_err)]
 fn proto_to_schedule(p: ProtoSchedule) -> std::result::Result<Schedule, Status> {
     let kind = match p.kind {
-        Some(ProtoScheduleKind { kind: Some(chopflow::schedule_kind::Kind::Cron(c)) }) => ScheduleKind::Cron { cron: c },
-        Some(ProtoScheduleKind { kind: Some(chopflow::schedule_kind::Kind::Eta(ts)) }) => {
+        Some(ProtoScheduleKind {
+            kind: Some(chopflow::schedule_kind::Kind::Cron(c)),
+        }) => ScheduleKind::Cron { cron: c },
+        Some(ProtoScheduleKind {
+            kind: Some(chopflow::schedule_kind::Kind::Eta(ts)),
+        }) => {
             let eta = chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32)
                 .ok_or_else(|| Status::invalid_argument("invalid eta"))?;
             ScheduleKind::OneShot { eta }
@@ -221,8 +217,12 @@ fn proto_to_schedule(p: ProtoSchedule) -> std::result::Result<Schedule, Status> 
         ProtoOverlapPolicy::OverlapCoalesce => OverlapPolicy::Coalesce,
         ProtoOverlapPolicy::OverlapAllow => OverlapPolicy::Allow,
     };
-    let tmpl = proto_to_template(p.task_template.ok_or_else(|| Status::invalid_argument("task_template required"))?)?;
-    let s = Schedule::new(p.name, tmpl, kind, overlap).map_err(|e| Status::invalid_argument(e.to_string()))?;
+    let tmpl = proto_to_template(
+        p.task_template
+            .ok_or_else(|| Status::invalid_argument("task_template required"))?,
+    )?;
+    let s = Schedule::new(p.name, tmpl, kind, overlap)
+        .map_err(|e| Status::invalid_argument(e.to_string()))?;
     Ok(s)
 }
 
@@ -231,9 +231,12 @@ fn schedule_to_proto(s: Schedule) -> ProtoSchedule {
     let kind = Some(ProtoScheduleKind {
         kind: Some(match s.kind {
             ScheduleKind::Cron { cron } => chopflow::schedule_kind::Kind::Cron(cron),
-            ScheduleKind::OneShot { eta } => chopflow::schedule_kind::Kind::Eta(prost_types::Timestamp {
-                seconds: eta.timestamp(), nanos: eta.timestamp_subsec_nanos() as i32,
-            }),
+            ScheduleKind::OneShot { eta } => {
+                chopflow::schedule_kind::Kind::Eta(prost_types::Timestamp {
+                    seconds: eta.timestamp(),
+                    nanos: eta.timestamp_subsec_nanos() as i32,
+                })
+            }
         }),
     });
     let overlap = match s.overlap_policy {
@@ -241,16 +244,27 @@ fn schedule_to_proto(s: Schedule) -> ProtoSchedule {
         OverlapPolicy::Coalesce => ProtoOverlapPolicy::OverlapCoalesce,
         OverlapPolicy::Allow => ProtoOverlapPolicy::OverlapAllow,
     };
-    let ts = |t: chrono::DateTime<chrono::Utc>| prost_types::Timestamp { seconds: t.timestamp(), nanos: t.timestamp_subsec_nanos() as i32 };
+    let ts = |t: chrono::DateTime<chrono::Utc>| prost_types::Timestamp {
+        seconds: t.timestamp(),
+        nanos: t.timestamp_subsec_nanos() as i32,
+    };
     ProtoSchedule {
-        id: s.id.to_string(), name: s.name,
+        id: s.id.to_string(),
+        name: s.name,
         task_template: Some(ProtoTaskTemplate {
             name: s.task_template.name,
             payload: serde_json::to_string(&s.task_template.payload).unwrap_or_default(),
-            tags: s.task_template.tags, resources: s.task_template.resources, max_retries: s.task_template.max_retries, priority: s.task_template.priority,
+            tags: s.task_template.tags,
+            resources: s.task_template.resources,
+            max_retries: s.task_template.max_retries,
+            priority: s.task_template.priority,
         }),
-        kind, overlap_policy: overlap as i32, enabled: s.enabled,
-        last_fired: s.last_fired.map(ts), next_fire: Some(ts(s.next_fire)), created_at: Some(ts(s.created_at)),
+        kind,
+        overlap_policy: overlap as i32,
+        enabled: s.enabled,
+        last_fired: s.last_fired.map(ts),
+        next_fire: Some(ts(s.next_fire)),
+        created_at: Some(ts(s.created_at)),
     }
 }
 
@@ -341,7 +355,11 @@ impl ChopFlowBrokerService {
         for mut schedule in due {
             // Overlap check (skip/coalesce skip when any in-flight task exists).
             if schedule.overlap_policy != OverlapPolicy::Allow {
-                let in_flight = self.state.storage.in_flight_for_schedule(&schedule.id).await?;
+                let in_flight = self
+                    .state
+                    .storage
+                    .in_flight_for_schedule(&schedule.id)
+                    .await?;
                 if !in_flight.is_empty() {
                     // Skip the fire but still advance next_fire for cron so the
                     // next match is computed. OneShot is left to retry next tick.
@@ -360,8 +378,7 @@ impl ChopFlowBrokerService {
 
             // Materialize a Task from the template.
             let t = &schedule.task_template;
-            let mut task = Task::new(t.name.clone(), t.payload.clone())
-                .with_tags(t.tags.clone());
+            let mut task = Task::new(t.name.clone(), t.payload.clone()).with_tags(t.tags.clone());
             for (k, v) in &t.resources {
                 task = task.with_resource(k.clone(), *v);
             }
@@ -373,7 +390,10 @@ impl ChopFlowBrokerService {
             task.status = TaskStatus::Queued;
 
             if let Err(e) = self.state.storage.insert(task).await {
-                warn!("failed to insert materialized task for schedule {}: {}", schedule.id, e);
+                warn!(
+                    "failed to insert materialized task for schedule {}: {}",
+                    schedule.id, e
+                );
                 continue;
             }
 
@@ -515,7 +535,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         // A single insert is both "store" and "enqueue": queued tasks are
         // just tasks with status Queued, claimable by workers via FetchTasks.
         task.status = TaskStatus::Queued;
-        self.state.storage
+        self.state
+            .storage
             .insert(task.clone())
             .await
             .map_err(|e| Status::internal(format!("Failed to enqueue task: {}", e)))?;
@@ -539,7 +560,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
         let task = self
-            .state.storage
+            .state
+            .storage
             .get(&task_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
@@ -559,7 +581,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
         let Some(mut task) = self
-            .state.storage
+            .state
+            .storage
             .get(&task_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
@@ -586,7 +609,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         }
 
         task.mark_cancelled();
-        self.state.storage
+        self.state
+            .storage
             .insert(task.clone())
             .await
             .map_err(|e| Status::internal(format!("Failed to update task: {}", e)))?;
@@ -619,7 +643,9 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         let req = request.into_inner();
 
         if req.resources.is_empty() {
-            return Err(Status::invalid_argument("Worker must specify at least one resource"));
+            return Err(Status::invalid_argument(
+                "Worker must specify at least one resource",
+            ));
         }
 
         let worker = Worker {
@@ -699,7 +725,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
         // Atomically claim ready matching tasks (Queued → Running).
         let claimed = self
-            .state.storage
+            .state
+            .storage
             .claim_ready(&worker.tags, max_tasks)
             .await
             .map_err(|e| Status::internal(format!("Failed to claim tasks: {}", e)))?;
@@ -746,7 +773,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
 
         let mut task = self
-            .state.storage
+            .state
+            .storage
             .get(&task_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
@@ -762,11 +790,15 @@ impl ChopFlowBroker for ChopFlowBrokerService {
 
         if req.success {
             task.mark_completed_with_result(req.result);
-            self.state.storage
+            self.state
+                .storage
                 .insert(task.clone())
                 .await
                 .map_err(|e| Status::internal(format!("Failed to update task: {}", e)))?;
-            info!("Task {} completed successfully by worker {}", task_id, worker_id);
+            info!(
+                "Task {} completed successfully by worker {}",
+                task_id, worker_id
+            );
         } else {
             task.result = Some(req.result.clone());
             task.mark_failed();
@@ -781,13 +813,15 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         _: Request<GetQueueStatsRequest>,
     ) -> std::result::Result<Response<GetQueueStatsResponse>, Status> {
         let queue_length = self
-            .state.storage
+            .state
+            .storage
             .count_pending()
             .await
             .map_err(|e| Status::internal(format!("Failed to count pending: {}", e)))?;
 
         let counts = self
-            .state.storage
+            .state
+            .storage
             .count_by_status()
             .await
             .map_err(|e| Status::internal(format!("Failed to count by status: {}", e)))?;
@@ -836,14 +870,16 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         };
 
         let tasks = self
-            .state.storage
+            .state
+            .storage
             .list(&filter)
             .await
             .map_err(|e| Status::internal(format!("Failed to list tasks: {}", e)))?;
 
         // total_count is the unfiltered total in the store.
         let total = self
-            .state.storage
+            .state
+            .storage
             .list(&TaskFilter::default())
             .await
             .map_err(|e| Status::internal(format!("Failed to count tasks: {}", e)))?
@@ -877,7 +913,10 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         request: Request<CreateScheduleRequest>,
     ) -> std::result::Result<Response<CreateScheduleResponse>, Status> {
         let schedule = proto_to_schedule(
-            request.into_inner().schedule.ok_or_else(|| Status::invalid_argument("schedule required"))?,
+            request
+                .into_inner()
+                .schedule
+                .ok_or_else(|| Status::invalid_argument("schedule required"))?,
         )?;
         let id = schedule.id;
         self.state
@@ -885,7 +924,9 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .insert_schedule(schedule)
             .await
             .map_err(|e| Status::internal(format!("insert schedule: {}", e)))?;
-        Ok(Response::new(CreateScheduleResponse { schedule_id: id.to_string() }))
+        Ok(Response::new(CreateScheduleResponse {
+            schedule_id: id.to_string(),
+        }))
     }
 
     async fn list_schedules(

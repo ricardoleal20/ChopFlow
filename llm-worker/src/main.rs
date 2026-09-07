@@ -204,11 +204,15 @@ fn parse_resources(s: &str) -> Result<HashMap<String, u32>> {
         }
         let parts: Vec<&str> = entry.split(':').collect();
         if parts.len() != 2 {
-            anyhow::bail!("invalid resource '{}': expected 'name:amount' (e.g. llm:1)", entry);
+            anyhow::bail!(
+                "invalid resource '{}': expected 'name:amount' (e.g. llm:1)",
+                entry
+            );
         }
-        let amount = parts[1].trim().parse::<u32>().map_err(|e| {
-            anyhow::anyhow!("invalid resource amount in '{}': {}", entry, e)
-        })?;
+        let amount = parts[1]
+            .trim()
+            .parse::<u32>()
+            .map_err(|e| anyhow::anyhow!("invalid resource amount in '{}': {}", entry, e))?;
         map.insert(parts[0].trim().to_string(), amount);
     }
     if map.is_empty() {
@@ -346,7 +350,13 @@ async fn execute_and_ack(state: &Arc<WorkerState>, llm: &LlmConfig, task: ProtoT
     let payload: Value = match serde_json::from_str(&task.payload) {
         Ok(v) => v,
         Err(e) => {
-            ack(state, &task_id, false, error_json("invalid payload", &e.to_string())).await?;
+            ack(
+                state,
+                &task_id,
+                false,
+                error_json("invalid payload", &e.to_string()),
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -355,7 +365,10 @@ async fn execute_and_ack(state: &Arc<WorkerState>, llm: &LlmConfig, task: ProtoT
         "llm.complete" | "complete" => llm_complete(llm, payload).await,
         "llm.chat" | "chat" => llm_chat(llm, payload).await,
         other => {
-            warn!("no LLM handler for '{}', falling back to llm.complete", other);
+            warn!(
+                "no LLM handler for '{}', falling back to llm.complete",
+                other
+            );
             llm_complete(llm, payload).await
         }
     };
@@ -364,7 +377,13 @@ async fn execute_and_ack(state: &Arc<WorkerState>, llm: &LlmConfig, task: ProtoT
         Ok(result) => ack(state, &task_id, true, result).await?,
         Err(e) => {
             error!("task {} handler error: {}", task_id, e);
-            ack(state, &task_id, false, error_json("llm call failed", &e.to_string())).await?;
+            ack(
+                state,
+                &task_id,
+                false,
+                error_json("llm call failed", &e.to_string()),
+            )
+            .await?;
         }
     }
     Ok(())
@@ -444,12 +463,7 @@ async fn chat_completions(llm: &LlmConfig, payload: Value, messages: Value) -> R
 }
 
 /// Acknowledge a task: success/failure + JSON result body.
-async fn ack(
-    state: &Arc<WorkerState>,
-    task_id: &str,
-    success: bool,
-    result: Value,
-) -> Result<()> {
+async fn ack(state: &Arc<WorkerState>, task_id: &str, success: bool, result: Value) -> Result<()> {
     let mut client = ChopFlowBrokerClient::connect(state.broker_address.clone())
         .await
         .map_err(|e| ChopFlowError::NetworkError(e.to_string()))?;

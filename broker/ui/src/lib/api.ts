@@ -2,13 +2,7 @@
 // broker/src/http.rs. Status is a lowercase string the backend owns.
 
 export type TaskStatus =
-  | "created"
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "dead-lettered"
-  | "cancelled";
+  "created" | "queued" | "running" | "completed" | "failed" | "dead-lettered" | "cancelled";
 
 export interface Task {
   id: string;
@@ -67,9 +61,7 @@ export interface EnqueueBody {
 
 export type OverlapPolicy = "skip" | "coalesce" | "allow";
 
-export type ScheduleKind =
-  | { type: "cron"; cron: string }
-  | { type: "oneshot"; eta: string }; // RFC3339 (UTC)
+export type ScheduleKind = { type: "cron"; cron: string } | { type: "oneshot"; eta: string }; // RFC3339 (UTC)
 
 export interface TaskTemplate {
   name: string;
@@ -133,8 +125,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  cancel: (id: string) =>
-    json<{ success: boolean }>(`/tasks/${id}/cancel`, { method: "POST" }),
+  cancel: (id: string) => json<{ success: boolean }>(`/tasks/${id}/cancel`, { method: "POST" }),
   workers: () => json<Worker[]>("/workers"),
   listSchedules: () => json<Schedule[]>("/schedules"),
   createSchedule: (body: CreateScheduleBody) =>

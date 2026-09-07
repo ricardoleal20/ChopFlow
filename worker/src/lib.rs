@@ -15,11 +15,9 @@ the worker loop, handler registry, and parsing helpers so they can be unit-
 and integration-tested; the binary only wires up CLI parsing + tracing.
 */
 
-use chopflow_core::error::{Result, ChopFlowError};
+use chopflow_core::error::{ChopFlowError, Result};
 use chopflow_core::resources::ResourceAvailability;
 
-use anyhow;
-use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,8 +34,8 @@ pub mod chopflow {
 
 use chopflow::{
     chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, FetchTasksRequest,
-    RegisterWorkerRequest, ResourceAvailability as ProtoResourceAvailability,
-    Task as ProtoTask, WorkerHeartbeatRequest,
+    RegisterWorkerRequest, ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask,
+    WorkerHeartbeatRequest,
 };
 
 #[derive(Clone)]
@@ -190,10 +188,7 @@ impl Default for TaskRegistry {
 
 /// Parse a comma-separated tag list into owned, trimmed `String`s.
 pub fn parse_tags(tags_str: &str) -> Vec<String> {
-    tags_str
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect()
+    tags_str.split(',').map(|s| s.trim().to_string()).collect()
 }
 
 /// Parse a comma-separated `name:amount` resource list into a map.
@@ -253,8 +248,7 @@ pub async fn start_worker(
         total: resource_map.clone(),
     };
 
-    let concurrency =
-        concurrency.unwrap_or_else(|| derive_concurrency(&resources));
+    let concurrency = concurrency.unwrap_or_else(|| derive_concurrency(&resources));
 
     info!("Worker configured with tags: {:?}", tags);
     info!("Worker resources: {:?}", resources);
@@ -298,8 +292,7 @@ pub async fn start_worker_with_registry(
         total: resource_map.clone(),
     };
 
-    let concurrency =
-        concurrency.unwrap_or_else(|| derive_concurrency(&resources));
+    let concurrency = concurrency.unwrap_or_else(|| derive_concurrency(&resources));
 
     info!("Worker configured with tags: {:?}", tags);
     info!("Worker resources: {:?}", resources);
@@ -323,10 +316,7 @@ pub async fn start_worker_with_registry(
 /// Shared run loop: spawn the heartbeat + task-processing loops on a built
 /// `WorkerState`, await Ctrl+C, then shut both down. Used by both
 /// [`start_worker`] and [`start_worker_with_registry`].
-async fn run_worker(
-    worker_state: Arc<Mutex<WorkerState>>,
-    heartbeat_interval: u64,
-) -> Result<()> {
+async fn run_worker(worker_state: Arc<Mutex<WorkerState>>, heartbeat_interval: u64) -> Result<()> {
     // Start heartbeat loop
     let heartbeat_state = worker_state.clone();
     let heartbeat_handle = tokio::spawn(async move {
@@ -599,7 +589,10 @@ pub async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Re
         let state = worker_state.lock().await;
         state.concurrency
     };
-    info!("Starting task processing loop (concurrency={})", concurrency);
+    info!(
+        "Starting task processing loop (concurrency={})",
+        concurrency
+    );
 
     let poll_interval = Duration::from_secs(2);
     let mut in_flight: JoinSet<()> = JoinSet::new();

@@ -86,7 +86,11 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
         max_retries: tmpl.max_retries,
         priority: tmpl.priority,
       },
-      { onError: () => { /* surfaced via isError; keep drawer open */ } }
+      {
+        onError: () => {
+          /* surfaced via isError; keep drawer open */
+        },
+      },
     );
   };
 
@@ -105,9 +109,7 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
           <div className="dr-title">
             <div className="dr-name">
               {schedule.name}{" "}
-              <span
-                className={`stbadge badge ${schedule.enabled ? "completed" : "failed"}`}
-              >
+              <span className={`stbadge badge ${schedule.enabled ? "completed" : "failed"}`}>
                 <span className="d" />
                 {schedule.enabled ? "Enabled" : "Disabled"}
               </span>
@@ -117,11 +119,7 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
             </div>
           </div>
           <div className="dr-actions">
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={enqueue.isPending}
-              onClick={runNow}
-            >
+            <button className="btn btn-ghost btn-sm" disabled={enqueue.isPending} onClick={runNow}>
               Run now
             </button>
             <button
@@ -131,11 +129,7 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
             >
               {schedule.enabled ? "Disable" : "Enable"}
             </button>
-            <button
-              className="btn btn-danger btn-sm"
-              disabled={del.isPending}
-              onClick={remove}
-            >
+            <button className="btn btn-danger btn-sm" disabled={del.isPending} onClick={remove}>
               <CloseIcon />
               Delete
             </button>
@@ -152,9 +146,7 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
             <div className="field">
               <div className="k">Kind</div>
               <div className="v">
-                <span
-                  className={`stbadge badge ${isCron ? "queued" : "running"}`}
-                >
+                <span className={`stbadge badge ${isCron ? "queued" : "running"}`}>
                   <span className="d" />
                   {isCron ? "Cron" : "One-shot"}
                 </span>
@@ -177,7 +169,9 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
               <div className="v mono">
                 {clockTime(schedule.next_fire)}
                 <br />
-                <span style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--muted)" }}>
+                <span
+                  style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--muted)" }}
+                >
                   {timeAgo(schedule.next_fire)}
                 </span>
               </div>
@@ -189,7 +183,13 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
                   <>
                     {clockTime(schedule.last_fired)}
                     <br />
-                    <span style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--muted)" }}>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-sans)",
+                        fontSize: 11.5,
+                        color: "var(--muted)",
+                      }}
+                    >
                       {timeAgo(schedule.last_fired)}
                     </span>
                   </>
@@ -243,7 +243,9 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
               <div className="v mono">
                 {clockTime(schedule.created_at)}
                 <br />
-                <span style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--muted)" }}>
+                <span
+                  style={{ fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--muted)" }}
+                >
                   {timeAgo(schedule.created_at)}
                 </span>
               </div>
@@ -258,9 +260,12 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
             <pre className="json-pre">{JSON.stringify(tmpl.payload, null, 2)}</pre>
           </div>
 
-          <div className="dr-note" style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 4 }}>
-            Schedule id <span className="mono">{shortId(schedule.id)}</span> ·
-            Run now materializes a one-off task without advancing this schedule.
+          <div
+            className="dr-note"
+            style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 4 }}
+          >
+            Schedule id <span className="mono">{shortId(schedule.id)}</span> · Run now materializes
+            a one-off task without advancing this schedule.
           </div>
         </div>
       </div>

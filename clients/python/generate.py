@@ -8,9 +8,9 @@ Run after changing `broker/proto/chopflow.proto`:
 Writes `chopflow_pb2.py` and `chopflow_pb2_grpc.py` into `src/chopflow/_generated/`.
 The generated files are committed so an install never needs `protoc`.
 """
+
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -49,13 +49,14 @@ def main() -> int:
     # internal import to a package-relative one so it works as a subpackage.
     grpc_stub = out_dir / "chopflow_pb2_grpc.py"
     text = grpc_stub.read_text()
-    text = text.replace("import chopflow_pb2", "from chopflow._generated import chopflow_pb2")
+    text = text.replace(
+        "import chopflow_pb2", "from chopflow._generated import chopflow_pb2"
+    )
     grpc_stub.write_text(text)
 
     init = out_dir / "__init__.py"
     init.write_text(
-        '"""Generated ChopFlow gRPC stubs. Regenerate via `python generate.py`.\n'
-        '"""\n'
+        '"""Generated ChopFlow gRPC stubs. Regenerate via `python generate.py`.\n"""\n'
     )
 
     print(f"Generated stubs in {out_dir}")

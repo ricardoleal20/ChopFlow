@@ -19,7 +19,9 @@ dependencies = [
 dev = [
     "grpcio-tools>=1.62",
     "pytest>=7",
+    "pytest-cov>=4",
     "pytest-timeout>=2",
+    "ruff>=0.6",
 ]
 
 [tool.setuptools.packages.find]
@@ -28,3 +30,24 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+extend-exclude = ["src/chopflow/_generated"]
+
+[tool.ruff.lint]
+# NOTE: `UP` (pyupgrade) is intentionally omitted — it rewrites type annotations
+# to PEP 604 (`X | None`) and PEP 585 (`dict[str, int]`) forms that are unsafe
+# under the declared `requires-python = ">=3.9"` without a `from __future__
+# import annotations` pass. Enable it as a dedicated modernization task.
+select = ["E", "F", "I", "B", "SIM"]
+
+[tool.coverage.run]
+source = ["chopflow"]
+branch = true
+omit = ["src/chopflow/_generated/*"]
+
+[tool.coverage.report]
+show_missing = true
+

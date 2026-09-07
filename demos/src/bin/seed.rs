@@ -15,7 +15,9 @@ use serde_json::json;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
-    let broker = std::env::args().nth(1).unwrap_or_else(|| "http://localhost:8080".to_string());
+    let broker = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "http://localhost:8080".to_string());
     let api = format!("{}/api", broker);
     let client = reqwest::Client::new();
 
@@ -53,6 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "overlap_policy": "allow"
     })).await.ok();
 
-    println!("Seed complete. Open the dashboard at {} — tasks flowing + 2 schedules ticking.", broker);
+    println!(
+        "Seed complete. Open the dashboard at {} — tasks flowing + 2 schedules ticking.",
+        broker
+    );
     Ok(())
 }

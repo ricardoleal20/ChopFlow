@@ -83,7 +83,11 @@ export default function SchedulesView({
         {CHIPS.map((c) => {
           const active = filter === c;
           const label =
-            c === "all" ? "All" : c === "oneshot" ? "One-shot" : c.charAt(0).toUpperCase() + c.slice(1);
+            c === "all"
+              ? "All"
+              : c === "oneshot"
+                ? "One-shot"
+                : c.charAt(0).toUpperCase() + c.slice(1);
           return (
             <button
               key={c}
@@ -119,7 +123,14 @@ export default function SchedulesView({
                   <tr key={`sk-${i}`}>
                     {Array.from({ length: 8 }).map((__, j) => (
                       <td key={j}>
-                        <div style={{ height: 14, borderRadius: 4, background: "var(--surface-3)", opacity: 0.5 }} />
+                        <div
+                          style={{
+                            height: 14,
+                            borderRadius: 4,
+                            background: "var(--surface-3)",
+                            opacity: 0.5,
+                          }}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -128,7 +139,9 @@ export default function SchedulesView({
                 <tr>
                   <td colSpan={8}>
                     <div className="empty-state">
-                      <p style={{ color: "var(--danger)" }}>Failed to load schedules: {error.message}</p>
+                      <p style={{ color: "var(--danger)" }}>
+                        Failed to load schedules: {error.message}
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -157,7 +170,9 @@ export default function SchedulesView({
                     <tr
                       key={s.id}
                       onClick={() => onOpen(s)}
-                      style={{ animation: `cardIn 220ms var(--ease-out) ${Math.min(i * 40, 200)}ms backwards` }}
+                      style={{
+                        animation: `cardIn 220ms var(--ease-out) ${Math.min(i * 40, 200)}ms backwards`,
+                      }}
                     >
                       <td>
                         <span className="tid mono">
@@ -197,7 +212,13 @@ export default function SchedulesView({
                         <span className="enq" title={clockTime(s.next_fire)}>
                           {new Date(s.next_fire).toLocaleString()}
                           <br />
-                          <span style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: "var(--muted)" }}>
+                          <span
+                            style={{
+                              fontFamily: "var(--font-sans)",
+                              fontSize: 11,
+                              color: "var(--muted)",
+                            }}
+                          >
                             {timeAgo(s.next_fire)}
                           </span>
                         </span>

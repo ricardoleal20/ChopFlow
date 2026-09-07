@@ -57,14 +57,8 @@ async fn main() -> Result<()> {
             concurrency,
         } => {
             info!("Starting ChopFlow worker connected to {}", broker);
-            chopflow_worker::start_worker(
-                broker,
-                tags,
-                resources,
-                heartbeat_interval,
-                concurrency,
-            )
-            .await?;
+            chopflow_worker::start_worker(broker, tags, resources, heartbeat_interval, concurrency)
+                .await?;
         }
     }
 

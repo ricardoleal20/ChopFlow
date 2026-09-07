@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -55,10 +54,14 @@ def broker() -> str:
         [
             str(binary),
             "start",
-            "--host", "127.0.0.1",
-            "--port", str(grpc_port),
-            "--http-port", str(http_port),
-            "--storage", "memory",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(grpc_port),
+            "--http-port",
+            str(http_port),
+            "--storage",
+            "memory",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -119,6 +122,7 @@ def worker(broker):
     w.start()
     # Wait for registration so tests don't race the poll loop.
     import time
+
     from chopflow import ChopFlowClient
 
     probe = ChopFlowClient.connect(broker, timeout=15)

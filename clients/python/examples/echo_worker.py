@@ -21,7 +21,9 @@ def main() -> None:
     )
     # `echo` was registered via the @task decorator above. Also register an
     # explicit `ping` handler to show imperative registration.
-    worker.register("ping", lambda p: {"status": "ok", "pong": int(__import__("time").time())})
+    worker.register(
+        "ping", lambda p: {"status": "ok", "pong": int(__import__("time").time())}
+    )
 
     print(f"Starting Python echo worker against {broker} — Ctrl+C to stop.")
     worker.start_and_await()

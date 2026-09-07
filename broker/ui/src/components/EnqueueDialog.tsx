@@ -76,12 +76,12 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
       try {
         const obj = JSON.parse(resources);
         if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
-          setFormError("Resources must be a JSON object, e.g. {\"cpu\": 1}.");
+          setFormError('Resources must be a JSON object, e.g. {"cpu": 1}.');
           return;
         }
         parsedResources = obj as Record<string, number>;
       } catch {
-        setFormError("Resources must be a JSON object, e.g. {\"cpu\": 1}.");
+        setFormError('Resources must be a JSON object, e.g. {"cpu": 1}.');
         return;
       }
     }
@@ -99,7 +99,10 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
     }
 
     const taskName = name.trim() || "task";
-    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    const tagList = tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
 
     if (mode === "now") {
       enqueue.mutate(
@@ -114,7 +117,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
         {
           onSuccess: () => onClose(),
           onError: (err) => setFormError((err as Error).message),
-        }
+        },
       );
       return;
     }
@@ -150,7 +153,7 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
         {
           onSuccess: () => onClose(),
           onError: (err) => setFormError((err as Error).message),
-        }
+        },
       );
     } else {
       const expr = cronExpr.trim();
@@ -168,14 +171,19 @@ export function EnqueueDialog({ open, onClose }: EnqueueDialogProps) {
         {
           onSuccess: () => onClose(),
           onError: (err) => setFormError((err as Error).message),
-        }
+        },
       );
     }
   };
 
-  const submitLabel = mode === "now"
-    ? (enqueue.isPending ? "Enqueuing…" : "Enqueue")
-    : (createSchedule.isPending ? "Scheduling…" : "Schedule");
+  const submitLabel =
+    mode === "now"
+      ? enqueue.isPending
+        ? "Enqueuing…"
+        : "Enqueue"
+      : createSchedule.isPending
+        ? "Scheduling…"
+        : "Schedule";
 
   return (
     <AnimatePresence>
@@ -380,9 +388,7 @@ function Field({
         <span className="fld-label" style={{ marginBottom: 0 }}>
           {label}
         </span>
-        {hint && (
-          <span style={{ fontSize: 11, color: "var(--muted-2)" }}>{hint}</span>
-        )}
+        {hint && <span style={{ fontSize: 11, color: "var(--muted-2)" }}>{hint}</span>}
       </div>
       <div className="mt-1.5">{children}</div>
     </label>

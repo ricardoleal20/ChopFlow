@@ -100,7 +100,15 @@ export const AlertIcon = (p: IconProps) => (
 // Clock + calendar hybrid — the schedule glyph. Matches the icon set's
 // stroke-based currentColor style (strokeWidth 1.5).
 export const ScheduleIcon = (p: IconProps) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...p}>
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...p}
+  >
     <rect x="3" y="4.5" width="18" height="16" rx="2" />
     <path d="M3 9h18M8 3v3M16 3v3" />
     <circle cx="12" cy="14" r="3.2" />

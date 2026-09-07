@@ -1,21 +1,37 @@
-use chopflow_broker::{ChopFlowBrokerService, BrokerState};
+use chopflow_broker::{BrokerState, ChopFlowBrokerService};
+use chopflow_core::schedule::{OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
 use chopflow_core::storage::Storage;
-use chopflow_core::schedule::{Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
 use chopflow_core::task::TaskStatus;
 use std::collections::HashMap;
 
 fn tmpl(name: &str) -> TaskTemplate {
-    TaskTemplate { name: name.into(), payload: serde_json::json!({}), tags: vec![], resources: HashMap::new(), max_retries: 3, priority: 0 }
+    TaskTemplate {
+        name: name.into(),
+        payload: serde_json::json!({}),
+        tags: vec![],
+        resources: HashMap::new(),
+        max_retries: 3,
+        priority: 0,
+    }
 }
 
 #[tokio::test]
 async fn ticker_materializes_task_from_cron_schedule() {
-    let storage: std::sync::Arc<dyn Storage> = std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
+    let storage: std::sync::Arc<dyn Storage> =
+        std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
     let state = BrokerState::new(storage.clone());
     let service = ChopFlowBrokerService::from_state(state);
 
     // A cron schedule due now (every second).
-    let mut sch = Schedule::new("every-sec".into(), tmpl("ping"), ScheduleKind::Cron { cron: "* * * * * *".into() }, OverlapPolicy::Allow).unwrap();
+    let mut sch = Schedule::new(
+        "every-sec".into(),
+        tmpl("ping"),
+        ScheduleKind::Cron {
+            cron: "* * * * * *".into(),
+        },
+        OverlapPolicy::Allow,
+    )
+    .unwrap();
     sch.next_fire = chrono::Utc::now() - chrono::Duration::seconds(1);
     storage.insert_schedule(sch.clone()).await.unwrap();
 
@@ -34,12 +50,19 @@ async fn ticker_materializes_task_from_cron_schedule() {
 
 #[tokio::test]
 async fn ticker_oneshot_self_disables_after_fire() {
-    let storage: std::sync::Arc<dyn Storage> = std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
+    let storage: std::sync::Arc<dyn Storage> =
+        std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
     let state = BrokerState::new(storage.clone());
     let service = ChopFlowBrokerService::from_state(state);
 
     let eta = chrono::Utc::now() - chrono::Duration::minutes(1);
-    let sch = Schedule::new("once".into(), tmpl("ping"), ScheduleKind::OneShot { eta }, OverlapPolicy::Allow).unwrap();
+    let sch = Schedule::new(
+        "once".into(),
+        tmpl("ping"),
+        ScheduleKind::OneShot { eta },
+        OverlapPolicy::Allow,
+    )
+    .unwrap();
     let id = sch.id;
     storage.insert_schedule(sch).await.unwrap();
 
@@ -52,11 +75,20 @@ async fn ticker_oneshot_self_disables_after_fire() {
 
 #[tokio::test]
 async fn ticker_overlap_skip_skips_when_in_flight() {
-    let storage: std::sync::Arc<dyn Storage> = std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
+    let storage: std::sync::Arc<dyn Storage> =
+        std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
     let state = BrokerState::new(storage.clone());
     let service = ChopFlowBrokerService::from_state(state);
 
-    let mut sch = Schedule::new("skipper".into(), tmpl("ping"), ScheduleKind::Cron { cron: "* * * * * *".into() }, OverlapPolicy::Skip).unwrap();
+    let mut sch = Schedule::new(
+        "skipper".into(),
+        tmpl("ping"),
+        ScheduleKind::Cron {
+            cron: "* * * * * *".into(),
+        },
+        OverlapPolicy::Skip,
+    )
+    .unwrap();
     sch.next_fire = chrono::Utc::now() - chrono::Duration::seconds(1);
     let id = sch.id;
     storage.insert_schedule(sch).await.unwrap();

@@ -24,7 +24,6 @@ import grpc
 from ._generated import chopflow_pb2 as pb
 from ._generated import chopflow_pb2_grpc as pb_grpc
 from .client import _strip_scheme
-from .models import TaskStatus
 
 log = logging.getLogger("chopflow.worker")
 
@@ -139,7 +138,10 @@ class ChopFlowWorker:
     def start_and_await(self) -> None:
         """Start, then block until SIGINT/SIGTERM (or :meth:`stop`)."""
         self.start()
-        handler = lambda *_: self._stop.set()
+
+        def handler(*_):
+            self._stop.set()
+
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
         try:
@@ -178,7 +180,9 @@ class ChopFlowWorker:
                 log.info("worker registered: %s", self._worker_id)
                 return
             except grpc.RpcError as e:
-                log.warning("could not reach broker (%s); retrying in %ss", e.code(), backoff)
+                log.warning(
+                    "could not reach broker (%s); retrying in %ss", e.code(), backoff
+                )
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 5.0)
 
@@ -221,7 +225,9 @@ class ChopFlowWorker:
         try:
             payload = _json.loads(task_msg.payload) if task_msg.payload else {}
         except ValueError as e:
-            self._ack(task_id, False, {"status": "error", "message": f"bad payload: {e}"})
+            self._ack(
+                task_id, False, {"status": "error", "message": f"bad payload: {e}"}
+            )
             return
 
         handler = self._handlers.get(name) or self._handlers.get("default")
@@ -246,7 +252,9 @@ class ChopFlowWorker:
                     worker_id=self._worker_id,
                     task_id=task_id,
                     success=success,
-                    result=_json.dumps(result) if not isinstance(result, str) else result,
+                    result=_json.dumps(result)
+                    if not isinstance(result, str)
+                    else result,
                 )
             )
         except grpc.RpcError as e:

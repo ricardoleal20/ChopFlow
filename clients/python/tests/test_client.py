@@ -82,13 +82,9 @@ def test_cancel_queued_task(client):
     # No worker for the "unhandled" tag, so the task stays queued and can be
     # cancelled. Use a tag no worker subscribes to.
     result = (
-        client.enqueue("noop")
-        .payload({})
-        .tags("nobody-subscribed-to-this")
-        .enqueue()
+        client.enqueue("noop").payload({}).tags("nobody-subscribed-to-this").enqueue()
     )
     # Give the broker a moment to persist it as Queued.
-    import time
 
     t = client.get_task(result.id)
     assert t is not None
@@ -99,10 +95,7 @@ def test_cancel_queued_task(client):
 
 def test_async_result_raises_timeout(client):
     result = (
-        client.enqueue("noop")
-        .payload({})
-        .tags("nobody-subscribed-to-this")
-        .enqueue()
+        client.enqueue("noop").payload({}).tags("nobody-subscribed-to-this").enqueue()
     )
     with pytest.raises(TaskTimeoutError):
         result.get(timeout=1, raise_on_failure=False)
@@ -119,7 +112,9 @@ def test_async_result_raises_on_failure(client, worker):
     with pytest.raises(TaskFailedError):
         result.get(timeout=30)
     # With raise_on_failure=False we get the task back in a failed/dead-lettered state.
-    result2 = client.enqueue("boom").payload({}).tags("default").max_retries(1).enqueue()
+    result2 = (
+        client.enqueue("boom").payload({}).tags("default").max_retries(1).enqueue()
+    )
     task = result2.get(timeout=30, raise_on_failure=False)
     assert task.status in (TaskStatus.FAILED, TaskStatus.DEADLETTERED)
 

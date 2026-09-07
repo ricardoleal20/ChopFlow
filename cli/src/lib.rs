@@ -212,6 +212,10 @@ pub async fn get_status(broker_address: String, id: Option<String>, all: bool) -
     }
 }
 
+// TODO: collapse these fields into a `ScheduleCreateArgs` struct to drop below
+// the 7-argument threshold and remove this allow. Left for a focused refactor —
+// the call sites mirror the clap `--flag` surface and would change together.
+#[allow(clippy::too_many_arguments)]
 pub async fn schedule_create(
     broker: String,
     name: String,
@@ -228,7 +232,16 @@ pub async fn schedule_create(
     // Validate + build the schedule before connecting, so misconfiguration
     // fails fast (and is unit-testable without a broker).
     let schedule = build_schedule(
-        name, task, cron, eta, payload, tags, resources, max_retries, overlap, priority,
+        name,
+        task,
+        cron,
+        eta,
+        payload,
+        tags,
+        resources,
+        max_retries,
+        overlap,
+        priority,
     )?;
 
     let mut client = connect_to_broker(&broker).await?;
@@ -253,7 +266,10 @@ pub fn parse_resource_map(resources: &str) -> HashMap<String, u32> {
         }
         let parts: Vec<&str> = e.split(':').collect();
         if parts.len() == 2 {
-            res_map.insert(parts[0].trim().to_string(), parts[1].trim().parse().unwrap_or(0));
+            res_map.insert(
+                parts[0].trim().to_string(),
+                parts[1].trim().parse().unwrap_or(0),
+            );
         }
     }
     res_map
@@ -283,10 +299,12 @@ pub fn build_schedule_kind(
             let dt = chrono::DateTime::parse_from_rfc3339(&e)
                 .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?
                 .with_timezone(&chrono::Utc);
-            Ok(Some(chopflow::schedule_kind::Kind::Eta(prost_types::Timestamp {
-                seconds: dt.timestamp(),
-                nanos: dt.timestamp_subsec_nanos() as i32,
-            })))
+            Ok(Some(chopflow::schedule_kind::Kind::Eta(
+                prost_types::Timestamp {
+                    seconds: dt.timestamp(),
+                    nanos: dt.timestamp_subsec_nanos() as i32,
+                },
+            )))
         }
         _ => Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
             "exactly one of --cron or --eta is required"

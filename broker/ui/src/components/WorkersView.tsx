@@ -45,7 +45,15 @@ export default function WorkersView({ workers, isLoading, error, query }: Props)
       <div className="workers-grid">
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} style={{ height: 180, borderRadius: "var(--radius-lg)", background: "var(--surface-3)", opacity: 0.5 }} />
+            <div
+              key={i}
+              style={{
+                height: 180,
+                borderRadius: "var(--radius-lg)",
+                background: "var(--surface-3)",
+                opacity: 0.5,
+              }}
+            />
           ))
         ) : error ? (
           <div className="empty-state" style={{ gridColumn: "1 / -1" }}>
