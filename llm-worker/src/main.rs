@@ -8,12 +8,14 @@
 //!
 //! This is MCP Phase 2: the "AI worker handler" — ChopFlow drives the LLM.
 //!
-//! The loop mirrors `worker/src/main.rs` (connect-with-backoff, heartbeat,
+//! The loop mirrors `worker/src/lib.rs` (connect-with-backoff, heartbeat,
 //! pull-model fetch, ack). It diverges in two ways: handlers are **async**
-//! (LLM calls are network I/O), and tasks run with **bounded concurrency**
-//! (LLM work is I/O-bound, so one worker can pipeline several requests). The
-//! generic worker-concurrency + async-handler unification is ROADMAP #2; this
-//! crate is intentionally self-contained until that refactor lands.
+//! (LLM calls are network I/O), and it has always run tasks with **bounded
+//! concurrency** (LLM work is I/O-bound, so one worker pipelines several
+//! requests). The generic worker now also runs tasks concurrently (sync
+//! handlers on a `spawn_blocking` pool, ROADMAP #2); the remaining open
+//! follow-up is unifying this crate's async handlers onto `chopflow_worker`
+//! so the two share one loop. Until then this crate stays self-contained.
 //!
 //! ## Configuration
 //! - `--broker` (default `http://localhost:8000`) — broker gRPC address.

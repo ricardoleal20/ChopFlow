@@ -32,6 +32,12 @@ enum Commands {
         /// Heartbeat interval in seconds
         #[arg(long, default_value = "30")]
         heartbeat_interval: u64,
+
+        /// Max tasks to run at once. Defaults to the sum of declared resources
+        /// (e.g. `cpu:4` → 4). Override when you want more parallelism than the
+        /// resource totals imply.
+        #[arg(long)]
+        concurrency: Option<usize>,
     },
 }
 
@@ -48,9 +54,17 @@ async fn main() -> Result<()> {
             tags,
             resources,
             heartbeat_interval,
+            concurrency,
         } => {
             info!("Starting ChopFlow worker connected to {}", broker);
-            chopflow_worker::start_worker(broker, tags, resources, heartbeat_interval).await?;
+            chopflow_worker::start_worker(
+                broker,
+                tags,
+                resources,
+                heartbeat_interval,
+                concurrency,
+            )
+            .await?;
         }
     }
 
