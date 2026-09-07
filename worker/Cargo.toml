@@ -24,3 +24,8 @@ futures.workspace = true
 
 [build-dependencies]
 tonic-build = "0.10"
+
+[dev-dependencies]
+chopflow_broker = { path = "../broker" }
+tokio = { workspace = true, features = ["full", "test-util"] }
+tempfile = "3"
