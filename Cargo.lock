@@ -565,13 +565,16 @@ name = "chopflow_cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chopflow_broker",
  "chopflow_core",
+ "chopflow_worker",
  "chrono",
  "clap",
  "prost",
  "prost-types",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tonic",
  "tonic-build",
@@ -629,6 +632,7 @@ name = "chopflow_worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chopflow_broker",
  "chopflow_core",
  "clap",
  "config",
@@ -637,6 +641,7 @@ dependencies = [
  "prost-types",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tonic",
  "tonic-build",
