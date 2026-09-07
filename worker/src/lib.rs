@@ -15,7 +15,7 @@ the worker loop, handler registry, and parsing helpers so they can be unit-
 and integration-tested; the binary only wires up CLI parsing + tracing.
 */
 
-use chopflow_core::error::Result;
+use chopflow_core::error::{Result, ChopFlowError};
 use chopflow_core::resources::ResourceAvailability;
 
 use anyhow;
@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::task::JoinSet;
 use tokio::time;
 use tonic::Request;
 use tracing::{error, info};
@@ -47,6 +48,11 @@ pub struct WorkerState {
     pub tags: Vec<String>,
     pub assigned_tasks: HashMap<String, ProtoTask>,
     pub task_registry: TaskRegistry,
+    /// Maximum number of tasks this worker executes at once. Sized by the
+    /// declared resources (see [`derive_concurrency`]) or overridden via
+    /// `--concurrency`. The broker's resource accounting may further restrict
+    /// dispatch for tasks that declare their own resource requirements.
+    pub concurrency: usize,
 }
 
 impl WorkerState {
@@ -55,6 +61,7 @@ impl WorkerState {
         broker_address: String,
         resources: ResourceAvailability,
         tags: Vec<String>,
+        concurrency: usize,
     ) -> Self {
         let mut registry = TaskRegistry::new();
 
@@ -71,8 +78,39 @@ impl WorkerState {
             tags,
             assigned_tasks: HashMap::new(),
             task_registry: registry,
+            concurrency: concurrency.max(1),
         }
     }
+
+    /// Build a worker state with a caller-supplied handler registry (used by
+    /// the demos crate and other embedders that ship their own handlers).
+    pub fn with_registry(
+        id: String,
+        broker_address: String,
+        resources: ResourceAvailability,
+        tags: Vec<String>,
+        concurrency: usize,
+        registry: TaskRegistry,
+    ) -> Self {
+        Self {
+            id,
+            broker_address,
+            resources,
+            tags,
+            assigned_tasks: HashMap::new(),
+            task_registry: registry,
+            concurrency: concurrency.max(1),
+        }
+    }
+}
+
+/// Derive a concurrency limit from the worker's declared resources: the sum of
+/// all resource totals, at least 1. A worker declaring `{cpu: 4}` runs up to 4
+/// tasks at once; `{gpu: 1}` runs 1. The default `--resources cpu:1` yields 1
+/// (sequential), so the out-of-the-box behavior is unchanged.
+pub fn derive_concurrency(resources: &ResourceAvailability) -> usize {
+    let total: u32 = resources.total.values().sum();
+    (total as usize).max(1)
 }
 
 /// Built-in task handler: echoes the payload back as the result. Useful as a
@@ -179,6 +217,7 @@ pub async fn start_worker(
     tags_str: String,
     resources_str: String,
     heartbeat_interval: u64,
+    concurrency: Option<usize>,
 ) -> Result<()> {
     // Parse tags
     let tags = parse_tags(&tags_str);
@@ -191,8 +230,12 @@ pub async fn start_worker(
         total: resource_map.clone(),
     };
 
+    let concurrency =
+        concurrency.unwrap_or_else(|| derive_concurrency(&resources));
+
     info!("Worker configured with tags: {:?}", tags);
     info!("Worker resources: {:?}", resources);
+    info!("Worker concurrency: {}", concurrency);
 
     // Connect to the broker and register. We retry with backoff so the worker
     // can be started before the broker, or survive a broker restart, instead
@@ -201,14 +244,66 @@ pub async fn start_worker(
 
     info!("Worker registered with ID: {}", worker_id);
 
-    // Create shared worker state
+    // Create shared worker state with the built-in echo/default registry.
     let worker_state = Arc::new(Mutex::new(WorkerState::new(
         worker_id.clone(),
         broker_address,
         resources,
         tags,
+        concurrency,
     )));
 
+    run_worker(worker_state, heartbeat_interval).await
+}
+
+/// Start a worker with a caller-supplied handler registry (used by the demos
+/// crate and other embedders). The registry replaces the built-in echo/default
+/// handlers, so callers that want those should register them themselves.
+pub async fn start_worker_with_registry(
+    broker_address: String,
+    tags_str: String,
+    resources_str: String,
+    heartbeat_interval: u64,
+    concurrency: Option<usize>,
+    registry: TaskRegistry,
+) -> Result<()> {
+    let tags = parse_tags(&tags_str);
+    let resource_map = parse_resources(&resources_str)?;
+
+    let resources = ResourceAvailability {
+        available: resource_map.clone(),
+        total: resource_map.clone(),
+    };
+
+    let concurrency =
+        concurrency.unwrap_or_else(|| derive_concurrency(&resources));
+
+    info!("Worker configured with tags: {:?}", tags);
+    info!("Worker resources: {:?}", resources);
+    info!("Worker concurrency: {}", concurrency);
+
+    let worker_id = connect_and_register(&broker_address, &tags, &resource_map).await?;
+    info!("Worker registered with ID: {}", worker_id);
+
+    let worker_state = Arc::new(Mutex::new(WorkerState::with_registry(
+        worker_id.clone(),
+        broker_address,
+        resources,
+        tags,
+        concurrency,
+        registry,
+    )));
+
+    run_worker(worker_state, heartbeat_interval).await
+}
+
+/// Shared run loop: spawn the heartbeat + task-processing loops on a built
+/// `WorkerState`, await Ctrl+C, then shut both down. Used by both
+/// [`start_worker`] and [`start_worker_with_registry`].
+async fn run_worker(
+    worker_state: Arc<Mutex<WorkerState>>,
+    heartbeat_interval: u64,
+) -> Result<()> {
     // Start heartbeat loop
     let heartbeat_state = worker_state.clone();
     let heartbeat_handle = tokio::spawn(async move {
@@ -399,8 +494,18 @@ pub async fn execute_task(worker_state: &Arc<Mutex<WorkerState>>, task: ProtoTas
         return Ok(());
     }
 
-    // Execute the handler
-    let result = match handler_fn.unwrap()(payload) {
+    // Safe to unwrap: we returned above when no handler was found.
+    let handler_fn = handler_fn.unwrap();
+
+    // Execute the handler on the blocking pool so a long-running or CPU-bound
+    // handler can't stall the async runtime's worker threads. The handler is a
+    // plain `fn` pointer (Send + 'static) and the payload is `Send`, so the
+    // closure is `Send + 'static` as `spawn_blocking` requires.
+    let outcome = tokio::task::spawn_blocking(move || handler_fn(payload))
+        .await
+        .map_err(|join_err| ChopFlowError::Other(anyhow::Error::new(join_err)))?;
+
+    let result = match outcome {
         Ok(result) => {
             info!("Task {} executed successfully", task_id);
             send_task_acknowledgment(worker_state, task_id.clone(), true, result).await?
@@ -460,23 +565,44 @@ pub async fn send_task_acknowledgment(
 
 /// Start processing tasks.
 ///
-/// Polls the broker for tasks this worker can execute (pull model). Each
-/// fetched task is executed and acknowledged. Tasks run sequentially for
-/// now; a future version will dispatch them to a bounded concurrency pool
-/// sized by the worker's declared resources.
+/// Polls the broker for tasks this worker can execute (pull model) and runs
+/// them through a **bounded concurrency pool** sized by
+/// [`WorkerState::concurrency`]. Each fetched task is spawned onto a
+/// `JoinSet`; backpressure prevents fetching more than the worker can run at
+/// once. The (sync) handler itself runs via `tokio::task::spawn_blocking`
+/// inside [`execute_task`] so CPU-bound handlers don't stall the runtime.
 pub async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()> {
-    info!("Starting task processing loop");
+    let concurrency = {
+        let state = worker_state.lock().await;
+        state.concurrency
+    };
+    info!("Starting task processing loop (concurrency={})", concurrency);
 
     let poll_interval = Duration::from_secs(2);
+    let mut in_flight: JoinSet<()> = JoinSet::new();
 
     loop {
-        // Fetch a batch of tasks from the broker.
-        match fetch_tasks(worker_state).await {
+        // Reap any tasks that have finished (non-blocking).
+        while in_flight.try_join_next().is_some() {}
+
+        // Backpressure: if we're at capacity, wait for at least one task to
+        // finish before fetching more.
+        if in_flight.len() >= concurrency {
+            let _ = in_flight.join_next().await;
+            continue;
+        }
+
+        // Only fetch as many tasks as we have free capacity for.
+        let want = (concurrency - in_flight.len()) as u32;
+        match fetch_tasks(worker_state, want).await {
             Ok(tasks) if !tasks.is_empty() => {
                 for task in tasks {
-                    if let Err(e) = execute_task(worker_state, task).await {
-                        error!("Failed to execute task: {}", e);
-                    }
+                    let state = worker_state.clone();
+                    in_flight.spawn(async move {
+                        if let Err(e) = execute_task(&state, task).await {
+                            error!("Failed to execute task: {}", e);
+                        }
+                    });
                 }
             }
             Ok(_) => {
@@ -492,8 +618,13 @@ pub async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Re
     }
 }
 
-/// Pull a batch of ready tasks from the broker for this worker.
-pub async fn fetch_tasks(worker_state: &Arc<Mutex<WorkerState>>) -> Result<Vec<ProtoTask>> {
+/// Pull a batch of ready tasks from the broker for this worker. At most
+/// `max_tasks` are requested; the broker may return fewer (e.g. when its
+/// resource accounting can't satisfy all of them).
+pub async fn fetch_tasks(
+    worker_state: &Arc<Mutex<WorkerState>>,
+    max_tasks: u32,
+) -> Result<Vec<ProtoTask>> {
     let (broker_address, worker_id) = {
         let state = worker_state.lock().await;
         (state.broker_address.clone(), state.id.clone())
@@ -508,7 +639,7 @@ pub async fn fetch_tasks(worker_state: &Arc<Mutex<WorkerState>>) -> Result<Vec<P
 
     let request = Request::new(FetchTasksRequest {
         worker_id,
-        max_tasks: 4,
+        max_tasks: max_tasks.max(1),
     });
 
     let response = client

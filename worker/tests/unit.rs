@@ -1,7 +1,43 @@
 //! Unit tests for worker internals that need no broker.
 
-use chopflow_worker::{echo_handler, parse_resources, parse_tags, TaskRegistry};
+use chopflow_core::resources::ResourceAvailability;
+use chopflow_worker::{
+    derive_concurrency, echo_handler, parse_resources, parse_tags, TaskRegistry,
+};
 use serde_json::json;
+
+#[test]
+fn derive_concurrency_sums_resource_totals() {
+    let r = ResourceAvailability {
+        available: [("cpu".to_string(), 4)].into(),
+        total: [("cpu".to_string(), 4)].into(),
+    };
+    assert_eq!(derive_concurrency(&r), 4);
+}
+
+#[test]
+fn derive_concurrency_single_unit_is_one() {
+    let r = ResourceAvailability {
+        available: [("gpu".to_string(), 1)].into(),
+        total: [("gpu".to_string(), 1)].into(),
+    };
+    assert_eq!(derive_concurrency(&r), 1);
+}
+
+#[test]
+fn derive_concurrency_sums_mixed_resources() {
+    let r = ResourceAvailability {
+        available: [("cpu".to_string(), 2), ("gpu".to_string(), 1)].into(),
+        total: [("cpu".to_string(), 2), ("gpu".to_string(), 1)].into(),
+    };
+    assert_eq!(derive_concurrency(&r), 3);
+}
+
+#[test]
+fn derive_concurrency_floors_at_one_when_empty() {
+    let r = ResourceAvailability::default();
+    assert_eq!(derive_concurrency(&r), 1);
+}
 
 #[test]
 fn echo_handler_returns_status_ok_and_echoed_payload() {
