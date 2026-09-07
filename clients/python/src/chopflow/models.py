@@ -55,6 +55,7 @@ class Task:
     eta: Optional[datetime] = None
     enqueue_time: Optional[datetime] = None
     schedule_id: str = ""
+    priority: int = 0
 
     @property
     def status_name(self) -> str:
@@ -97,6 +98,7 @@ class Task:
             eta=_ts_to_dt(msg.eta),
             enqueue_time=_ts_to_dt(msg.enqueue_time),
             schedule_id=msg.schedule_id,
+            priority=msg.priority,
         )
 
 
@@ -152,6 +154,7 @@ class Schedule:
     tags: List[str]
     resources: Dict[str, int]
     max_retries: int
+    priority: int
     cron: Optional[str]
     eta: Optional[datetime]
     overlap_policy: int
@@ -189,6 +192,7 @@ class Schedule:
             tags=list(tt.tags) if tt else [],
             resources=dict(tt.resources) if tt else {},
             max_retries=tt.max_retries if tt else 3,
+            priority=tt.priority if tt else 0,
             cron=cron,
             eta=eta,
             overlap_policy=msg.overlap_policy,

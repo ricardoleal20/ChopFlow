@@ -27,11 +27,13 @@ def test_enqueue_and_get_returns_completed(client, worker):
         client.enqueue("echo")
         .payload({"hello": "world"})
         .tags("default")
+        .priority(7)
         .enqueue()
     )
     assert result.id
     task = result.get(timeout=30)
     assert task.is_completed
+    assert task.priority == 7
     assert task.result["status"] == "ok"
     assert task.result["echo"] == {"hello": "world"}
 

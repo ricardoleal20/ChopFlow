@@ -74,6 +74,7 @@ try (ChopFlowClient client = ChopFlowClient.connect("localhost:8000")) {
       .payload(Map.of("width", 128, "height", 128))
       .tags("image")
       .maxRetries(3)
+      .priority(5)            // higher = claimed before lower (default 0)
       .enqueue();
   var task = result.get(Duration.ofSeconds(60));
   System.out.println(task.getStatus());  // COMPLETED

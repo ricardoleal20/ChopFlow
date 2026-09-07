@@ -84,6 +84,7 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
         tags: tmpl.tags,
         resources: tmpl.resources,
         max_retries: tmpl.max_retries,
+        priority: tmpl.priority,
       },
       { onError: () => { /* surfaced via isError; keep drawer open */ } }
     );
@@ -232,6 +233,10 @@ function DrawerBody({ schedule, onClose }: { schedule: Schedule; onClose: () => 
             <div className="field">
               <div className="k">Max retries</div>
               <div className="v mono">{tmpl.max_retries}</div>
+            </div>
+            <div className="field">
+              <div className="k">Priority</div>
+              <div className="v mono">{tmpl.priority}</div>
             </div>
             <div className="field">
               <div className="k">Created</div>

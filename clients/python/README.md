@@ -74,6 +74,7 @@ with ChopFlowClient.connect("localhost:8000") as client:
         .payload({"path": "/img/a.png", "w": 128})
         .tags("image")
         .max_retries(2)
+        .priority(5)             # higher = claimed before lower (default 0)
         .enqueue()
     )
     task = result.get(timeout=60)        # blocks until terminal

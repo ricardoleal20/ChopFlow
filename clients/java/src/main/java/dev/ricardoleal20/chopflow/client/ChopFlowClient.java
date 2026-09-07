@@ -75,7 +75,8 @@ public final class ChopFlowClient implements AutoCloseable {
             .setPayload(b.payloadJson)
             .addAllTags(b.tags)
             .setMaxRetries(b.maxRetries)
-            .putAllResources(b.resources);
+            .putAllResources(b.resources)
+            .setPriority(b.priority);
     if (b.eta != null) req.setEta(toTimestamp(b.eta));
     String id = stub.enqueueTask(req.build()).getTaskId();
     return new AsyncResult(this, id);
@@ -161,6 +162,7 @@ public final class ChopFlowClient implements AutoCloseable {
     private final List<String> tags = new ArrayList<>();
     private final Map<String, Integer> resources = new LinkedHashMap<>();
     private int maxRetries = 0;
+    private int priority = 0;
     private Instant eta = null;
 
     EnqueueBuilder(ChopFlowClient c, String name) {
@@ -189,6 +191,15 @@ public final class ChopFlowClient implements AutoCloseable {
 
     public EnqueueBuilder maxRetries(int n) {
       this.maxRetries = n;
+      return this;
+    }
+
+    /**
+     * Dispatch priority (higher = claimed before lower). Defaults to {@code 0}, which
+     * preserves FIFO ordering within a priority tier.
+     */
+    public EnqueueBuilder priority(int p) {
+      this.priority = p;
       return this;
     }
 

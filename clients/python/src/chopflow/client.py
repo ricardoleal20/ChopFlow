@@ -175,6 +175,7 @@ class ChopFlowClient:
         resources: Optional[Dict[str, int]] = None,
         max_retries: int = 3,
         overlap: int = pb.OverlapPolicy.OVERLAP_SKIP,
+        priority: int = 0,
         enabled: bool = True,
     ) -> str:
         """Convenience builder for a cron schedule. Returns the new schedule id."""
@@ -187,6 +188,7 @@ class ChopFlowClient:
                 resources=resources or {},
                 max_retries=max_retries,
                 overlap=overlap,
+                priority=priority,
                 enabled=enabled,
                 cron=cron,
                 eta=None,
@@ -204,6 +206,7 @@ class ChopFlowClient:
         resources: Optional[Dict[str, int]] = None,
         max_retries: int = 3,
         overlap: int = pb.OverlapPolicy.OVERLAP_SKIP,
+        priority: int = 0,
         enabled: bool = True,
     ) -> str:
         """Convenience builder for a one-shot schedule. Returns the new schedule id."""
@@ -216,6 +219,7 @@ class ChopFlowClient:
                 resources=resources or {},
                 max_retries=max_retries,
                 overlap=overlap,
+                priority=priority,
                 enabled=enabled,
                 cron=None,
                 eta=eta,
@@ -236,6 +240,7 @@ class EnqueueBuilder:
         self._tags: List[str] = []
         self._resources: Dict[str, int] = {}
         self._max_retries: int = 0
+        self._priority: int = 0
         self._eta: Optional[datetime] = None
 
     def payload(self, value: object) -> "EnqueueBuilder":
@@ -256,6 +261,12 @@ class EnqueueBuilder:
         self._max_retries = n
         return self
 
+    def priority(self, p: int) -> "EnqueueBuilder":
+        """Dispatch priority (higher = claimed before lower). Defaults to ``0``,
+        which preserves FIFO ordering within a priority tier."""
+        self._priority = p
+        return self
+
     def eta(self, when: datetime) -> "EnqueueBuilder":
         self._eta = when
         return self
@@ -268,6 +279,7 @@ class EnqueueBuilder:
             tags=self._tags,
             resources=self._resources,
             max_retries=self._max_retries,
+            priority=self._priority,
         )
         if self._eta is not None:
             req.eta.CopyFrom(_dt_to_ts(self._eta))
@@ -345,6 +357,7 @@ def _build_schedule(
     resources: Dict[str, int],
     max_retries: int,
     overlap: int,
+    priority: int,
     enabled: bool,
     cron: Optional[str],
     eta: Optional[datetime],
@@ -365,6 +378,7 @@ def _build_schedule(
             tags=tags,
             resources=resources,
             max_retries=max_retries,
+            priority=priority,
         ),
         kind=kind,
         overlap_policy=overlap,
