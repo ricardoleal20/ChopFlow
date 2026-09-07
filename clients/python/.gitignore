@@ -1,0 +1,16 @@
+# Virtual environments
+.venv/
+venv/
+
+# Test / type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Generated gRPC stubs are committed for convenience (no protoc required to
+# install), so src/chopflow/_generated/ is intentionally NOT ignored.
