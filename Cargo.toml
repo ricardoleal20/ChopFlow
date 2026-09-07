@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "broker", "worker", "cli", "demos", "mcp"]
+members = ["core", "broker", "worker", "cli", "demos", "mcp", "llm-worker"]
 
 [workspace.package]
 version = "0.1.0"
