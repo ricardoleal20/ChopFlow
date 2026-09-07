@@ -1,0 +1,75 @@
+name: Feature request
+description: Suggest a new feature or an improvement to existing behavior
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Tell us what you'd like ChopFlow to do that it
+        can't do today.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: |
+        What are you trying to accomplish, and what gets in the way? Framing
+        the problem (not just the solution) helps us evaluate the request.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: |
+        What would "done" look like? An API sketch, a CLI example, or a
+        description of the desired behavior all help.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        Workarounds you've tried or other approaches you considered, and why
+        they fall short.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of ChopFlow would this affect?
+      options:
+        - broker
+        - worker
+        - cli
+        - core
+        - mcp
+        - llm-worker
+        - client-library (Python)
+        - client-library (Java)
+        - dashboard / UI
+        - docs
+        - other
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Willingness to contribute
+      options:
+        - label: I'm willing to open a PR for this (see CONTRIBUTING.md)
+          required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, mockups, related issues, or anything else relevant.
+    validations:
+      required: false

@@ -1,0 +1,14 @@
+# Issue template chooser configuration.
+# Docs: https://docs.github.com/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+
+blank_issues_enabled: true
+contact_links:
+  - name: ChopFlow documentation
+    url: https://chopflow.ricardoleal20.dev
+    about: Read the docs site (architecture, API, CLI reference) before opening an issue.
+  - name: Contributing guide
+    url: https://github.com/ricardoleal20/ChopFlow/blob/main/CONTRIBUTING.md
+    about: Branch naming, commit format, PR rules, and how to add a client library.
+  - name: Security report
+    url: https://github.com/ricardoleal20/ChopFlow/security/advisories/new
+    about: Found a security issue? Report it privately via a GitHub Security Advisory instead of a public issue.
