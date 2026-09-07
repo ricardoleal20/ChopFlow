@@ -343,6 +343,7 @@
           <li><a class="nav-leaf" href="#comp-cli" data-page="comp-cli">CLI</a></li>
           <li><a class="nav-leaf" href="#comp-dashboard" data-page="comp-dashboard">Embedded Dashboard</a></li>
           <li><a class="nav-leaf" href="#comp-demos" data-page="comp-demos">Demos</a></li>
+          <li><a class="nav-leaf" href="#comp-llm-worker" data-page="comp-llm-worker">LLM Worker</a></li>
         </ul>
       </div>
       <div class="nav-group" data-group="clients">
@@ -400,14 +401,15 @@
         <p>The broker is written in Rust and ships as one binary that embeds the dashboard. Workers pull work from the broker (pull model — backpressure is implicit). Client libraries let you define and enqueue tasks from Rust, Python, or Java.</p>
 
         <h2 id="workspace-crates">Workspace crates<a class="anchor" href="#workspace-crates">#</a></h2>
-        <p>The repository is a Cargo workspace with six crates:</p>
+        <p>The repository is a Cargo workspace with seven crates:</p>
         <div class="crate-grid">
           <div class="crate"><code>core</code><p>Shared task models, state transitions, and protocol types.</p></div>
           <div class="crate"><code>broker</code><p>Persistence, scheduling, leases, retries, and APIs (gRPC + HTTP).</p></div>
           <div class="crate"><code>worker</code><p>Pull-based execution, heartbeats, and acknowledgments.</p></div>
           <div class="crate"><code>cli</code><p>Local startup, configuration, and operator commands.</p></div>
           <div class="crate"><code>demos</code><p>Example integrations and usage patterns.</p></div>
-          <div class="crate"><code>mcp</code><p>MCP server exposing the broker as AI-friendly tools.</p></div>
+          <div class="crate"><code>mcp</code><p>MCP server exposing the broker as AI-friendly tools, resources, and prompts.</p></div>
+          <div class="crate"><code>llm-worker</code><p>Specialized worker running LLM inference against an OpenAI-compatible endpoint.</p></div>
         </div>
 
         <h2 id="design-principles">Design principles<a class="anchor" href="#design-principles">#</a></h2>
@@ -999,6 +1001,50 @@ pub use task::Task;</code></pre>
         <div class="callout callout-info"><p class="callout-title">Demo worker</p><p>The demo worker binary is <code>chopflow_demo_worker</code>, started with the same flags as the production worker (<code>--broker</code>, <code>--tags</code>, <code>--resources</code>).</p></div>
       </article>
 
+      <article class="doc-page" id="page-comp-llm-worker" data-page="comp-llm-worker">
+        <h1>LLM Worker</h1>
+        <p class="doc-lede">The <code>chopflow-llm-worker</code> crate is a specialized worker that executes LLM inference tasks against an OpenAI-compatible endpoint — turning ChopFlow into an LLM-job orchestrator an agent can drive through the MCP.</p>
+
+        <p>It uses the same pull-based protocol as the generic worker (register → heartbeat → <code>FetchTasks</code> → <code>AcknowledgeTask</code>), but with two differences: handlers are <strong>async</strong> (each inference call is network I/O), and it runs a <strong>bounded concurrency pool</strong> so a single worker pipelines multiple in-flight requests rather than blocking on one at a time.</p>
+
+        <h2 id="llm-worker-tasks">Task names<a class="anchor" href="#llm-worker-tasks">#</a></h2>
+        <p>The worker subscribes to the <code>llm</code> tag by default and dispatches by task name:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Task name</th><th>Payload</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td><code>llm.complete</code></td><td><code>{"prompt": "..."}</code></td><td><code>{"text","model","usage"}</code></td></tr>
+              <tr><td><code>llm.chat</code></td><td><code>{"messages": [{"role","content"}]}</code></td><td><code>{"text","model","usage"}</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Unknown task names fall back to <code>llm.complete</code> (treating <code>prompt</code> as the input).</p>
+
+        <h2 id="llm-worker-config">Configuration<a class="anchor" href="#llm-worker-config">#</a></h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag / env</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--broker</code></td><td>http://localhost:8000</td><td>Broker gRPC address.</td></tr>
+              <tr><td><code>--tags</code></td><td>llm</td><td>Tags this worker claims.</td></tr>
+              <tr><td><code>--concurrency</code></td><td>4</td><td>Max in-flight inference calls (bounded pool).</td></tr>
+              <tr><td><code>--api-base</code> / <code>OPENAI_BASE_URL</code></td><td>https://api.openai.com/v1</td><td>OpenAI-compatible chat-completions base URL.</td></tr>
+              <tr><td><code>--model</code> / <code>LLM_MODEL</code></td><td>gpt-4o-mini</td><td>Default model id.</td></tr>
+              <tr><td><code>--api-key</code> / <code>OPENAI_API_KEY</code></td><td>—</td><td>Bearer token. <strong>Required.</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="llm-worker-run">Run<a class="anchor" href="#llm-worker-run">#</a></h2>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>OPENAI_API_KEY=sk-... cargo run -p chopflow-llm-worker -- \</span>
+<span class="term-line">    --broker http://localhost:8000 --concurrency 8</span></code></pre>
+        </div>
+        <p>With a worker running, an agent (or the CLI) can enqueue an <code>llm.complete</code> task tagged <code>llm</code>; the worker picks it up, calls the model, and acks the result. The MCP <code>run_llm_task</code> tool does this end-to-end and returns the model's text — see <a href="#mcp-tool-run-llm-task" style="color:var(--primary);text-decoration:underline">run_llm_task</a>.</p>
+        <div class="callout callout-warn"><p class="callout-title">API key</p><p>Never commit an API key. Pass it via the environment or a gitignored <code>.env</code>; the worker reads it from <code>OPENAI_API_KEY</code> if the <code>--api-key</code> flag is omitted.</p></div>
+      </article>
+
       <!-- ===== CLIENT LIBRARIES ===== -->
       <article class="doc-page" id="page-client-rust" data-page="client-rust">
         <h1>Rust Client</h1>
@@ -1319,11 +1365,11 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
       <!-- ===== MCP SERVER ===== -->
       <article class="doc-page" id="page-mcp" data-page="mcp">
         <h1>MCP Server</h1>
-        <p class="doc-lede">A <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server that exposes the ChopFlow broker as AI-friendly tools — so an assistant like Claude Desktop, Cursor, or Cherry can enqueue tasks, inspect their lifecycle, and manage schedules with no glue code.</p>
+        <p class="doc-lede">A <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server that exposes the ChopFlow broker through all three MCP primitives — tools, resources, and prompts — so an assistant like Claude Desktop, Cursor, or Cherry can enqueue tasks, run LLM jobs, inspect their lifecycle, and manage schedules with no glue code.</p>
 
         <p>The <code>chopflow-mcp</code> crate is a thin wrapper over the broker's <a href="#http-api">HTTP/JSON API</a>. It adds <strong>no new broker surface</strong>: every tool is a 1:1 wrapper over an HTTP route. The server speaks JSON-RPC over stdio using the official Rust SDK (<a href="https://crates.io/crates/rmcp"><code>rmcp</code></a>); tool input schemas are derived from typed param structs (<code>schemars::JsonSchema</code>), so clients see rich, typed arguments with no manual schema work.</p>
 
-        <div class="callout callout-info"><p class="callout-title">Phase 1 — control only</p><p>This is MCP Phase 1: a control server with no broker changes. Phase 2 (an AI-executable worker handler) and Phase 3 (live notifications) are proposed but not yet in scope.</p></div>
+        <div class="callout callout-success"><p class="callout-title">Phase 2 shipped — agent-native</p><p>Beyond the Phase 1 control tools, the server now exposes <strong>resources</strong> (live cluster state an agent can read), <strong>prompts</strong> (ready-made agent workflows), and two higher-level tools — <code>run_llm_task</code> and <code>wait_for_task</code>. Paired with the <a href="#comp-llm-worker"><code>chopflow-llm-worker</code></a> crate, an agent can enqueue an LLM completion and get the answer back synchronously: ChopFlow drives the model. Phase 3 (live notifications) is on the roadmap.</p></div>
 
         <h2 id="mcp-install">Install &amp; run<a class="anchor" href="#mcp-install">#</a></h2>
         <p>Build the crate from the workspace, then point it at a running broker's HTTP port.</p>
@@ -1354,7 +1400,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         <p>Logs go to <strong>stderr</strong> only — stdout is reserved for the JSON-RPC protocol, so piping the server into a client never corrupts the stream.</p>
 
         <h2 id="mcp-tools">Tools<a class="anchor" href="#mcp-tools">#</a></h2>
-        <p>Eleven tools, one per broker HTTP route. All tool results are the broker's JSON response body returned as text.</p>
+        <p>Thirteen tools. Eleven wrap a broker HTTP route 1:1; two are higher-level helpers for LLM workflows. All tool results are the broker's JSON response body returned as text.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Tool</th><th>Broker route</th><th>What it does</th></tr></thead>
@@ -1370,6 +1416,8 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
               <tr><td><code>create_schedule</code></td><td><code>POST /api/schedules</code></td><td>Create a cron or one-shot schedule.</td></tr>
               <tr><td><code>update_schedule</code></td><td><code>PATCH /api/schedules/:id</code></td><td>Patch a schedule (enable/disable, overlap, cron).</td></tr>
               <tr><td><code>delete_schedule</code></td><td><code>DELETE /api/schedules/:id</code></td><td>Delete a schedule.</td></tr>
+              <tr><td><code>wait_for_task</code></td><td><code>GET /api/tasks/:id</code> (poll)</td><td>Block (polling the broker) until a task reaches a terminal status, then return its full JSON. Gives a synchronous-style answer from an async task.</td></tr>
+              <tr><td><code>run_llm_task</code></td><td><code>POST /api/tasks</code> + poll</td><td><strong>Phase 2.</strong> Enqueue an <code>llm.complete</code> task (routed to an LLM worker via the <code>llm</code> tag), wait for completion, return the task JSON with the model's text in <code>result.text</code>. Requires <code>chopflow-llm-worker</code> to be running.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1476,6 +1524,62 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         </div>
         <p>Unspecified fields are left as-is. This is a partial update (PATCH semantics).</p>
 
+        <h3 id="mcp-tool-wait-for-task">wait_for_task</h3>
+        <p>Polls <code>get_task</code> roughly twice per second until the task reaches a terminal status (<code>completed</code>, <code>failed</code>, <code>dead-lettered</code>, or <code>cancelled</code>), then returns the full task JSON. Useful for getting a synchronous-style answer from an async task.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>string</td><td>yes</td><td>The task UUID to wait on.</td></tr>
+              <tr><td><code>timeout_seconds</code></td><td>u64</td><td>no</td><td>Max seconds to wait before giving up (default <code>120</code>).</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="mcp-tool-run-llm-task">run_llm_task</h3>
+        <p><strong>Phase 2.</strong> Enqueues an <code>llm.complete</code> task (routed to an <a href="#comp-llm-worker">LLM worker</a> via the <code>llm</code> tag), waits for it to finish, and returns the final task JSON — with the model's text in <code>result.text</code>. This is the agent-friendly entry point to ChopFlow's LLM orchestration: an agent gets a synchronous answer back from an async LLM job.</p>
+        <div class="callout callout-warn"><p class="callout-title">Requires an LLM worker</p><p><code>run_llm_task</code> enqueues a task tagged <code>llm</code>. A <code>chopflow-llm-worker</code> process must be running and subscribed to the <code>llm</code> tag, or the task will sit <code>queued</code> until the timeout.</p></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>prompt</code></td><td>string</td><td>yes</td><td>The prompt to send to the LLM.</td></tr>
+              <tr><td><code>model</code></td><td>string</td><td>no</td><td>Override the LLM worker's default model for this call.</td></tr>
+              <tr><td><code>temperature</code></td><td>f64</td><td>no</td><td>Sampling temperature (<code>0.0</code>–<code>2.0</code>).</td></tr>
+              <tr><td><code>max_tokens</code></td><td>u32</td><td>no</td><td>Max tokens to generate.</td></tr>
+              <tr><td><code>tags</code></td><td>string[]</td><td>no</td><td>Routing tags. Defaults to <code>["llm"]</code> so an LLM worker picks it up.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="mcp-resources">Resources<a class="anchor" href="#mcp-resources">#</a></h2>
+        <p>Live, readable cluster state. An agent reads these to understand the system without firing tools blindly — <code>resources/read</code> fetches fresh data from the broker at read time. Returned as JSON text content.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>URI</th><th>What it returns</th></tr></thead>
+            <tbody>
+              <tr><td><code>chopflow://stats</code></td><td>Live aggregate counters (queue depth, processing, completed/failed, workers, schedules).</td></tr>
+              <tr><td><code>chopflow://workers</code></td><td>Live list of registered workers, their tags, and resource availability.</td></tr>
+              <tr><td><code>chopflow://tasks/recent</code></td><td>The 20 most recent tasks across all statuses.</td></tr>
+              <tr><td><code>chopflow://guide</code></td><td>A static text guide: task names, payload shapes, tag routing, and the LLM worker.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="mcp-prompts">Prompts<a class="anchor" href="#mcp-prompts">#</a></h2>
+        <p>Ready-made agent workflows. <code>prompts/get</code> returns a seeded user message describing a multi-step task, parameterized by prompt arguments. The agent then carries it out using the tools above.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Prompt</th><th>Arguments</th><th>What it sets up</th></tr></thead>
+            <tbody>
+              <tr><td><code>run-llm-completion</code></td><td><code>prompt</code> (required)</td><td>Run a single LLM completion via <code>run_llm_task</code> and return the answer.</td></tr>
+              <tr><td><code>process-image-batch</code></td><td><code>count</code> (optional, default 5)</td><td>Enqueue N <code>resize_image</code> tasks, wait, summarize results.</td></tr>
+              <tr><td><code>debug-stuck-tasks</code></td><td>—</td><td>List failed/dead-lettered tasks, inspect, propose fixes.</td></tr>
+              <tr><td><code>schedule-recurring</code></td><td><code>cron</code> (required), <code>task</code> (required)</td><td>Create a cron schedule firing a recurring task.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
         <h2 id="mcp-errors">Errors<a class="anchor" href="#mcp-errors">#</a></h2>
         <p>A non-2xx broker response surfaces as a tool error (<code>isError: true</code>) carrying the broker's <code>{"error": "..."}</code> body. Transport failures (broker unreachable, response read failure) return a descriptive error string instead. There is no retry inside the server — the caller decides what to do.</p>
 
@@ -1509,9 +1613,9 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
 <span class="term-line">  sleep 1</span>
 <span class="term-line">} | cargo run -q -p chopflow-mcp</span></code></pre>
         </div>
-        <p>Use <code>"method":"tools/list"</code> to enumerate all 11 tools and their input schemas.</p>
+        <p>Use <code>"method":"tools/list"</code> to enumerate all 13 tools and their input schemas, <code>"resources/list"</code> for the four resources, and <code>"prompts/list"</code> for the four prompts.</p>
 
-        <div class="callout callout-info"><p class="callout-title">Source</p><p>The server is a single file: <code>mcp/src/main.rs</code>. Tool parameter structs live alongside their <code>#[tool]</code>-annotated methods, so the typed fields documented above are the source of truth.</p></div>
+        <div class="callout callout-info"><p class="callout-title">Source</p><p>The server is a single file: <code>mcp/src/main.rs</code>. Tool parameter structs live alongside their <code>#[tool]</code>-annotated methods; resources and prompts are manual <code>ServerHandler</code> trait overrides. The typed fields documented above are the source of truth.</p></div>
       </article>
 
       <!-- ===== STORAGE BACKENDS ===== -->
@@ -1556,9 +1660,9 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
       <!-- ===== ARCHITECTURE ===== -->
       <article class="doc-page" id="page-architecture" data-page="architecture">
         <h1>Architecture</h1>
-        <p class="doc-lede">ChopFlow is a single-binary system with a pull-based dispatch model, durable persistence, and an embedded dashboard. Six workspace crates, one shared broker state.</p>
+        <p class="doc-lede">ChopFlow is a single-binary system with a pull-based dispatch model, durable persistence, and an embedded dashboard. Seven workspace crates, one shared broker state.</p>
 
-        <h2 id="arch-crates">The six crates<a class="anchor" href="#arch-crates">#</a></h2>
+        <h2 id="arch-crates">The seven crates<a class="anchor" href="#arch-crates">#</a></h2>
         <div class="crate-grid">
           <div class="crate-card"><h3>core</h3><p>Rust library: <code>Task</code>, <code>Queue</code>, <code>Dispatcher</code>, <code>RetryPolicy</code>, <code>Schedule</code>, <code>Storage</code>, resources. No I/O of its own.</p></div>
           <div class="crate-card"><h3>broker</h3><p>gRPC + HTTP/JSON server, embeds the dashboard UI, owns shared <code>BrokerState</code>.</p></div>
@@ -1566,6 +1670,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
           <div class="crate-card"><h3>cli</h3><p><code>chopflow_cli</code> — enqueue, status, schedule management.</p></div>
           <div class="crate-card"><h3>demos</h3><p>Example handlers, demo worker, seed tooling, run scripts.</p></div>
           <div class="crate-card"><h3>mcp</h3><p>Optional MCP server (stdio) wrapping the broker's HTTP API for AI assistants. Adds no broker surface.</p></div>
+          <div class="crate-card"><h3>llm-worker</h3><p>Specialized async worker running LLM inference against an OpenAI-compatible endpoint, with bounded concurrency.</p></div>
         </div>
 
         <h2 id="arch-state">Shared BrokerState<a class="anchor" href="#arch-state">#</a></h2>

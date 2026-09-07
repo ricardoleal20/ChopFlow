@@ -223,10 +223,17 @@ plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
 - **CLI** (`cli`): `chopflow_cli` — enqueue, status, schedule management
 - **Demos** (`demos`): example handlers, seed tooling, one-command demo run
 - **MCP server** (`mcp`): optional Model Context Protocol server (stdio) that
-  exposes the broker's HTTP API as AI-friendly tools — lets an assistant like
-  Claude Desktop or Cursor enqueue tasks and manage schedules with no glue
-  code. Adds no new broker surface. See [`mcp/README.md`](mcp/README.md) and the
+  exposes the broker through all three MCP primitives — tools (actions),
+  resources (live cluster state), and prompts (ready-made agent workflows) — so
+  an assistant like Claude Desktop or Cursor can enqueue tasks, run LLM jobs,
+  and manage schedules with no glue code. Adds no new broker surface. See
+  [`mcp/README.md`](mcp/README.md) and the
   [MCP docs page](https://chopflow.ricardoleal20.dev/docs.html#mcp).
+- **LLM worker** (`llm-worker`): a ChopFlow worker whose handlers call an
+  OpenAI-compatible LLM (`llm.complete` / `llm.chat`). This is MCP Phase 2:
+  ChopFlow driving an LLM. An agent enqueues an LLM task via the MCP server's
+  `run_llm_task` tool; this worker executes it and acks the result. See
+  [`llm-worker/README.md`](llm-worker/README.md).
 - **Client libraries**: Python and Java clients speak gRPC to the broker — on
   the roadmap; the proto contract is in `broker/proto/chopflow.proto`
 

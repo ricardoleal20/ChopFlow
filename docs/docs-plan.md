@@ -65,6 +65,8 @@ The nav is fixed by the OpenDesign shell. Group order and page ownership:
 12. **CLI** — `enqueue`, `status`, `schedule create/list/delete`. *(filled in v1)*
 13. **Embedded Dashboard** — what the UI shows, poll cadence, Tauri app. *(filled in v1)*
 14. **Demos** — the four handlers, `run.sh`, seed tool. *(filled in v1)*
+14b. **LLM Worker** — `chopflow-llm-worker`, async + bounded concurrency,
+    `llm.complete` / `llm.chat`, OpenAI-compatible config. *(filled in v1)*
 
 ### Client Libraries
 15. **Rust** — in-process / gRPC client usage. *(filled in v1)*
@@ -92,7 +94,7 @@ The nav is fixed by the OpenDesign shell. Group order and page ownership:
 25. **In-Memory** — testing/demo backend. *(filled in v1)*
 
 ### Architecture
-26. **Architecture** — the 5-crate map, single-binary rationale, gRPC vs HTTP
+26. **Architecture** — the 7-crate map, single-binary rationale, gRPC vs HTTP
     split, shared `BrokerState`. *(filled in v1)*
 
 ### FAQ
@@ -115,7 +117,7 @@ Each filled page follows the docs shell template:
 ### Page 1 — Overview
 Lede: "ChopFlow is a durable distributed task queue with a Rust core,
 multi-language clients, and an embedded operations dashboard." Render the
-5-crate architecture map (reuse the landing page's `architecture` block
+7-crate architecture map (reuse the landing page's `architecture` block
 markup). State the category positioning vs Temporal. List the workspace
 crates with one-line roles.
 

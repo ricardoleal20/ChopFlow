@@ -6,12 +6,15 @@ ChopFlow broker as AI-friendly tools. An AI assistant (Claude Desktop, Cursor, C
 manage schedules, and watch queue health — turning ChopFlow into a system an agent can
 operate with no glue code.
 
-The server is a thin wrapper over the broker's HTTP/JSON API (`broker/src/http.rs`); it
-adds no new broker surface.
+The server exposes the broker through all three MCP primitives: **tools** (actions),
+**resources** (live, readable cluster state), and **prompts** (ready-made agent
+workflows). It is a thin wrapper over the broker's HTTP/JSON API (`broker/src/http.rs`)
+and adds no new broker surface.
 
 ## Tools
 
-Eleven tools, one per broker HTTP route:
+Thirteen tools. Eleven wrap a broker HTTP route 1:1; two are higher-level helpers for
+LLM workflows:
 
 | Tool | What it does |
 | --- | --- |
@@ -26,9 +29,35 @@ Eleven tools, one per broker HTTP route:
 | `create_schedule` | Create a cron or one-shot schedule. |
 | `update_schedule` | Patch a schedule (enable/disable, overlap policy, cron). |
 | `delete_schedule` | Delete a schedule. |
+| `wait_for_task` | Block (polling) until a task reaches a terminal status, then return its JSON. Gives a synchronous-style answer from an async task. |
+| `run_llm_task` | **Phase 2.** Enqueue an `llm.complete` task (routed to an LLM worker via the `llm` tag), wait for completion, and return the task JSON with the model's text in `result.text`. Requires an LLM worker (`chopflow-llm-worker`) to be running. |
 
 All tool results are the broker's JSON response body as text. Non-2xx broker responses
 surface as tool errors carrying the `{"error": "..."}` body.
+
+## Resources
+
+Live, readable cluster state — an agent reads these to understand the system without
+firing tools blindly. `resources/read` fetches fresh data from the broker at read time.
+
+| URI | What it returns |
+| --- | --- |
+| `chopflow://stats` | Live aggregate counters (queue depth, processing, completed/failed, workers, schedules). |
+| `chopflow://workers` | Live list of registered workers, tags, and resource availability. |
+| `chopflow://tasks/recent` | The 20 most recent tasks across all statuses. |
+| `chopflow://guide` | A static text guide: task names, payload shapes, tag routing, and the LLM worker. |
+
+## Prompts
+
+Ready-made workflows the agent can invoke with `prompts/get`. Each returns a seeded
+user message describing a multi-step task.
+
+| Prompt | Arguments | What it sets up |
+| --- | --- | --- |
+| `run-llm-completion` | `prompt` (required) | Run a single LLM completion via `run_llm_task` and return the answer. |
+| `process-image-batch` | `count` (optional, default 5) | Enqueue N `resize_image` tasks, wait, summarize results. |
+| `debug-stuck-tasks` | — | List failed/dead-lettered tasks, inspect, propose fixes. |
+| `schedule-recurring` | `cron` (required), `task` (required) | Create a cron schedule firing a recurring task. |
 
 ## Configure
 
@@ -75,11 +104,17 @@ The server speaks JSON-RPC over stdio. Start the broker, then:
 
 ## Implementation
 
-Built with the official Rust MCP SDK ([`rmcp`](https://crates.io/crates/rmcp)). Each
-tool is a `#[tool]`-annotated async method that calls the broker via `reqwest` and
-returns the JSON body. Tool input schemas are derived from typed param structs
+Built with the official Rust MCP SDK ([`rmcp`](https://crates.io/crates/rmcp)). Tools
+are `#[tool]`-annotated async methods on a `#[tool_router]` inherent impl; resources
+and prompts are manual `ServerHandler` trait overrides in a `#[tool_handler]` block.
+The server advertises all three capabilities (`tools`, `resources`, `prompts`) in
+`get_info`. Tool input schemas are derived from typed param structs
 (`schemars::JsonSchema`), so clients see rich, typed arguments with no manual schema
 work.
+
+`run_llm_task` is MCP Phase 2: it turns ChopFlow into an LLM-job orchestrator. The
+[`chopflow-llm-worker`](../llm-worker) crate provides the worker that executes
+`llm.complete` / `llm.chat` tasks against an OpenAI-compatible endpoint.
 
 ## License
 
