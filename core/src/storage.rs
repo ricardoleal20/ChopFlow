@@ -324,7 +324,6 @@ impl SqliteStorage {
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
              CREATE INDEX IF NOT EXISTS tasks_eta ON tasks(eta_ms);
              CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);
-             CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority);
              CREATE TABLE IF NOT EXISTS schedules (
                  id              TEXT PRIMARY KEY,
                  next_fire_ms    INTEGER NOT NULL,
@@ -337,11 +336,18 @@ impl SqliteStorage {
 
         // Idempotent migration for DBs created before priority existed. The only
         // failure mode is "duplicate column name" (column already present), which
-        // is the desired end state — so we discard the result.
+        // is the desired end state — so we discard the result. The tasks_priority
+        // index references this column, so it must be created *after* the ALTER
+        // (a legacy DB has no priority column until this runs).
         let _ = conn.execute(
             "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority)",
+            [],
+        )
+        .map_err(rusqlite_err)?;
 
         Ok(Self {
             conn: Arc::new(std::sync::Mutex::new(conn)),
@@ -1092,5 +1098,37 @@ mod tests {
         let s = SqliteStorage::open(&p).unwrap();
         let got = s.get(&id).await.unwrap().unwrap();
         assert_eq!(got.priority, 7);
+    }
+
+    #[tokio::test]
+    async fn sqlite_migrates_pre_existing_db_without_priority_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+
+        // A real task serialized the old way (no priority in JSON is fine — serde
+        // would default it, but here we just need a valid row to round-trip).
+        let t = priority_task("legacy", 0);
+        let id = t.id;
+        let json = serde_json::to_string(&t).unwrap();
+        let enqueue_ms = t.enqueue_time.timestamp_millis();
+
+        // Build a DB with the OLD schema (no priority column) and insert the row.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, status INTEGER, eta_ms INTEGER, enqueue_ms INTEGER, task_json TEXT);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, status, eta_ms, enqueue_ms, task_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![t.id.to_string(), t.status as i64, Option::<i64>::None, enqueue_ms, json],
+        )
+        .unwrap();
+        drop(conn);
+
+        // Opening via SqliteStorage must add the priority column idempotently
+        // and the legacy row must read back with priority 0.
+        let s = SqliteStorage::open(path.to_str().unwrap()).unwrap();
+        let got = s.get(&id).await.unwrap().unwrap();
+        assert_eq!(got.priority, 0, "legacy row should default to priority 0");
     }
 }
