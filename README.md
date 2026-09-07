@@ -31,13 +31,38 @@
 
 ---
 
-<p align="center">
-  <img src="assets/demo.gif" alt="ChopFlow terminal demo" width="100%">
-</p>
-
 > **Status: experimental.** APIs may change between minor versions. Not
 > production-hardened yet — see the [roadmap](#roadmap) for what exists and
 > what's planned.
+
+## The 20-second demo
+
+Three terminals, one queue — broker, worker, submit:
+
+```text
+┌─ Terminal 1 ─ broker ──────────────────────────────────────────┐
+│ $ chopflow broker start --port 7331 --storage memory           │
+│ ChopFlow gRPC  on 127.0.0.1:7331                               │
+│ ChopFlow HTTP/ on 127.0.0.1:8080  (dashboard)                  │
+│ ✓ storage initialized (memory)                                 │
+│ ✓ reconciled in-flight tasks: 0 reset                          │
+└────────────────────────────────────────────────────────────────┘
+┌─ Terminal 2 ─ worker ──────────────────────────────────────────┐
+│ $ chopflow worker --broker http://localhost:7331 \             │
+│     --tags gpu,ml --resources cpu:8,gpu:1                      │
+│ Worker registered with ID: a7cd3a11-…d1459a81d                 │
+│ worker-01 connected · resources: cpu=8 gpu=1                   │
+└────────────────────────────────────────────────────────────────┘
+┌─ Terminal 3 ─ submit ──────────────────────────────────────────┐
+│ $ chopflow submit train-model.json --tags gpu,ml               │
+│ task 7f821a… queued                                            │
+│ task 7f821a… → running on worker-01                            │
+│ task 7f821a… → completed (1.42s)                               │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Reproduce it for real with `bash demos/run.sh` (builds the workspace, starts an
+in-memory broker with `--open`, a demo worker, and seeds live tasks).
 
 ## Why ChopFlow?
 
@@ -167,36 +192,6 @@ bash demos/run.sh
 This builds the workspace, starts an in-memory broker with `--open`, starts a
 demo worker wired to four showcase handlers, and seeds one task of each type
 plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
-
-## The 20-second demo
-
-Three terminals, one queue:
-
-```text
-┌─ Terminal 1 ───────────────────────────────────────────────────┐
-│ $ chopflow broker start --port 7331 --storage memory           │
-│ ChopFlow gRPC  on 127.0.0.1:7331                               │
-│ ChopFlow HTTP/ on 127.0.0.1:8080  (dashboard)                  │
-│ ✓ storage initialized (memory)                                 │
-│ ✓ reconciled in-flight tasks: 0 reset                          │
-└────────────────────────────────────────────────────────────────┘
-┌─ Terminal 2 ───────────────────────────────────────────────────┐
-│ $ chopflow worker --broker http://localhost:7331 \             │
-│     --tags gpu,ml --resources cpu:8,gpu:1                      │
-│ Worker registered with ID: a7cd3a11-…d1459a81d                 │
-│ worker-01 connected · resources: cpu=8 gpu=1                   │
-└────────────────────────────────────────────────────────────────┘
-┌─ Terminal 3 ───────────────────────────────────────────────────┐
-│ $ chopflow submit train-model.json --tags gpu,ml               │
-│ task 7f821a… queued                                            │
-│ task 7f821a… → running on worker-01                            │
-│ task 7f821a… → completed (1.42s)                               │
-└────────────────────────────────────────────────────────────────┘
-```
-
-> The animated GIF at the top of this README is rendered from real broker
-> output. The renderer is at `assets/render-demo-gif.js` (regenerate with
-> `node assets/render-demo-gif.js`).
 
 ## Features
 
