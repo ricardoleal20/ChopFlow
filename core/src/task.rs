@@ -81,6 +81,11 @@ pub struct Task {
     /// If this task was spawned by a schedule, the schedule's id. `None` for
     /// ad-hoc enqueues. The ticker sets it; the overlap check queries by it.
     pub schedule_id: Option<Uuid>,
+
+    /// Dispatch priority. Higher values are claimed before lower ones (within
+    /// the same ready/ETA tier). Defaults to `0`, preserving FIFO order among
+    /// unprioritized tasks. See `claim_ready` ordering.
+    pub priority: i32,
 }
 
 impl Task {
@@ -99,6 +104,7 @@ impl Task {
             resources: HashMap::new(),
             result: None,
             schedule_id: None,
+            priority: 0,
         }
     }
 
@@ -129,6 +135,12 @@ impl Task {
     /// Add a resource requirement
     pub fn with_resource(mut self, resource: impl Into<String>, amount: u32) -> Self {
         self.resources.insert(resource.into(), amount);
+        self
+    }
+
+    /// Set the dispatch priority. Higher values are claimed before lower ones.
+    pub fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
         self
     }
 
@@ -273,6 +285,26 @@ mod tests {
     fn new_task_has_no_schedule_id() {
         let task = Task::new("train".into(), serde_json::json!({}));
         assert!(task.schedule_id.is_none());
+    }
+
+    #[test]
+    fn new_task_has_default_priority_zero() {
+        let task = Task::new("train".into(), serde_json::json!({}));
+        assert_eq!(task.priority, 0);
+    }
+
+    #[test]
+    fn with_priority_sets_field() {
+        let task = Task::new("train".into(), serde_json::json!({})).with_priority(7);
+        assert_eq!(task.priority, 7);
+    }
+
+    #[test]
+    fn priority_round_trips_through_serde() {
+        let task = Task::new("train".into(), serde_json::json!({})).with_priority(9);
+        let json = serde_json::to_string(&task).unwrap();
+        let back: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.priority, 9);
     }
 
     #[test]

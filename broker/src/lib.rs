@@ -152,6 +152,7 @@ impl From<Task> for ProtoTask {
             resources: task.resources,
             result: task.result.unwrap_or_default(),
             schedule_id: task.schedule_id.map(|u| u.to_string()).unwrap_or_default(),
+            priority: task.priority,
         }
     }
 }
@@ -198,7 +199,7 @@ impl From<Worker> for ProtoWorker {
 fn proto_to_template(p: ProtoTaskTemplate) -> std::result::Result<TaskTemplate, Status> {
     let payload: serde_json::Value = serde_json::from_str(&p.payload)
         .map_err(|e| Status::invalid_argument(format!("invalid template payload: {}", e)))?;
-    Ok(TaskTemplate { name: p.name, payload, tags: p.tags, resources: p.resources, max_retries: p.max_retries })
+    Ok(TaskTemplate { name: p.name, payload, tags: p.tags, resources: p.resources, max_retries: p.max_retries, priority: p.priority })
 }
 
 /// Convert a proto `Schedule` into the core `Schedule` (computing `next_fire`
@@ -246,7 +247,7 @@ fn schedule_to_proto(s: Schedule) -> ProtoSchedule {
         task_template: Some(ProtoTaskTemplate {
             name: s.task_template.name,
             payload: serde_json::to_string(&s.task_template.payload).unwrap_or_default(),
-            tags: s.task_template.tags, resources: s.task_template.resources, max_retries: s.task_template.max_retries,
+            tags: s.task_template.tags, resources: s.task_template.resources, max_retries: s.task_template.max_retries, priority: s.task_template.priority,
         }),
         kind, overlap_policy: overlap as i32, enabled: s.enabled,
         last_fired: s.last_fired.map(ts), next_fire: Some(ts(s.next_fire)), created_at: Some(ts(s.created_at)),
@@ -367,6 +368,7 @@ impl ChopFlowBrokerService {
             if t.max_retries > 0 {
                 task = task.with_max_retries(t.max_retries);
             }
+            task = task.with_priority(t.priority);
             task.schedule_id = Some(schedule.id);
             task.status = TaskStatus::Queued;
 
@@ -507,6 +509,8 @@ impl ChopFlowBroker for ChopFlowBrokerService {
         for (resource, amount) in req.resources {
             task = task.with_resource(resource, amount);
         }
+
+        task = task.with_priority(req.priority);
 
         // A single insert is both "store" and "enqueue": queued tasks are
         // just tasks with status Queued, claimable by workers via FetchTasks.

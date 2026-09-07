@@ -57,6 +57,7 @@ async fn enqueue(
             eta: None,
             max_retries,
             resources: Default::default(),
+            priority: 0,
         }))
         .await
         .unwrap();

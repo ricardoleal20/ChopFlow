@@ -121,6 +121,7 @@ fn build_schedule_assembles_cron_schedule() {
         "cpu:4".into(),
         3,
         "skip".into(),
+        0,
     )
     .unwrap();
 
@@ -149,6 +150,7 @@ fn build_schedule_rejects_invalid_payload_json() {
         "".into(),
         3,
         "skip".into(),
+        0,
     )
     .unwrap_err();
     assert!(matches!(

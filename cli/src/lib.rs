@@ -40,6 +40,7 @@ pub async fn enqueue_task(
     name: Option<String>,
     tags_str: Option<String>,
     eta_str: Option<String>,
+    priority: i32,
 ) -> Result<()> {
     info!("Reading task from {:?}", task_path);
 
@@ -90,6 +91,7 @@ pub async fn enqueue_task(
         max_retries: task.max_retries,
         resources: task.resources,
         eta: None,
+        priority,
     };
 
     // Add ETA if present
@@ -221,11 +223,12 @@ pub async fn schedule_create(
     resources: String,
     max_retries: u32,
     overlap: String,
+    priority: i32,
 ) -> Result<()> {
     // Validate + build the schedule before connecting, so misconfiguration
     // fails fast (and is unit-testable without a broker).
     let schedule = build_schedule(
-        name, task, cron, eta, payload, tags, resources, max_retries, overlap,
+        name, task, cron, eta, payload, tags, resources, max_retries, overlap, priority,
     )?;
 
     let mut client = connect_to_broker(&broker).await?;
@@ -305,6 +308,7 @@ pub fn build_schedule(
     resources: String,
     max_retries: u32,
     overlap: String,
+    priority: i32,
 ) -> Result<chopflow::Schedule> {
     let payload_val: serde_json::Value = serde_json::from_str(&payload)
         .map_err(|e| chopflow_core::error::ChopFlowError::SerializationError(e.to_string()))?;
@@ -325,6 +329,7 @@ pub fn build_schedule(
             tags: tags_vec,
             resources: res_map,
             max_retries,
+            priority,
         }),
         kind: Some(chopflow::ScheduleKind { kind }),
         overlap_policy: overlap_enum as i32,

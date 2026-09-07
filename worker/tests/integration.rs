@@ -85,6 +85,7 @@ async fn run_echo_end_to_end() -> chopflow::Task {
             eta: None,
             max_retries: 3,
             resources: Default::default(),
+            priority: 0,
         }))
         .await
         .unwrap();
@@ -157,6 +158,7 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
             eta: None,
             max_retries: 1,
             resources: Default::default(),
+            priority: 0,
         }))
         .await
         .unwrap();
@@ -260,6 +262,7 @@ async fn worker_runs_tasks_concurrently() {
                 eta: None,
                 max_retries: 0,
                 resources: Default::default(),
+                priority: 0,
             }))
             .await
             .unwrap();

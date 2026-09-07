@@ -57,6 +57,8 @@ message Task {
   string result = 11;
   // Set when this task was materialized by a schedule ticker.
   string schedule_id = 12;
+  // Dispatch priority. Higher values are claimed before lower ones. Default 0.
+  int32 priority = 13;
 }
 
 // Worker definition
@@ -94,6 +96,8 @@ message EnqueueTaskRequest {
   google.protobuf.Timestamp eta = 4;
   uint32 max_retries = 5;
   map<string, uint32> resources = 6; // Resource requirements
+  // Dispatch priority (higher = claimed first). Default 0.
+  int32 priority = 7;
 }
 
 message EnqueueTaskResponse {
@@ -199,6 +203,8 @@ message TaskTemplate {
   repeated string tags = 3;
   map<string, uint32> resources = 4;
   uint32 max_retries = 5;
+  // Dispatch priority for materialized tasks. Default 0.
+  int32 priority = 6;
 }
 
 enum OverlapPolicy { OVERLAP_SKIP = 0; OVERLAP_COALESCE = 1; OVERLAP_ALLOW = 2; }

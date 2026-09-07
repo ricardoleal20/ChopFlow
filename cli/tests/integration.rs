@@ -124,6 +124,7 @@ async fn cli_enqueues_task_that_completes() {
         Some("echo".into()),
         Some("default".into()),
         None,
+        0,
     )
     .await
     .unwrap();
@@ -157,6 +158,7 @@ async fn cli_get_status_all_runs_without_error() {
         Some("echo".into()),
         Some("default".into()),
         None,
+        0,
     )
     .await
     .unwrap();
@@ -191,6 +193,7 @@ async fn cli_schedule_create_list_delete_roundtrip() {
         "cpu:4".into(),
         3,
         "skip".into(),
+        0,
     )
     .await
     .unwrap();
@@ -235,6 +238,7 @@ async fn cli_schedule_create_oneshot() {
         "".into(),
         3,
         "allow".into(),
+        0,
     )
     .await
     .unwrap();
