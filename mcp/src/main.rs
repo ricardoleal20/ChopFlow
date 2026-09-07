@@ -15,8 +15,8 @@
 
 use clap::Parser;
 use rmcp::{
-    handler::server::wrapper::Parameters, schemars, tool, tool_router, ServiceExt,
-    transport::stdio,
+    ServerHandler, ServiceExt, handler::server::wrapper::Parameters, model, schemars, tool,
+    tool_handler, tool_router, transport::stdio,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -202,9 +202,37 @@ struct UpdateScheduleParams {
     cron: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct WaitForTaskParams {
+    /// The task UUID.
+    id: String,
+    /// Max seconds to wait before giving up (default 120). The call blocks,
+    /// polling the broker, until the task reaches a terminal status or the timeout.
+    #[serde(default)]
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RunLlmTaskParams {
+    /// The prompt to send to the LLM.
+    prompt: String,
+    /// Override the LLM worker's default model for this call.
+    #[serde(default)]
+    model: Option<String>,
+    /// Sampling temperature (0.0–2.0).
+    #[serde(default)]
+    temperature: Option<f64>,
+    /// Max tokens to generate.
+    #[serde(default)]
+    max_tokens: Option<u32>,
+    /// Tags to route the task. Defaults to ["llm"] so an LLM worker picks it up.
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
 // ---- Tools ----------------------------------------------------------------
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl ChopFlowMcp {
     #[tool(description = "Get aggregate queue, worker, and schedule counters from the ChopFlow broker.")]
     async fn get_stats(&self, _p: Parameters<NoParams>) -> Result<String, String> {
@@ -385,6 +413,309 @@ impl ChopFlowMcp {
         )
         .await
     }
+
+    #[tool(description = "Block until a task reaches a terminal status (completed, failed, dead-lettered, or cancelled), then return the full task JSON. Useful for getting a synchronous-style answer from an async task. Polls the broker roughly twice per second.")]
+    async fn wait_for_task(
+        &self,
+        Parameters(p): Parameters<WaitForTaskParams>,
+    ) -> Result<String, String> {
+        self.wait_for_task_inner(
+            &p.id,
+            Duration::from_secs(p.timeout_seconds.unwrap_or(120)),
+        )
+        .await
+    }
+
+    #[tool(description = "Run an LLM completion end-to-end: enqueue an `llm.complete` task (routed to an LLM worker via the `llm` tag), wait for it to finish, and return the final task JSON (with the model's text in `result.text`). Requires an LLM worker (chopflow-llm-worker) to be running and subscribed to the `llm` tag. This is MCP Phase 2 — ChopFlow driving an LLM.")]
+    async fn run_llm_task(
+        &self,
+        Parameters(p): Parameters<RunLlmTaskParams>,
+    ) -> Result<String, String> {
+        // Route to the LLM worker unless the caller specified explicit tags.
+        let tags = if p.tags.is_empty() {
+            vec!["llm".to_string()]
+        } else {
+            p.tags
+        };
+
+        let mut payload = json!({ "prompt": p.prompt });
+        if let Some(m) = p.model {
+            payload["model"] = json!(m);
+        }
+        if let Some(t) = p.temperature {
+            payload["temperature"] = json!(t);
+        }
+        if let Some(mt) = p.max_tokens {
+            payload["max_tokens"] = json!(mt);
+        }
+
+        let body = json!({ "name": "llm.complete", "payload": payload, "tags": tags });
+        let resp = self
+            .http(reqwest::Method::POST, "/api/tasks", Some(body))
+            .await?;
+        let v: Value = serde_json::from_str(&resp)
+            .map_err(|e| format!("could not parse enqueue response: {e}"))?;
+        let id = v
+            .get("task_id")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| format!("broker did not return a task_id: {resp}"))?;
+
+        // LLM calls can take a while; allow up to 5 minutes by default.
+        self.wait_for_task_inner(id, Duration::from_secs(300)).await
+    }
+
+    /// Poll `GET /api/tasks/:id` until the task is terminal or the timeout
+    /// elapses. Returns the full task JSON on success. Non-private to the
+    /// tool methods above; not exposed as an MCP tool itself (use
+    /// `wait_for_task` for that).
+    async fn wait_for_task_inner(
+        &self,
+        id: &str,
+        timeout: Duration,
+    ) -> Result<String, String> {
+        let start = std::time::Instant::now();
+        let poll = Duration::from_millis(500);
+        let path = format!("/api/tasks/{}", urlencoding::encode_simple(id));
+        loop {
+            let body = self.http(reqwest::Method::GET, &path, None).await?;
+            let status = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_string))
+                .unwrap_or_default();
+            if matches!(
+                status.as_str(),
+                "completed" | "failed" | "dead-lettered" | "cancelled"
+            ) {
+                return Ok(body);
+            }
+            if start.elapsed() >= timeout {
+                return Err(format!(
+                    "timed out after {:?} waiting for task {} (last status: {})",
+                    timeout, id, status
+                ));
+            }
+            tokio::time::sleep(poll).await;
+        }
+    }
+}
+
+// ---- ServerHandler: tools (via tool_handler) + resources + prompts --------
+
+// `#[tool_handler]` generates `call_tool`/`list_tools`/`get_tool` from the
+// tool_router, and leaves our manual overrides below (resources, prompts,
+// get_info) untouched. We provide `get_info` ourselves so the server
+// advertises tools + resources + prompts capabilities.
+#[tool_handler]
+impl ServerHandler for ChopFlowMcp {
+    fn get_info(&self) -> model::ServerInfo {
+        model::ServerInfo::new(
+            model::ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
+        .with_server_info(model::Implementation::from_build_env())
+    }
+
+    // -- Resources: live cluster state the agent can read without calling tools --
+
+    async fn list_resources(
+        &self,
+        _request: Option<model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<model::ListResourcesResult, rmcp::ErrorData> {
+        let resources = vec![
+            model::Resource::new("chopflow://stats", "cluster-stats")
+                .with_description("Live aggregate queue, worker, and schedule counters.")
+                .with_mime_type("application/json"),
+            model::Resource::new("chopflow://workers", "workers")
+                .with_description("Live list of registered workers, their tags, and resources.")
+                .with_mime_type("application/json"),
+            model::Resource::new("chopflow://tasks/recent", "recent-tasks")
+                .with_description("The 20 most recent tasks across all statuses.")
+                .with_mime_type("application/json"),
+            model::Resource::new("chopflow://guide", "task-guide")
+                .with_description(
+                    "How to construct ChopFlow tasks: names, payloads, tags, and the LLM worker.",
+                )
+                .with_mime_type("text/plain"),
+        ];
+        Ok(model::ListResourcesResult {
+            resources,
+            ..Default::default()
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        request: model::ReadResourceRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<model::ReadResourceResponse, rmcp::ErrorData> {
+        let uri = request.uri.clone();
+        let text = match uri.as_str() {
+            "chopflow://stats" => self.http(reqwest::Method::GET, "/api/stats", None).await,
+            "chopflow://workers" => self.http(reqwest::Method::GET, "/api/workers", None).await,
+            "chopflow://tasks/recent" => {
+                self.http(reqwest::Method::GET, "/api/tasks?limit=20", None).await
+            }
+            "chopflow://guide" => Ok(TASK_GUIDE.to_string()),
+            other => {
+                return Err(rmcp::ErrorData::resource_not_found(
+                    format!("unknown resource uri: {other}"),
+                    None,
+                ))
+            }
+        }
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("broker read failed: {e}"), None))?;
+
+        let contents = vec![model::ResourceContents::TextResourceContents {
+            uri,
+            mime_type: Some("application/json".to_string()),
+            text,
+            meta: None,
+        }];
+        Ok(model::ReadResourceResult::new(contents).into())
+    }
+
+    // -- Prompts: ready-made agent workflows --
+
+    async fn list_prompts(
+        &self,
+        _request: Option<model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<model::ListPromptsResult, rmcp::ErrorData> {
+        let prompts = vec![
+            model::Prompt::new(
+                "run-llm-completion",
+                Some("Run a single LLM completion through ChopFlow and return the answer."),
+                Some(vec![model::PromptArgument::new("prompt")
+                    .with_description("The prompt to send to the LLM.")
+                    .with_required(true)]),
+            ),
+            model::Prompt::new(
+                "process-image-batch",
+                Some("Enqueue a batch of image-resize tasks and summarize their results."),
+                Some(vec![model::PromptArgument::new("count")
+                    .with_description("Number of resize_image tasks to enqueue (default 5).")
+                    .with_required(false)]),
+            ),
+            model::Prompt::new(
+                "debug-stuck-tasks",
+                Some("Inspect failed and dead-lettered tasks and propose fixes."),
+                None,
+            ),
+            model::Prompt::new(
+                "schedule-recurring",
+                Some("Create a cron schedule that fires a task on a recurring schedule."),
+                Some(vec![
+                    model::PromptArgument::new("cron")
+                        .with_description("5-field cron expression (e.g. '*/5 * * * *').")
+                        .with_required(true),
+                    model::PromptArgument::new("task")
+                        .with_description("Task name to fire (e.g. resize_image, llm.complete).")
+                        .with_required(true),
+                ]),
+            ),
+        ];
+        Ok(model::ListPromptsResult {
+            prompts,
+            ..Default::default()
+        })
+    }
+
+    async fn get_prompt(
+        &self,
+        request: model::GetPromptRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<model::GetPromptResponse, rmcp::ErrorData> {
+        // Helper to pull a string argument out of the optional arguments map.
+        let arg = |key: &str| -> Option<String> {
+            request
+                .arguments
+                .as_ref()
+                .and_then(|a| a.get(key))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        };
+
+        let messages = match request.name.as_str() {
+            "run-llm-completion" => {
+                let prompt = arg("prompt").unwrap_or_else(|| "(no prompt provided)".into());
+                vec![user_msg(format!(
+                    "Use the `run_llm_task` tool to run this LLM completion and return only the \
+                     model's text:\n\n{prompt}"
+                ))]
+            }
+            "process-image-batch" => {
+                let count = arg("count").unwrap_or_else(|| "5".into());
+                vec![user_msg(format!(
+                    "Enqueue {count} `resize_image` tasks (payload {{{{\"width\":128,\"height\":128}}}}, \
+                     tags [\"image\"]) using `enqueue_task`, then poll `get_task` for each until they \
+                     reach a terminal status. Summarize how many completed vs failed and the \
+                     typical result."
+                ))]
+            }
+            "debug-stuck-tasks" => {
+                vec![user_msg(
+                    "Use `list_tasks` with status filters `failed` and `dead-lettered` to find \
+                     stuck tasks. For each, use `get_task` to read its result/error and retry \
+                     count. Propose concrete fixes (e.g. bad payload, handler missing, resource \
+                     shortage) and, where appropriate, re-enqueue a corrected task with \
+                     `enqueue_task`."
+                    .to_string(),
+                )]
+            }
+            "schedule-recurring" => {
+                let cron = arg("cron").unwrap_or_else(|| "*/5 * * * *".into());
+                let task = arg("task").unwrap_or_else(|| "resize_image".into());
+                vec![user_msg(format!(
+                    "Use `create_schedule` to create a cron schedule with cron = `{cron}` that \
+                     fires the `{task}` task on a recurring schedule. Use overlap_policy `skip`. \
+                     Confirm by listing schedules with `list_schedules`."
+                ))]
+            }
+            other => {
+                return Err(rmcp::ErrorData::invalid_params(
+                    format!("unknown prompt: {other}"),
+                    None,
+                ))
+            }
+        };
+
+        Ok(model::GetPromptResult::new(messages)
+            .with_description(format!("ChopFlow prompt: {}", request.name))
+            .into())
+    }
+}
+
+/// Static guide resource: teaches the agent how to construct valid ChopFlow tasks.
+const TASK_GUIDE: &str = "\
+ChopFlow task guide
+===================
+
+A task is enqueued with: name, payload (JSON), tags[], and optional max_retries/resources.
+Workers subscribe by tag and pick up tasks whose tags they match (empty tags = default routing).
+
+Common task names (depend on which workers are running):
+  - echo                 echoes the payload (built-in, always available)
+  - resize_image         payload {\"width\":N,\"height\":N} -> synthetic image resize (demos worker, tag: image)
+  - batch_compute        CPU-bound matrix multiply (demos worker, tag: cpu)
+  - simulate_pipeline    multi-stage sleep pipeline (demos worker)
+  - llm.complete         payload {\"prompt\":\"...\", \"model\"?, \"temperature\"?, \"max_tokens\"?}
+                         -> {text, model, usage}  (LLM worker, tag: llm)
+  - llm.chat             payload {\"messages\":[{\"role\",\"content\"}]} -> {text, model, usage}
+
+Tips:
+  - To get a synchronous LLM answer, use the `run_llm_task` tool (it enqueues llm.complete and waits).
+  - To wait on any task, use `wait_for_task` with the task UUID.
+  - Schedules fire tasks on cron or one-shot ETA; create them with `create_schedule`.
+  - Task statuses: created, queued, running, completed, failed, dead-lettered, cancelled.
+";
+
+/// Build a user-role prompt message from a string.
+fn user_msg(text: String) -> model::PromptMessage {
+    model::PromptMessage::new_text(model::Role::User, text)
 }
 
 // ---- helpers --------------------------------------------------------------
