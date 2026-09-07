@@ -227,6 +227,11 @@ Three terminals, one queue:
   acks results, sends heartbeats
 - **CLI** (`cli`): `chopflow_cli` — enqueue, status, schedule management
 - **Demos** (`demos`): example handlers, seed tooling, one-command demo run
+- **MCP server** (`mcp`): optional Model Context Protocol server (stdio) that
+  exposes the broker's HTTP API as AI-friendly tools — lets an assistant like
+  Claude Desktop or Cursor enqueue tasks and manage schedules with no glue
+  code. Adds no new broker surface. See [`mcp/README.md`](mcp/README.md) and the
+  [MCP docs page](https://chopflow.ricardoleal20.dev/docs.html#mcp).
 - **Client libraries**: Python and Java clients speak gRPC to the broker — on
   the roadmap; the proto contract is in `broker/proto/chopflow.proto`
 

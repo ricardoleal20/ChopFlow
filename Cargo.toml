@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "broker", "worker", "cli", "demos"]
+members = ["core", "broker", "worker", "cli", "demos", "mcp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -32,3 +32,4 @@ image = "0.25"
 nalgebra = "0.33"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json"] }
+rmcp = { version = "3.2", features = ["server", "macros", "schemars", "transport-io"] }

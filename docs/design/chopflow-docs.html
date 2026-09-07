@@ -238,7 +238,7 @@
     .status-cell { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; color: var(--text); }
 
     /* ---- Architecture crate grid ---- */
-    .crate-grid { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); margin: 0 0 20px; }
+    .crate-grid { display: grid; grid-template-columns: repeat(6, 1fr); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); margin: 0 0 20px; }
     .crate { min-width: 0; padding: 18px; border-right: 1px solid var(--border); }
     .crate:last-child { border-right: 0; }
     .crate code { display: inline-flex; margin-bottom: 8px; color: var(--text); font: 600 12px/1 var(--font-mono); }
@@ -367,6 +367,12 @@
       <div class="nav-group">
         <a class="nav-standalone" href="#grpc" data-page="grpc">gRPC Reference</a>
       </div>
+      <div class="nav-group" data-group="integrations">
+        <button class="nav-group-header" type="button">Integrations <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#mcp" data-page="mcp">MCP Server</a></li>
+        </ul>
+      </div>
       <div class="nav-group" data-group="storage">
         <button class="nav-group-header" type="button">Storage Backends <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <ul class="nav-group-list">
@@ -394,13 +400,14 @@
         <p>The broker is written in Rust and ships as one binary that embeds the dashboard. Workers pull work from the broker (pull model — backpressure is implicit). Client libraries let you define and enqueue tasks from Rust, Python, or Java.</p>
 
         <h2 id="workspace-crates">Workspace crates<a class="anchor" href="#workspace-crates">#</a></h2>
-        <p>The repository is a Cargo workspace with five crates:</p>
+        <p>The repository is a Cargo workspace with six crates:</p>
         <div class="crate-grid">
           <div class="crate"><code>core</code><p>Shared task models, state transitions, and protocol types.</p></div>
           <div class="crate"><code>broker</code><p>Persistence, scheduling, leases, retries, and APIs (gRPC + HTTP).</p></div>
           <div class="crate"><code>worker</code><p>Pull-based execution, heartbeats, and acknowledgments.</p></div>
           <div class="crate"><code>cli</code><p>Local startup, configuration, and operator commands.</p></div>
           <div class="crate"><code>demos</code><p>Example integrations and usage patterns.</p></div>
+          <div class="crate"><code>mcp</code><p>MCP server exposing the broker as AI-friendly tools.</p></div>
         </div>
 
         <h2 id="design-principles">Design principles<a class="anchor" href="#design-principles">#</a></h2>
@@ -519,7 +526,7 @@ Polling broker at http://localhost:8000 (interval: 2s)</span></code></pre>
 <span class="term-line"><span class="term-prompt">$ </span>cd ChopFlow</span>
 <span class="term-line"><span class="term-prompt">$ </span>cargo build --release</span></code></pre>
         </div>
-        <p>This produces four binaries in <code>target/release/</code>:</p>
+        <p>This produces five binaries in <code>target/release/</code>:</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Binary</th><th>Crate</th><th>Role</th></tr></thead>
@@ -528,6 +535,7 @@ Polling broker at http://localhost:8000 (interval: 2s)</span></code></pre>
               <tr><td><code>chopflow_worker</code></td><td>worker</td><td>Pulls and executes tasks</td></tr>
               <tr><td><code>chopflow_cli</code></td><td>cli</td><td>Enqueue, status, schedule management</td></tr>
               <tr><td><code>chopflow_demo_worker</code> / <code>chopflow_demo_seed</code></td><td>demos</td><td>Demo worker + seeding tool</td></tr>
+              <tr><td><code>chopflow-mcp</code></td><td>mcp</td><td>MCP server (stdio) exposing the broker to AI assistants</td></tr>
             </tbody>
           </table>
         </div>
@@ -1308,6 +1316,204 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         <div class="callout callout-info"><p class="callout-title">Pull, don't push</p><p>The broker never pushes tasks to workers. A worker calls <code>FetchTasks</code> on its own poll loop, so a slow worker simply stops pulling — backpressure is implicit, no flow-control signaling needed.</p></div>
       </article>
 
+      <!-- ===== MCP SERVER ===== -->
+      <article class="doc-page" id="page-mcp" data-page="mcp">
+        <h1>MCP Server</h1>
+        <p class="doc-lede">A <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server that exposes the ChopFlow broker as AI-friendly tools — so an assistant like Claude Desktop, Cursor, or Cherry can enqueue tasks, inspect their lifecycle, and manage schedules with no glue code.</p>
+
+        <p>The <code>chopflow-mcp</code> crate is a thin wrapper over the broker's <a href="#http-api">HTTP/JSON API</a>. It adds <strong>no new broker surface</strong>: every tool is a 1:1 wrapper over an HTTP route. The server speaks JSON-RPC over stdio using the official Rust SDK (<a href="https://crates.io/crates/rmcp"><code>rmcp</code></a>); tool input schemas are derived from typed param structs (<code>schemars::JsonSchema</code>), so clients see rich, typed arguments with no manual schema work.</p>
+
+        <div class="callout callout-info"><p class="callout-title">Phase 1 — control only</p><p>This is MCP Phase 1: a control server with no broker changes. Phase 2 (an AI-executable worker handler) and Phase 3 (live notifications) are proposed but not yet in scope.</p></div>
+
+        <h2 id="mcp-install">Install &amp; run<a class="anchor" href="#mcp-install">#</a></h2>
+        <p>Build the crate from the workspace, then point it at a running broker's HTTP port.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>cargo build -p chopflow-mcp</span>
+<span class="term-line"><span class="term-prompt">$ </span># broker must already be serving HTTP on :8080</span>
+<span class="term-line"><span class="term-prompt">$ </span>./target/debug/chopflow-mcp --broker http://127.0.0.1:8080</span></code></pre>
+        </div>
+        <p>Or run directly with cargo:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>cargo run -p chopflow-mcp -- --broker http://127.0.0.1:8080</span></code></pre>
+        </div>
+
+        <h2 id="mcp-configure">Configuration<a class="anchor" href="#mcp-configure">#</a></h2>
+        <p>The broker URL is set once at server launch — it is not a per-tool argument. Precedence (highest first):</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Source</th><th>Example</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>--broker</code> flag</td><td><code>--broker http://broker:8080</code></td><td>Overrides the env var.</td></tr>
+              <tr><td><code>CHOPFLOW_HTTP_URL</code></td><td><code>http://broker:8080</code></td><td>Useful for client configs that only take a command + args.</td></tr>
+              <tr><td>Default</td><td><code>http://127.0.0.1:8080</code></td><td>Assumes a local broker.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Logs go to <strong>stderr</strong> only — stdout is reserved for the JSON-RPC protocol, so piping the server into a client never corrupts the stream.</p>
+
+        <h2 id="mcp-tools">Tools<a class="anchor" href="#mcp-tools">#</a></h2>
+        <p>Eleven tools, one per broker HTTP route. All tool results are the broker's JSON response body returned as text.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tool</th><th>Broker route</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td><code>get_stats</code></td><td><code>GET /api/stats</code></td><td>Aggregate queue / worker / schedule counters.</td></tr>
+              <tr><td><code>list_tasks</code></td><td><code>GET /api/tasks</code></td><td>List tasks, optional status filter + pagination.</td></tr>
+              <tr><td><code>get_task</code></td><td><code>GET /api/tasks/:id</code></td><td>Fetch one task by UUID (status, retries, result, lineage).</td></tr>
+              <tr><td><code>enqueue_task</code></td><td><code>POST /api/tasks</code></td><td>Enqueue a task for async execution; returns the task UUID.</td></tr>
+              <tr><td><code>cancel_task</code></td><td><code>POST /api/tasks/:id/cancel</code></td><td>Cancel a non-terminal task.</td></tr>
+              <tr><td><code>list_workers</code></td><td><code>GET /api/workers</code></td><td>List registered workers + resource availability.</td></tr>
+              <tr><td><code>list_schedules</code></td><td><code>GET /api/schedules</code></td><td>List all schedules (cron + oneshot).</td></tr>
+              <tr><td><code>get_schedule</code></td><td><code>GET /api/schedules/:id</code></td><td>Fetch one schedule by UUID.</td></tr>
+              <tr><td><code>create_schedule</code></td><td><code>POST /api/schedules</code></td><td>Create a cron or one-shot schedule.</td></tr>
+              <tr><td><code>update_schedule</code></td><td><code>PATCH /api/schedules/:id</code></td><td>Patch a schedule (enable/disable, overlap, cron).</td></tr>
+              <tr><td><code>delete_schedule</code></td><td><code>DELETE /api/schedules/:id</code></td><td>Delete a schedule.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="mcp-tool-stats">get_stats · list_workers · list_schedules</h3>
+        <p>Take no parameters. Call them with an empty <code>arguments</code> object.</p>
+
+        <h3 id="mcp-tool-list-tasks">list_tasks</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>status</code></td><td>string</td><td>no</td><td>Filter: <code>created</code>, <code>queued</code>, <code>running</code>, <code>completed</code>, <code>failed</code>, <code>dead-lettered</code>, <code>cancelled</code>.</td></tr>
+              <tr><td><code>limit</code></td><td>u32</td><td>no</td><td>Max tasks to return (<code>0</code> = no limit).</td></tr>
+              <tr><td><code>offset</code></td><td>u32</td><td>no</td><td>Number of tasks to skip.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="mcp-tool-get-task">get_task · cancel_task · get_schedule · delete_schedule</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>string</td><td>yes</td><td>The task or schedule UUID.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="mcp-tool-enqueue">enqueue_task</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>name</code></td><td>string</td><td>yes</td><td>Task name — matched by workers against their registered handlers.</td></tr>
+              <tr><td><code>payload</code></td><td>object</td><td>yes</td><td>JSON-serializable task payload. Passed to the handler verbatim.</td></tr>
+              <tr><td><code>tags</code></td><td>string[]</td><td>no</td><td>Tags a worker must be subscribed to in order to pick the task up.</td></tr>
+              <tr><td><code>max_retries</code></td><td>u32</td><td>no</td><td>Max retry attempts before dead-lettering (<code>0</code> = no retries).</td></tr>
+              <tr><td><code>resources</code></td><td>object&lt;string,u32&gt;</td><td>no</td><td>Resource requirements, e.g. <code>{"gpu": 1}</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">tools/call · enqueue_task</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "name": "resize_image",
+  "payload": {"width": 128, "height": 128},
+  "tags": ["image"],
+  "max_retries": 2,
+  "resources": {"cpu": 1}
+}</code></pre>
+        </div>
+
+        <h3 id="mcp-tool-create-schedule">create_schedule</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>name</code></td><td>string</td><td>yes</td><td>Human-readable schedule name.</td></tr>
+              <tr><td><code>task_template</code></td><td>object</td><td>yes</td><td>The task template materialized on each fire (see below).</td></tr>
+              <tr><td><code>kind</code></td><td>object</td><td>yes</td><td>Tagged union: <code>{"type":"cron","cron":"…"}</code> or <code>{"type":"oneshot","eta":"…"}</code>.</td></tr>
+              <tr><td><code>overlap_policy</code></td><td>string</td><td>no</td><td><code>skip</code> (default), <code>coalesce</code>, or <code>allow</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong><code>task_template</code></strong> accepts the same shape as <code>enqueue_task</code>: <code>name</code> (required), <code>payload</code> (required), <code>tags</code>, <code>resources</code>, <code>max_retries</code>.</p>
+        <p><strong><code>kind</code></strong> is a tagged union mirroring the broker's schedule type:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>type</code></td><td>string</td><td>yes</td><td><code>"cron"</code> or <code>"oneshot"</code>.</td></tr>
+              <tr><td><code>cron</code></td><td>string</td><td>cron only</td><td>5-field cron expression, e.g. <code>"*/5 * * * *"</code>.</td></tr>
+              <tr><td><code>eta</code></td><td>string</td><td>oneshot only</td><td>RFC3339 timestamp, e.g. <code>"2026-09-05T12:00:00Z"</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">tools/call · create_schedule</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "name": "nightly-build",
+  "task_template": {
+    "name": "batch_compute",
+    "payload": {"n": 256},
+    "tags": ["ci"],
+    "resources": {"cpu": 4}
+  },
+  "kind": {"type": "cron", "cron": "0 9 * * *"},
+  "overlap_policy": "skip"
+}</code></pre>
+        </div>
+
+        <h3 id="mcp-tool-update-schedule">update_schedule</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>string</td><td>yes</td><td>The schedule UUID.</td></tr>
+              <tr><td><code>enabled</code></td><td>bool</td><td>no</td><td>Enable or disable the schedule.</td></tr>
+              <tr><td><code>overlap_policy</code></td><td>string</td><td>no</td><td>New overlap policy: <code>skip</code>, <code>coalesce</code>, or <code>allow</code>.</td></tr>
+              <tr><td><code>cron</code></td><td>string</td><td>no</td><td>New cron expression; switches the schedule to Cron and recomputes <code>next_fire</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Unspecified fields are left as-is. This is a partial update (PATCH semantics).</p>
+
+        <h2 id="mcp-errors">Errors<a class="anchor" href="#mcp-errors">#</a></h2>
+        <p>A non-2xx broker response surfaces as a tool error (<code>isError: true</code>) carrying the broker's <code>{"error": "..."}</code> body. Transport failures (broker unreachable, response read failure) return a descriptive error string instead. There is no retry inside the server — the caller decides what to do.</p>
+
+        <h2 id="mcp-client">Wire into a client<a class="anchor" href="#mcp-client">#</a></h2>
+        <p>The server is launched as a child process by the MCP client. For Claude Desktop / Cursor, add it to <code>claude_desktop_config.json</code>:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">claude_desktop_config.json</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "mcpServers": {
+    "chopflow": {
+      "command": "/path/to/chopflow-mcp",
+      "args": ["--broker", "http://127.0.0.1:8080"]
+    }
+  }
+}</code></pre>
+        </div>
+        <p>If the client only accepts a command (no args), set the broker URL via the environment instead:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">env</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>CHOPFLOW_HTTP_URL=http://broker:8080 /path/to/chopflow-mcp</code></pre>
+        </div>
+
+        <h2 id="mcp-smoke">Smoke test by hand<a class="anchor" href="#mcp-smoke">#</a></h2>
+        <p>The server speaks plain JSON-RPC over stdio, so you can drive it without an MCP client. Start the broker, then pipe an <code>initialize</code> + <code>notifications/initialized</code> + a <code>tools/call</code> into it:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line">{</span>
+<span class="term-line">  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}'</span>
+<span class="term-line">  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'</span>
+<span class="term-line">  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"enqueue_task","arguments":{"name":"echo","payload":{"hello":"world"}}}}'</span>
+<span class="term-line">  sleep 1</span>
+<span class="term-line">} | cargo run -q -p chopflow-mcp</span></code></pre>
+        </div>
+        <p>Use <code>"method":"tools/list"</code> to enumerate all 11 tools and their input schemas.</p>
+
+        <div class="callout callout-info"><p class="callout-title">Source</p><p>The server is a single file: <code>mcp/src/main.rs</code>. Tool parameter structs live alongside their <code>#[tool]</code>-annotated methods, so the typed fields documented above are the source of truth.</p></div>
+      </article>
+
       <!-- ===== STORAGE BACKENDS ===== -->
       <article class="doc-page" id="page-storage-sqlite" data-page="storage-sqlite">
         <h1>Storage — SQLite</h1>
@@ -1350,15 +1556,16 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
       <!-- ===== ARCHITECTURE ===== -->
       <article class="doc-page" id="page-architecture" data-page="architecture">
         <h1>Architecture</h1>
-        <p class="doc-lede">ChopFlow is a single-binary system with a pull-based dispatch model, durable persistence, and an embedded dashboard. Five workspace crates, one shared broker state.</p>
+        <p class="doc-lede">ChopFlow is a single-binary system with a pull-based dispatch model, durable persistence, and an embedded dashboard. Six workspace crates, one shared broker state.</p>
 
-        <h2 id="arch-crates">The five crates<a class="anchor" href="#arch-crates">#</a></h2>
+        <h2 id="arch-crates">The six crates<a class="anchor" href="#arch-crates">#</a></h2>
         <div class="crate-grid">
           <div class="crate-card"><h3>core</h3><p>Rust library: <code>Task</code>, <code>Queue</code>, <code>Dispatcher</code>, <code>RetryPolicy</code>, <code>Schedule</code>, <code>Storage</code>, resources. No I/O of its own.</p></div>
           <div class="crate-card"><h3>broker</h3><p>gRPC + HTTP/JSON server, embeds the dashboard UI, owns shared <code>BrokerState</code>.</p></div>
           <div class="crate-card"><h3>worker</h3><p>Pulls work from the broker by tag + resource match, acks results.</p></div>
           <div class="crate-card"><h3>cli</h3><p><code>chopflow_cli</code> — enqueue, status, schedule management.</p></div>
           <div class="crate-card"><h3>demos</h3><p>Example handlers, demo worker, seed tooling, run scripts.</p></div>
+          <div class="crate-card"><h3>mcp</h3><p>Optional MCP server (stdio) wrapping the broker's HTTP API for AI assistants. Adds no broker surface.</p></div>
         </div>
 
         <h2 id="arch-state">Shared BrokerState<a class="anchor" href="#arch-state">#</a></h2>
