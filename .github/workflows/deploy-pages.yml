@@ -36,8 +36,9 @@ jobs:
           cp docs/design/404.html _site/404.html
           # Open Graph share image, referenced by og:image meta tags.
           cp assets/opengraph.png _site/assets/opengraph.png
-          # Favicon — served from site root, referenced by <link rel="icon">.
-          cp app/src-tauri/icons/icon.ico _site/favicon.ico
+          # Favicon — the ChopFlow mark (German Shepherd), generated from
+          # assets/icons/chopflow.svg. Served from site root.
+          cp assets/icons/chopflow.ico _site/favicon.ico
           # SVG mark, referenced as the preferred vector favicon.
           mkdir -p _site/assets/icons
           cp assets/icons/chopflow.svg _site/assets/icons/chopflow.svg
