@@ -15,8 +15,8 @@
 
 use clap::Parser;
 use rmcp::{
-    ServerHandler, ServiceExt, handler::server::wrapper::Parameters, model, schemars, tool,
-    tool_handler, tool_router, transport::stdio,
+    handler::server::wrapper::Parameters, model, schemars, tool, tool_handler, tool_router,
+    transport::stdio, ServerHandler, ServiceExt,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -240,12 +240,16 @@ struct RunLlmTaskParams {
 
 #[tool_router]
 impl ChopFlowMcp {
-    #[tool(description = "Get aggregate queue, worker, and schedule counters from the ChopFlow broker.")]
+    #[tool(
+        description = "Get aggregate queue, worker, and schedule counters from the ChopFlow broker."
+    )]
     async fn get_stats(&self, _p: Parameters<NoParams>) -> Result<String, String> {
         self.http(reqwest::Method::GET, "/api/stats", None).await
     }
 
-    #[tool(description = "List tasks, optionally filtered by status with limit/offset pagination. Statuses: created, queued, running, completed, failed, dead-lettered, cancelled.")]
+    #[tool(
+        description = "List tasks, optionally filtered by status with limit/offset pagination. Statuses: created, queued, running, completed, failed, dead-lettered, cancelled."
+    )]
     async fn list_tasks(
         &self,
         Parameters(p): Parameters<ListTasksParams>,
@@ -268,11 +272,10 @@ impl ChopFlowMcp {
         self.http(reqwest::Method::GET, &path, None).await
     }
 
-    #[tool(description = "Fetch a single task by its UUID, including status, retries, result, and schedule lineage.")]
-    async fn get_task(
-        &self,
-        Parameters(p): Parameters<IdParams>,
-    ) -> Result<String, String> {
+    #[tool(
+        description = "Fetch a single task by its UUID, including status, retries, result, and schedule lineage."
+    )]
+    async fn get_task(&self, Parameters(p): Parameters<IdParams>) -> Result<String, String> {
         self.http(
             reqwest::Method::GET,
             &format!("/api/tasks/{}", urlencoding::encode_simple(&p.id)),
@@ -281,7 +284,9 @@ impl ChopFlowMcp {
         .await
     }
 
-    #[tool(description = "Enqueue a task for asynchronous execution. Workers subscribed to the task's tags pick it up. Returns the new task UUID.")]
+    #[tool(
+        description = "Enqueue a task for asynchronous execution. Workers subscribed to the task's tags pick it up. Returns the new task UUID."
+    )]
     async fn enqueue_task(
         &self,
         Parameters(p): Parameters<EnqueueTaskParams>,
@@ -300,14 +305,14 @@ impl ChopFlowMcp {
         if let Some(pr) = p.priority {
             body["priority"] = json!(pr);
         }
-        self.http(reqwest::Method::POST, "/api/tasks", Some(body)).await
+        self.http(reqwest::Method::POST, "/api/tasks", Some(body))
+            .await
     }
 
-    #[tool(description = "Cancel a non-terminal task (queued or running) by its UUID. Terminal tasks (completed/failed/dead-lettered/cancelled) cannot be cancelled.")]
-    async fn cancel_task(
-        &self,
-        Parameters(p): Parameters<IdParams>,
-    ) -> Result<String, String> {
+    #[tool(
+        description = "Cancel a non-terminal task (queued or running) by its UUID. Terminal tasks (completed/failed/dead-lettered/cancelled) cannot be cancelled."
+    )]
+    async fn cancel_task(&self, Parameters(p): Parameters<IdParams>) -> Result<String, String> {
         self.http(
             reqwest::Method::POST,
             &format!("/api/tasks/{}/cancel", urlencoding::encode_simple(&p.id)),
@@ -316,21 +321,23 @@ impl ChopFlowMcp {
         .await
     }
 
-    #[tool(description = "List registered workers with their tags, liveness, assigned-task count, and resource availability.")]
+    #[tool(
+        description = "List registered workers with their tags, liveness, assigned-task count, and resource availability."
+    )]
     async fn list_workers(&self, _p: Parameters<NoParams>) -> Result<String, String> {
         self.http(reqwest::Method::GET, "/api/workers", None).await
     }
 
-    #[tool(description = "List all schedules (enabled and disabled), each with its kind (cron/oneshot), overlap policy, and next_fire time.")]
+    #[tool(
+        description = "List all schedules (enabled and disabled), each with its kind (cron/oneshot), overlap policy, and next_fire time."
+    )]
     async fn list_schedules(&self, _p: Parameters<NoParams>) -> Result<String, String> {
-        self.http(reqwest::Method::GET, "/api/schedules", None).await
+        self.http(reqwest::Method::GET, "/api/schedules", None)
+            .await
     }
 
     #[tool(description = "Fetch a single schedule by its UUID.")]
-    async fn get_schedule(
-        &self,
-        Parameters(p): Parameters<IdParams>,
-    ) -> Result<String, String> {
+    async fn get_schedule(&self, Parameters(p): Parameters<IdParams>) -> Result<String, String> {
         self.http(
             reqwest::Method::GET,
             &format!("/api/schedules/{}", urlencoding::encode_simple(&p.id)),
@@ -339,7 +346,9 @@ impl ChopFlowMcp {
         .await
     }
 
-    #[tool(description = "Create a schedule. kind is a tagged union: {\"type\":\"cron\",\"cron\":\"*/5 * * * *\"} (5-field cron) or {\"type\":\"oneshot\",\"eta\":\"2026-09-05T12:00:00Z\"} (RFC3339). overlap_policy: skip (default), coalesce, or allow. Returns the new schedule UUID.")]
+    #[tool(
+        description = "Create a schedule. kind is a tagged union: {\"type\":\"cron\",\"cron\":\"*/5 * * * *\"} (5-field cron) or {\"type\":\"oneshot\",\"eta\":\"2026-09-05T12:00:00Z\"} (RFC3339). overlap_policy: skip (default), coalesce, or allow. Returns the new schedule UUID."
+    )]
     async fn create_schedule(
         &self,
         Parameters(p): Parameters<CreateScheduleParams>,
@@ -390,7 +399,9 @@ impl ChopFlowMcp {
             .await
     }
 
-    #[tool(description = "Partially update a schedule. Any of enabled, overlap_policy, and cron can be set; unspecified fields are left as-is. Setting cron switches the schedule to Cron and recomputes next_fire.")]
+    #[tool(
+        description = "Partially update a schedule. Any of enabled, overlap_policy, and cron can be set; unspecified fields are left as-is. Setting cron switches the schedule to Cron and recomputes next_fire."
+    )]
     async fn update_schedule(
         &self,
         Parameters(p): Parameters<UpdateScheduleParams>,
@@ -414,10 +425,7 @@ impl ChopFlowMcp {
     }
 
     #[tool(description = "Delete a schedule by its UUID.")]
-    async fn delete_schedule(
-        &self,
-        Parameters(p): Parameters<IdParams>,
-    ) -> Result<String, String> {
+    async fn delete_schedule(&self, Parameters(p): Parameters<IdParams>) -> Result<String, String> {
         self.http(
             reqwest::Method::DELETE,
             &format!("/api/schedules/{}", urlencoding::encode_simple(&p.id)),
@@ -426,19 +434,20 @@ impl ChopFlowMcp {
         .await
     }
 
-    #[tool(description = "Block until a task reaches a terminal status (completed, failed, dead-lettered, or cancelled), then return the full task JSON. Useful for getting a synchronous-style answer from an async task. Polls the broker roughly twice per second.")]
+    #[tool(
+        description = "Block until a task reaches a terminal status (completed, failed, dead-lettered, or cancelled), then return the full task JSON. Useful for getting a synchronous-style answer from an async task. Polls the broker roughly twice per second."
+    )]
     async fn wait_for_task(
         &self,
         Parameters(p): Parameters<WaitForTaskParams>,
     ) -> Result<String, String> {
-        self.wait_for_task_inner(
-            &p.id,
-            Duration::from_secs(p.timeout_seconds.unwrap_or(120)),
-        )
-        .await
+        self.wait_for_task_inner(&p.id, Duration::from_secs(p.timeout_seconds.unwrap_or(120)))
+            .await
     }
 
-    #[tool(description = "Run an LLM completion end-to-end: enqueue an `llm.complete` task (routed to an LLM worker via the `llm` tag), wait for it to finish, and return the final task JSON (with the model's text in `result.text`). Requires an LLM worker (chopflow-llm-worker) to be running and subscribed to the `llm` tag. This is MCP Phase 2 — ChopFlow driving an LLM.")]
+    #[tool(
+        description = "Run an LLM completion end-to-end: enqueue an `llm.complete` task (routed to an LLM worker via the `llm` tag), wait for it to finish, and return the final task JSON (with the model's text in `result.text`). Requires an LLM worker (chopflow-llm-worker) to be running and subscribed to the `llm` tag. This is MCP Phase 2 — ChopFlow driving an LLM."
+    )]
     async fn run_llm_task(
         &self,
         Parameters(p): Parameters<RunLlmTaskParams>,
@@ -480,11 +489,7 @@ impl ChopFlowMcp {
     /// elapses. Returns the full task JSON on success. Non-private to the
     /// tool methods above; not exposed as an MCP tool itself (use
     /// `wait_for_task` for that).
-    async fn wait_for_task_inner(
-        &self,
-        id: &str,
-        timeout: Duration,
-    ) -> Result<String, String> {
+    async fn wait_for_task_inner(&self, id: &str, timeout: Duration) -> Result<String, String> {
         let start = std::time::Instant::now();
         let poll = Duration::from_millis(500);
         let path = format!("/api/tasks/{}", urlencoding::encode_simple(id));
@@ -569,7 +574,8 @@ impl ServerHandler for ChopFlowMcp {
             "chopflow://stats" => self.http(reqwest::Method::GET, "/api/stats", None).await,
             "chopflow://workers" => self.http(reqwest::Method::GET, "/api/workers", None).await,
             "chopflow://tasks/recent" => {
-                self.http(reqwest::Method::GET, "/api/tasks?limit=20", None).await
+                self.http(reqwest::Method::GET, "/api/tasks?limit=20", None)
+                    .await
             }
             "chopflow://guide" => Ok(TASK_GUIDE.to_string()),
             other => {
@@ -675,7 +681,7 @@ impl ServerHandler for ChopFlowMcp {
                      count. Propose concrete fixes (e.g. bad payload, handler missing, resource \
                      shortage) and, where appropriate, re-enqueue a corrected task with \
                      `enqueue_task`."
-                    .to_string(),
+                        .to_string(),
                 )]
             }
             "schedule-recurring" => {

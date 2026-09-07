@@ -25,7 +25,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chopflow_core::schedule::{next_fire, Schedule, ScheduleKind, OverlapPolicy, TaskTemplate};
+use chopflow_core::schedule::{next_fire, OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
 use chopflow_core::storage::TaskFilter;
 use chopflow_core::task::{Task, TaskStatus};
 use chopflow_core::Dispatcher;
@@ -206,8 +206,11 @@ impl TryFrom<ScheduleKindDto> for ScheduleKind {
         match d {
             ScheduleKindDto::Cron { cron } => {
                 // validate by parsing
-                let _ = next_fire(&ScheduleKind::Cron { cron: cron.clone() }, chrono::Utc::now())
-                    .map_err(|e| format!("invalid cron: {}", e))?;
+                let _ = next_fire(
+                    &ScheduleKind::Cron { cron: cron.clone() },
+                    chrono::Utc::now(),
+                )
+                .map_err(|e| format!("invalid cron: {}", e))?;
                 Ok(ScheduleKind::Cron { cron })
             }
             ScheduleKindDto::Oneshot { eta } => {
@@ -224,7 +227,9 @@ impl From<Schedule> for ScheduleDto {
     fn from(s: Schedule) -> Self {
         let kind = match s.kind {
             ScheduleKind::Cron { cron } => ScheduleKindDto::Cron { cron },
-            ScheduleKind::OneShot { eta } => ScheduleKindDto::Oneshot { eta: eta.to_rfc3339() },
+            ScheduleKind::OneShot { eta } => ScheduleKindDto::Oneshot {
+                eta: eta.to_rfc3339(),
+            },
         };
         Self {
             id: s.id.to_string(),
@@ -286,7 +291,12 @@ pub fn router(state: BrokerState) -> Router {
         .route("/tasks/:id/cancel", post(cancel_task))
         .route("/workers", get(list_workers))
         .route("/schedules", get(list_schedules).post(create_schedule))
-        .route("/schedules/:id", get(get_schedule).patch(patch_schedule).delete(delete_schedule));
+        .route(
+            "/schedules/:id",
+            get(get_schedule)
+                .patch(patch_schedule)
+                .delete(delete_schedule),
+        );
 
     Router::new()
         .nest("/api", api)
@@ -321,7 +331,8 @@ fn asset_response(path: &str, asset: rust_embed::EmbeddedFile) -> Response {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     let body = asset.data.into_owned();
     let mut resp = (StatusCode::OK, body).into_response();
-    resp.headers_mut().insert(header::CONTENT_TYPE, mime.as_ref().parse().unwrap());
+    resp.headers_mut()
+        .insert(header::CONTENT_TYPE, mime.as_ref().parse().unwrap());
     resp
 }
 
@@ -332,11 +343,7 @@ fn asset_response(path: &str, asset: rust_embed::EmbeddedFile) -> Response {
 type SharedState = State<Arc<BrokerState>>;
 
 async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
-    let counts = state
-        .storage
-        .count_by_status()
-        .await
-        .map_err(|e| internal(e))?;
+    let counts = state.storage.count_by_status().await.map_err(internal)?;
 
     let workers = state
         .dispatcher
@@ -344,16 +351,21 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
         .await
         .list_workers()
         .await
-        .map_err(|e| internal(e))?;
+        .map_err(internal)?;
 
     let tasks_processing: usize = workers.iter().map(|w| w.assigned_tasks.len()).sum();
     let active_workers = workers.iter().filter(|w| w.is_alive()).count();
-    let total_tasks = state.storage.list(&TaskFilter::default()).await.map_err(|e| internal(e))?.len();
+    let total_tasks = state
+        .storage
+        .list(&TaskFilter::default())
+        .await
+        .map_err(internal)?
+        .len();
     let schedules = state
         .storage
         .list_schedules()
         .await
-        .map_err(|e| internal(e))?
+        .map_err(internal)?
         .iter()
         .filter(|s| s.enabled)
         .count();
@@ -373,19 +385,24 @@ async fn list_tasks(
     State(state): SharedState,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<TaskListResponse>, ApiError> {
-    let statuses = q.status.as_deref().and_then(parse_status).into_iter().collect::<Vec<_>>();
+    let statuses = q
+        .status
+        .as_deref()
+        .and_then(parse_status)
+        .into_iter()
+        .collect::<Vec<_>>();
     let filter = TaskFilter {
         statuses,
         limit: q.limit.unwrap_or(0),
         offset: q.offset.unwrap_or(0),
     };
 
-    let tasks = state.storage.list(&filter).await.map_err(|e| internal(e))?;
+    let tasks = state.storage.list(&filter).await.map_err(internal)?;
     let total = state
         .storage
         .list(&TaskFilter::default())
         .await
-        .map_err(|e| internal(e))?
+        .map_err(internal)?
         .len();
 
     let tasks: Vec<TaskDto> = tasks.into_iter().map(TaskDto::from).collect();
@@ -401,7 +418,7 @@ async fn get_task(
         .storage
         .get(&uuid)
         .await
-        .map_err(|e| internal(e))?
+        .map_err(internal)?
         .ok_or_else(|| not_found(&format!("Task not found: {id}")))?;
     Ok(Json(TaskDto::from(task)))
 }
@@ -420,7 +437,7 @@ async fn enqueue(
     task = task.with_priority(body.priority);
     task.status = TaskStatus::Queued;
 
-    state.storage.insert(task.clone()).await.map_err(|e| internal(e))?;
+    state.storage.insert(task.clone()).await.map_err(internal)?;
 
     Ok((
         StatusCode::CREATED,
@@ -436,13 +453,16 @@ async fn cancel_task(
 ) -> Result<Json<CancelResponse>, ApiError> {
     let task_id = Uuid::parse_str(&id).map_err(|_| bad("Invalid task ID format"))?;
 
-    let Some(mut task) = state.storage.get(&task_id).await.map_err(|e| internal(e))? else {
+    let Some(mut task) = state.storage.get(&task_id).await.map_err(internal)? else {
         return Ok(Json(CancelResponse { success: false }));
     };
 
     let is_terminal = matches!(
         task.status,
-        TaskStatus::Completed | TaskStatus::Failed | TaskStatus::DeadLettered | TaskStatus::Cancelled
+        TaskStatus::Completed
+            | TaskStatus::Failed
+            | TaskStatus::DeadLettered
+            | TaskStatus::Cancelled
     );
     if is_terminal {
         return Ok(Json(CancelResponse { success: false }));
@@ -450,10 +470,16 @@ async fn cancel_task(
 
     let was_running = task.status == TaskStatus::Running;
     task.mark_cancelled();
-    state.storage.insert(task.clone()).await.map_err(|e| internal(e))?;
+    state.storage.insert(task.clone()).await.map_err(internal)?;
 
     if was_running {
-        let workers = state.dispatcher.lock().await.list_workers().await.map_err(|e| internal(e))?;
+        let workers = state
+            .dispatcher
+            .lock()
+            .await
+            .list_workers()
+            .await
+            .map_err(internal)?;
         for worker in workers {
             if worker.assigned_tasks.contains(&task_id) {
                 state
@@ -462,7 +488,7 @@ async fn cancel_task(
                     .await
                     .release_task(&worker.id, &task)
                     .await
-                    .map_err(|e| internal(e))?;
+                    .map_err(internal)?;
                 break;
             }
         }
@@ -472,7 +498,13 @@ async fn cancel_task(
 }
 
 async fn list_workers(State(state): SharedState) -> Result<Json<Vec<WorkerDto>>, ApiError> {
-    let workers = state.dispatcher.lock().await.list_workers().await.map_err(|e| internal(e))?;
+    let workers = state
+        .dispatcher
+        .lock()
+        .await
+        .list_workers()
+        .await
+        .map_err(internal)?;
     let dtos = workers
         .into_iter()
         .map(|w| {
@@ -501,7 +533,7 @@ async fn list_workers(State(state): SharedState) -> Result<Json<Vec<WorkerDto>>,
 // ---------------------------------------------------------------------------
 
 async fn list_schedules(State(state): SharedState) -> Result<Json<Vec<ScheduleDto>>, ApiError> {
-    let schs = state.storage.list_schedules().await.map_err(|e| internal(e))?;
+    let schs = state.storage.list_schedules().await.map_err(internal)?;
     Ok(Json(schs.into_iter().map(ScheduleDto::from).collect()))
 }
 
@@ -514,7 +546,7 @@ async fn get_schedule(
         .storage
         .get_schedule(&uuid)
         .await
-        .map_err(|e| internal(e))?
+        .map_err(internal)?
         .ok_or_else(|| not_found(&format!("Schedule not found: {id}")))?;
     Ok(Json(ScheduleDto::from(s)))
 }
@@ -547,7 +579,7 @@ async fn create_schedule(
         .storage
         .insert_schedule(schedule)
         .await
-        .map_err(|e| internal(e))?;
+        .map_err(internal)?;
     Ok((
         StatusCode::CREATED,
         Json(ScheduleIdResponse {
@@ -566,7 +598,7 @@ async fn patch_schedule(
         .storage
         .get_schedule(&uuid)
         .await
-        .map_err(|e| internal(e))?
+        .map_err(internal)?
         .ok_or_else(|| not_found(&format!("Schedule not found: {id}")))?;
     if let Some(enabled) = body.enabled {
         s.enabled = enabled;
@@ -576,8 +608,8 @@ async fn patch_schedule(
     }
     if let Some(cron) = body.cron {
         let kind = ScheduleKind::Cron { cron: cron.clone() };
-        let _ =
-            next_fire(&kind, chrono::Utc::now()).map_err(|e| bad(&format!("invalid cron: {}", e)))?;
+        let _ = next_fire(&kind, chrono::Utc::now())
+            .map_err(|e| bad(&format!("invalid cron: {}", e)))?;
         s.kind = kind;
         s.next_fire = chopflow_core::schedule::next_fire(&s.kind, chrono::Utc::now())
             .map_err(|e| bad(&e.to_string()))?;
@@ -586,7 +618,7 @@ async fn patch_schedule(
         .storage
         .update_schedule(s.clone())
         .await
-        .map_err(|e| internal(e))?;
+        .map_err(internal)?;
     Ok(Json(ScheduleDto::from(s)))
 }
 
@@ -599,7 +631,7 @@ async fn delete_schedule(
         .storage
         .delete_schedule(&uuid)
         .await
-        .map_err(|e| internal(e))?;
+        .map_err(internal)?;
     Ok(Json(SuccessResponse { success: true }))
 }
 

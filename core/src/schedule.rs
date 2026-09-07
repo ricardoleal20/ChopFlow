@@ -7,9 +7,9 @@ materializes into `Task`s. See the design spec section 3.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::str::FromStr;
 use uuid::Uuid;
-use std::collections::HashMap;
 
 use crate::error::{ChopFlowError, Result};
 
@@ -53,7 +53,12 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    pub fn new(name: String, task_template: TaskTemplate, kind: ScheduleKind, overlap_policy: OverlapPolicy) -> Result<Self> {
+    pub fn new(
+        name: String,
+        task_template: TaskTemplate,
+        kind: ScheduleKind,
+        overlap_policy: OverlapPolicy,
+    ) -> Result<Self> {
         let now = Utc::now();
         let next_fire = initial_next_fire(&kind, now)?;
         Ok(Self {
@@ -86,12 +91,12 @@ pub fn next_fire(kind: &ScheduleKind, after: DateTime<Utc>) -> Result<DateTime<U
     match kind {
         ScheduleKind::OneShot { eta } => Ok(*eta),
         ScheduleKind::Cron { cron } => {
-            let sched = cron::Schedule::from_str(&normalize_cron(cron))
-                .map_err(|e| ChopFlowError::Other(anyhow::anyhow!("invalid cron '{}': {}", cron, e)))?;
-            sched
-                .after(&after)
-                .next()
-                .ok_or_else(|| ChopFlowError::Other(anyhow::anyhow!("cron '{}' has no future fire", cron)))
+            let sched = cron::Schedule::from_str(&normalize_cron(cron)).map_err(|e| {
+                ChopFlowError::Other(anyhow::anyhow!("invalid cron '{}': {}", cron, e))
+            })?;
+            sched.after(&after).next().ok_or_else(|| {
+                ChopFlowError::Other(anyhow::anyhow!("cron '{}' has no future fire", cron))
+            })
         }
     }
 }
@@ -157,7 +162,13 @@ mod tests {
             max_retries: 3,
             priority: 0,
         };
-        let s = Schedule::new("n".into(), tmpl, cron_kind("*/5 * * * *"), OverlapPolicy::Skip).unwrap();
+        let s = Schedule::new(
+            "n".into(),
+            tmpl,
+            cron_kind("*/5 * * * *"),
+            OverlapPolicy::Skip,
+        )
+        .unwrap();
         assert!(s.enabled);
         assert!(s.next_fire > Utc::now());
         assert!(s.last_fired.is_none());

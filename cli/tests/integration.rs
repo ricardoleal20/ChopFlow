@@ -7,8 +7,8 @@
 //! parsing CLI stdout — more robust and avoids stdout-capture races.
 
 use chopflow_broker::chopflow::{
-    self, chop_flow_broker_client::ChopFlowBrokerClient, GetTaskStatusRequest, ListSchedulesRequest,
-    ListTasksRequest,
+    self, chop_flow_broker_client::ChopFlowBrokerClient, GetTaskStatusRequest,
+    ListSchedulesRequest, ListTasksRequest,
 };
 use chopflow_broker::{build_storage, ChopFlowBrokerService, StorageBackend};
 use chopflow_core::resources::ResourceAvailability;
@@ -57,7 +57,9 @@ async fn start_worker(url: String) {
 }
 
 async fn list_tasks(url: &str) -> Vec<chopflow::Task> {
-    let mut client = ChopFlowBrokerClient::connect(url.to_string()).await.unwrap();
+    let mut client = ChopFlowBrokerClient::connect(url.to_string())
+        .await
+        .unwrap();
     client
         .list_tasks(Request::new(ListTasksRequest {
             limit: 50,
@@ -71,7 +73,9 @@ async fn list_tasks(url: &str) -> Vec<chopflow::Task> {
 }
 
 async fn status_of(url: &str, task_id: &str) -> chopflow::Task {
-    let mut client = ChopFlowBrokerClient::connect(url.to_string()).await.unwrap();
+    let mut client = ChopFlowBrokerClient::connect(url.to_string())
+        .await
+        .unwrap();
     client
         .get_task_status(Request::new(GetTaskStatusRequest {
             task_id: task_id.to_string(),
@@ -87,7 +91,7 @@ async fn wait_until_terminal(url: &str, task_id: &str) -> chopflow::Task {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let task = status_of(url, task_id).await;
-        let terminal = matches!(task.status, 3 | 4 | 5 | 6);
+        let terminal = matches!(task.status, 3..=6);
         if terminal {
             return task;
         }
@@ -99,7 +103,9 @@ async fn wait_until_terminal(url: &str, task_id: &str) -> chopflow::Task {
 }
 
 async fn list_schedules(url: &str) -> Vec<chopflow::Schedule> {
-    let mut client = ChopFlowBrokerClient::connect(url.to_string()).await.unwrap();
+    let mut client = ChopFlowBrokerClient::connect(url.to_string())
+        .await
+        .unwrap();
     client
         .list_schedules(Request::new(ListSchedulesRequest {}))
         .await

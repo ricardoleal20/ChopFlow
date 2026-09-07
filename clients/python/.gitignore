@@ -7,6 +7,12 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# Coverage data
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Build artifacts
 build/
 dist/

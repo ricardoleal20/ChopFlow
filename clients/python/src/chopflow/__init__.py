@@ -8,7 +8,12 @@ Quickstart::
     from chopflow import ChopFlowClient
 
     with ChopFlowClient.connect("localhost:8000") as client:
-        result = client.enqueue("echo").payload({"hello": "world"}).tags("default").enqueue()
+        result = (
+            client.enqueue("echo")
+            .payload({"hello": "world"})
+            .tags("default")
+            .enqueue()
+        )
         task = result.get(timeout=30)
         print(task.status, task.result)
 """

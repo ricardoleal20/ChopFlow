@@ -3,7 +3,6 @@
 import time
 
 from chopflow import ChopFlowWorker
-from chopflow.models import TaskStatus
 
 
 def test_worker_executes_registered_handler(broker):
@@ -27,10 +26,7 @@ def test_worker_executes_registered_handler(broker):
         client = ChopFlowClient.connect(broker, timeout=15)
         try:
             result = (
-                client.enqueue("double")
-                .payload({"n": 21})
-                .tags("py-test")
-                .enqueue()
+                client.enqueue("double").payload({"n": 21}).tags("py-test").enqueue()
             )
             task = result.get(timeout=20)
             assert task.is_completed
@@ -62,10 +58,7 @@ def test_worker_default_handler_handles_unknown_task(broker):
         try:
             # No explicit handler for "mystery" → falls back to default.
             result = (
-                client.enqueue("mystery")
-                .payload({"k": 1})
-                .tags("py-default")
-                .enqueue()
+                client.enqueue("mystery").payload({"k": 1}).tags("py-default").enqueue()
             )
             task = result.get(timeout=20)
             assert task.is_completed

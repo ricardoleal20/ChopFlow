@@ -189,7 +189,11 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
         chopflow::TaskStatus::Completed as i32,
         "unknown task should not have completed"
     );
-    assert!(task.result.contains("Unknown task type"), "got: {}", task.result);
+    assert!(
+        task.result.contains("Unknown task type"),
+        "got: {}",
+        task.result
+    );
 }
 
 // --- Concurrency proof -------------------------------------------------------
@@ -271,9 +275,7 @@ async fn worker_runs_tasks_concurrently() {
 
     // Run the real processing loop (with concurrency=4) in the background.
     let loop_state = worker_state.clone();
-    let handle = tokio::spawn(async move {
-        start_task_processing(&loop_state).await
-    });
+    let handle = tokio::spawn(async move { start_task_processing(&loop_state).await });
 
     // Wait until all 4 tasks reach a terminal status.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);

@@ -72,7 +72,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let http_addr: std::net::SocketAddr = format!("{}:{}", host, http_port).parse()?;
 
     info!("ChopFlow gRPC  on {}", grpc_addr);
-    info!("ChopFlow HTTP/ on {}  (dashboard: http://{})", http_addr, http_addr);
+    info!(
+        "ChopFlow HTTP/ on {}  (dashboard: http://{})",
+        http_addr, http_addr
+    );
 
     // Spawn the HTTP server alongside gRPC. Both run until either errors.
     let http_router = chopflow_broker::http::router(state);
@@ -127,4 +130,3 @@ fn open_browser(url: &str) -> std::io::Result<()> {
         .spawn()?;
     Ok(())
 }
-

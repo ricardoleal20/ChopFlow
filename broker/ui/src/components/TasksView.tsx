@@ -20,7 +20,15 @@ const CHIPS: Filter[] = ["all", ...STATUS_ORDER];
 
 // Tasks view: a header with live/polling meta, status filter chips with
 // per-status counts, and the dense task ledger. A row click opens the drawer.
-export default function TasksView({ tasks, isLoading, error, query, filter, onFilter, onOpen }: Props) {
+export default function TasksView({
+  tasks,
+  isLoading,
+  error,
+  query,
+  filter,
+  onFilter,
+  onOpen,
+}: Props) {
   const q = query.trim().toLowerCase();
   const counts: Record<string, number> = { all: tasks.length };
   for (const s of STATUS_ORDER) counts[s] = 0;
@@ -96,7 +104,14 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                   <tr key={`sk-${i}`}>
                     {Array.from({ length: 8 }).map((__, j) => (
                       <td key={j}>
-                        <div style={{ height: 14, borderRadius: 4, background: "var(--surface-3)", opacity: 0.5 }} />
+                        <div
+                          style={{
+                            height: 14,
+                            borderRadius: 4,
+                            background: "var(--surface-3)",
+                            opacity: 0.5,
+                          }}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -105,7 +120,9 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                 <tr>
                   <td colSpan={8}>
                     <div className="empty-state">
-                      <p style={{ color: "var(--danger)" }}>Failed to load tasks: {error.message}</p>
+                      <p style={{ color: "var(--danger)" }}>
+                        Failed to load tasks: {error.message}
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -127,13 +144,17 @@ export default function TasksView({ tasks, isLoading, error, query, filter, onFi
                   const resultOut = t.result ? (
                     <span className="result">{truncate(t.result, 24)}</span>
                   ) : (
-                    <span className="result empty">{t.status === "running" ? "running…" : "—"}</span>
+                    <span className="result empty">
+                      {t.status === "running" ? "running…" : "—"}
+                    </span>
                   );
                   return (
                     <tr
                       key={t.id}
                       onClick={() => onOpen(t)}
-                      style={{ animation: `cardIn 220ms var(--ease-out) ${Math.min(i * 40, 200)}ms backwards` }}
+                      style={{
+                        animation: `cardIn 220ms var(--ease-out) ${Math.min(i * 40, 200)}ms backwards`,
+                      }}
                     >
                       <td>
                         <span className="tid mono">

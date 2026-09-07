@@ -177,7 +177,10 @@ impl Storage for InMemoryStorage {
 
     async fn count_pending(&self) -> Result<usize> {
         let tasks = self.tasks.lock().await;
-        Ok(tasks.values().filter(|t| t.status == TaskStatus::Queued).count())
+        Ok(tasks
+            .values()
+            .filter(|t| t.status == TaskStatus::Queued)
+            .count())
     }
 
     async fn count_by_status(&self) -> Result<StatusCounts> {
@@ -208,7 +211,9 @@ impl Storage for InMemoryStorage {
         // collect first because we can't mutate while iterating the borrow.
         let mut candidates: Vec<Task> = tasks
             .values()
-            .filter(|t| t.status == TaskStatus::Queued && t.is_ready_at(now) && Self::tags_match(t, tags))
+            .filter(|t| {
+                t.status == TaskStatus::Queued && t.is_ready_at(now) && Self::tags_match(t, tags)
+            })
             .cloned()
             .collect();
         candidates.sort_by(|a, b| {
@@ -286,8 +291,10 @@ impl Storage for InMemoryStorage {
         let tasks = self.tasks.lock().await;
         Ok(tasks
             .values()
-            .filter(|t| t.schedule_id == Some(*schedule_id)
-                && matches!(t.status, TaskStatus::Queued | TaskStatus::Running))
+            .filter(|t| {
+                t.schedule_id == Some(*schedule_id)
+                    && matches!(t.status, TaskStatus::Queued | TaskStatus::Running)
+            })
             .cloned()
             .collect())
     }
@@ -400,11 +407,9 @@ impl SqliteStorage {
     /// Deserialize a row into a `Task`.
     fn unmarshal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         let json: String = row.get("task_json")?;
-        serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-            3,
-            rusqlite::types::Type::Text,
-            Box::new(e),
-        ))
+        serde_json::from_str(&json).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+        })
     }
 
     fn marshal_schedule(s: &Schedule) -> Result<(String, i64, i64, String)> {
@@ -460,7 +465,9 @@ impl Storage for SqliteStorage {
             let mut stmt = conn
                 .prepare("SELECT * FROM tasks WHERE id = ?1")
                 .map_err(rusqlite_err)?;
-            let mut rows = stmt.query(rusqlite::params![id_str]).map_err(rusqlite_err)?;
+            let mut rows = stmt
+                .query(rusqlite::params![id_str])
+                .map_err(rusqlite_err)?;
             match rows.next().map_err(rusqlite_err)? {
                 Some(row) => {
                     let task = Self::unmarshal(row).map_err(rusqlite_err)?;
@@ -483,7 +490,11 @@ impl Storage for SqliteStorage {
             // Build the status filter clause. Statuses are stored as the i64
             // enum discriminant (declaration order, matching the proto cast).
             let statuses: Vec<i64> = filter.statuses.iter().map(|s| *s as i64).collect();
-            let limit = if filter.limit == 0 { i64::MAX } else { filter.limit as i64 };
+            let limit = if filter.limit == 0 {
+                i64::MAX
+            } else {
+                filter.limit as i64
+            };
 
             let mut sql = String::from("SELECT * FROM tasks");
             if !statuses.is_empty() {
@@ -498,11 +509,12 @@ impl Storage for SqliteStorage {
                 .iter()
                 .map(|s| Box::new(*s) as Box<dyn rusqlite::ToSql>)
                 .chain(std::iter::once(Box::new(limit) as Box<dyn rusqlite::ToSql>))
-                .chain(std::iter::once(Box::new(filter.offset as i64) as Box<dyn rusqlite::ToSql>))
+                .chain(std::iter::once(
+                    Box::new(filter.offset as i64) as Box<dyn rusqlite::ToSql>
+                ))
                 .collect();
 
-            let params: Vec<&dyn rusqlite::ToSql> =
-                params_iter.iter().map(Box::as_ref).collect();
+            let params: Vec<&dyn rusqlite::ToSql> = params_iter.iter().map(Box::as_ref).collect();
 
             let rows: rusqlite::Result<Vec<Task>> = stmt
                 .query_map(params.as_slice(), Self::unmarshal)
@@ -679,17 +691,28 @@ impl Storage for SqliteStorage {
         let id_str = id.to_string();
         let sch = tokio::task::spawn_blocking(move || -> Result<Option<Schedule>> {
             let conn = lock_conn(&conn)?;
-            let mut stmt = conn.prepare("SELECT schedule_json FROM schedules WHERE id = ?1").map_err(rusqlite_err)?;
-            let mut rows = stmt.query(rusqlite::params![id_str]).map_err(rusqlite_err)?;
+            let mut stmt = conn
+                .prepare("SELECT schedule_json FROM schedules WHERE id = ?1")
+                .map_err(rusqlite_err)?;
+            let mut rows = stmt
+                .query(rusqlite::params![id_str])
+                .map_err(rusqlite_err)?;
             match rows.next().map_err(rusqlite_err)? {
                 Some(row) => {
                     let json: String = row.get(0).map_err(rusqlite_err)?;
-                    let s: Schedule = serde_json::from_str(&json).map_err(|e| ChopFlowError::SerializationError(format!("failed to deserialize schedule: {}", e)))?;
+                    let s: Schedule = serde_json::from_str(&json).map_err(|e| {
+                        ChopFlowError::SerializationError(format!(
+                            "failed to deserialize schedule: {}",
+                            e
+                        ))
+                    })?;
                     Ok(Some(s))
                 }
                 None => Ok(None),
             }
-        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(sch)
     }
 
@@ -697,13 +720,26 @@ impl Storage for SqliteStorage {
         let conn = self.conn.clone();
         let schs = tokio::task::spawn_blocking(move || -> Result<Vec<Schedule>> {
             let conn = lock_conn(&conn)?;
-            let mut stmt = conn.prepare("SELECT schedule_json FROM schedules ORDER BY rowid").map_err(rusqlite_err)?;
-            let rows: rusqlite::Result<Vec<Schedule>> = stmt.query_map([], |row| {
-                let json: String = row.get(0)?;
-                serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
-            }).map_err(rusqlite_err)?.collect();
+            let mut stmt = conn
+                .prepare("SELECT schedule_json FROM schedules ORDER BY rowid")
+                .map_err(rusqlite_err)?;
+            let rows: rusqlite::Result<Vec<Schedule>> = stmt
+                .query_map([], |row| {
+                    let json: String = row.get(0)?;
+                    serde_json::from_str(&json).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })
+                })
+                .map_err(rusqlite_err)?
+                .collect();
             rows.map_err(rusqlite_err)
-        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(schs)
     }
 
@@ -712,9 +748,15 @@ impl Storage for SqliteStorage {
         let id_str = id.to_string();
         tokio::task::spawn_blocking(move || -> Result<()> {
             let conn = lock_conn(&conn)?;
-            conn.execute("DELETE FROM schedules WHERE id = ?1", rusqlite::params![id_str]).map_err(rusqlite_err)?;
+            conn.execute(
+                "DELETE FROM schedules WHERE id = ?1",
+                rusqlite::params![id_str],
+            )
+            .map_err(rusqlite_err)?;
             Ok(())
-        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(())
     }
 
@@ -747,19 +789,33 @@ impl Storage for SqliteStorage {
         let target = schedule_id.to_string();
         let tasks = tokio::task::spawn_blocking(move || -> Result<Vec<Task>> {
             let conn = lock_conn(&conn)?;
-            let mut stmt = conn.prepare(
-                "SELECT task_json FROM tasks WHERE status = ?1 OR status = ?2"
-            ).map_err(rusqlite_err)?;
-            let rows: rusqlite::Result<Vec<Task>> = stmt.query_map(
-                rusqlite::params![TaskStatus::Queued as i64, TaskStatus::Running as i64],
-                |row| {
-                    let json: String = row.get(0)?;
-                    serde_json::from_str(&json).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
-                },
-            ).map_err(rusqlite_err)?.collect();
+            let mut stmt = conn
+                .prepare("SELECT task_json FROM tasks WHERE status = ?1 OR status = ?2")
+                .map_err(rusqlite_err)?;
+            let rows: rusqlite::Result<Vec<Task>> = stmt
+                .query_map(
+                    rusqlite::params![TaskStatus::Queued as i64, TaskStatus::Running as i64],
+                    |row| {
+                        let json: String = row.get(0)?;
+                        serde_json::from_str(&json).map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                0,
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })
+                    },
+                )
+                .map_err(rusqlite_err)?
+                .collect();
             let all: Vec<Task> = rows.map_err(rusqlite_err)?;
-            Ok(all.into_iter().filter(|t| t.schedule_id.as_ref().map(|s| s.to_string()) == Some(target.clone())).collect())
-        }).await.map_err(|e| ChopFlowError::Other(e.into()))??;
+            Ok(all
+                .into_iter()
+                .filter(|t| t.schedule_id.as_ref().map(|s| s.to_string()) == Some(target.clone()))
+                .collect())
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(tasks)
     }
 }
@@ -767,8 +823,8 @@ impl Storage for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::schedule::{OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
+    use chrono::Utc;
     use std::collections::HashMap;
 
     fn queued(name: &str, tags: &[&str]) -> Task {
@@ -792,7 +848,13 @@ mod tests {
     }
 
     fn cron_schedule(name: &str, cron: &str) -> Schedule {
-        Schedule::new(name.into(), tmpl(name), ScheduleKind::Cron { cron: cron.into() }, OverlapPolicy::Skip).unwrap()
+        Schedule::new(
+            name.into(),
+            tmpl(name),
+            ScheduleKind::Cron { cron: cron.into() },
+            OverlapPolicy::Skip,
+        )
+        .unwrap()
     }
 
     async fn check_in_memory() {
@@ -935,7 +997,10 @@ mod tests {
         let s = InMemoryStorage::new();
         let sch = cron_schedule("nightly", "0 9 * * *");
         s.insert_schedule(sch.clone()).await.unwrap();
-        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().name, "nightly");
+        assert_eq!(
+            s.get_schedule(&sch.id).await.unwrap().unwrap().name,
+            "nightly"
+        );
 
         let listed = s.list_schedules().await.unwrap();
         assert_eq!(listed.len(), 1);
@@ -943,7 +1008,7 @@ mod tests {
         let mut updated = sch.clone();
         updated.enabled = false;
         s.update_schedule(updated.clone()).await.unwrap();
-        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().enabled, false);
+        assert!(!s.get_schedule(&sch.id).await.unwrap().unwrap().enabled);
 
         s.delete_schedule(&sch.id).await.unwrap();
         assert!(s.get_schedule(&sch.id).await.unwrap().is_none());
@@ -1005,13 +1070,16 @@ mod tests {
         let s = SqliteStorage::open_in_memory().unwrap();
         let sch = cron_schedule("nightly", "0 9 * * *");
         s.insert_schedule(sch.clone()).await.unwrap();
-        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().name, "nightly");
+        assert_eq!(
+            s.get_schedule(&sch.id).await.unwrap().unwrap().name,
+            "nightly"
+        );
         assert_eq!(s.list_schedules().await.unwrap().len(), 1);
 
         let mut updated = sch.clone();
         updated.enabled = false;
         s.update_schedule(updated).await.unwrap();
-        assert_eq!(s.get_schedule(&sch.id).await.unwrap().unwrap().enabled, false);
+        assert!(!s.get_schedule(&sch.id).await.unwrap().unwrap().enabled);
 
         s.delete_schedule(&sch.id).await.unwrap();
         assert!(s.get_schedule(&sch.id).await.unwrap().is_none());

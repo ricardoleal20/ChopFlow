@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json as _json
 import time
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Union
+from datetime import datetime
+from typing import Dict, List, Optional
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -22,7 +22,6 @@ from .models import (
     QueueStats,
     Schedule,
     Task,
-    TaskStatus,
     Worker,
     _dt_to_ts,
 )
@@ -34,7 +33,7 @@ POLL_INTERVAL_S = 0.5
 def _strip_scheme(target: str) -> str:
     for scheme in ("https://", "http://"):
         if target.startswith(scheme):
-            return target[len(scheme):]
+            return target[len(scheme) :]
     return target
 
 
@@ -55,7 +54,9 @@ class ChopFlowClient:
     # construction / lifecycle
     # ------------------------------------------------------------------
     @classmethod
-    def connect(cls, target: str, *, timeout: Optional[float] = None) -> "ChopFlowClient":
+    def connect(
+        cls, target: str, *, timeout: Optional[float] = None
+    ) -> "ChopFlowClient":
         """Open a plaintext gRPC channel to ``target`` (``host:port`` or
         ``http://host:port``)."""
         addr = _strip_scheme(target)
@@ -64,7 +65,9 @@ class ChopFlowClient:
             try:
                 grpc.channel_ready_future(channel).result(timeout=timeout)
             except grpc.FutureTimeoutError as e:
-                raise ChopFlowError(f"broker at {addr} not reachable within {timeout}s") from e
+                raise ChopFlowError(
+                    f"broker at {addr} not reachable within {timeout}s"
+                ) from e
         return cls(channel)
 
     def close(self) -> None:
@@ -101,7 +104,9 @@ class ChopFlowClient:
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.NOT_FOUND:
                 return None
-            raise ChopFlowError(f"GetTaskStatus failed: {e.details() or e.code()}") from e
+            raise ChopFlowError(
+                f"GetTaskStatus failed: {e.details() or e.code()}"
+            ) from e
         if not resp.HasField("task"):
             return None
         return Task.from_proto(resp.task)
@@ -112,7 +117,9 @@ class ChopFlowClient:
         offset: int = 0,
         statuses: Optional[List[int]] = None,
     ) -> List[Task]:
-        req = pb.ListTasksRequest(limit=limit, offset=offset, filter_status=statuses or [])
+        req = pb.ListTasksRequest(
+            limit=limit, offset=offset, filter_status=statuses or []
+        )
         try:
             resp = self._stub.ListTasks(req)
         except grpc.RpcError as e:
@@ -130,7 +137,9 @@ class ChopFlowClient:
         try:
             resp = self._stub.GetQueueStats(pb.GetQueueStatsRequest())
         except grpc.RpcError as e:
-            raise ChopFlowError(f"GetQueueStats failed: {e.details() or e.code()}") from e
+            raise ChopFlowError(
+                f"GetQueueStats failed: {e.details() or e.code()}"
+            ) from e
         return QueueStats.from_proto(resp)
 
     def list_workers(self) -> List[Worker]:
@@ -145,23 +154,31 @@ class ChopFlowClient:
     # ------------------------------------------------------------------
     def create_schedule(self, schedule: "pb.Schedule") -> str:
         try:
-            resp = self._stub.CreateSchedule(pb.CreateScheduleRequest(schedule=schedule))
+            resp = self._stub.CreateSchedule(
+                pb.CreateScheduleRequest(schedule=schedule)
+            )
         except grpc.RpcError as e:
-            raise ChopFlowError(f"CreateSchedule failed: {e.details() or e.code()}") from e
+            raise ChopFlowError(
+                f"CreateSchedule failed: {e.details() or e.code()}"
+            ) from e
         return resp.schedule_id
 
     def list_schedules(self) -> List[Schedule]:
         try:
             resp = self._stub.ListSchedules(pb.ListSchedulesRequest())
         except grpc.RpcError as e:
-            raise ChopFlowError(f"ListSchedules failed: {e.details() or e.code()}") from e
+            raise ChopFlowError(
+                f"ListSchedules failed: {e.details() or e.code()}"
+            ) from e
         return [Schedule.from_proto(s) for s in resp.schedules]
 
     def delete_schedule(self, schedule_id: str) -> bool:
         try:
             resp = self._stub.DeleteSchedule(pb.DeleteScheduleRequest(id=schedule_id))
         except grpc.RpcError as e:
-            raise ChopFlowError(f"DeleteSchedule failed: {e.details() or e.code()}") from e
+            raise ChopFlowError(
+                f"DeleteSchedule failed: {e.details() or e.code()}"
+            ) from e
         return resp.success
 
     def create_cron_schedule(

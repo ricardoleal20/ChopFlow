@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from google.protobuf.timestamp_pb2 import Timestamp
+
 from . import _generated  # noqa: F401  (ensures package import works)
 from ._generated import chopflow_pb2 as pb
-from google.protobuf.timestamp_pb2 import Timestamp
 
 # Re-export the proto enums for ergonomics.
 TaskStatus = pb.TaskStatus

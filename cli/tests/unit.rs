@@ -51,8 +51,11 @@ fn build_schedule_kind_requires_exactly_one_of_cron_or_eta() {
     assert!(format!("{}", err).contains("exactly one of --cron or --eta"));
 
     // Both → error.
-    let err = build_schedule_kind(Some("0 * * * *".into()), Some("2026-09-06T00:00:00Z".into()))
-        .unwrap_err();
+    let err = build_schedule_kind(
+        Some("0 * * * *".into()),
+        Some("2026-09-06T00:00:00Z".into()),
+    )
+    .unwrap_err();
     assert!(format!("{}", err).contains("exactly one of --cron or --eta"));
 }
 
@@ -67,8 +70,7 @@ fn build_schedule_kind_cron() {
 
 #[test]
 fn build_schedule_kind_oneshot() {
-    let kind =
-        build_schedule_kind(None, Some("2026-09-06T12:00:00Z".into())).unwrap();
+    let kind = build_schedule_kind(None, Some("2026-09-06T12:00:00Z".into())).unwrap();
     assert!(matches!(
         kind,
         Some(chopflow_cli::chopflow::schedule_kind::Kind::Eta(_))
@@ -82,10 +84,7 @@ fn build_schedule_kind_rejects_bad_eta() {
     assert!(!msg.is_empty(), "bad ETA should produce an error");
     // chrono's parse error mentions the invalid input in some way; we only
     // need to know it errored (the Ok path would have returned a Kind).
-    assert!(matches!(
-        err,
-        chopflow_core::error::ChopFlowError::Other(_)
-    ));
+    assert!(matches!(err, chopflow_core::error::ChopFlowError::Other(_)));
 }
 
 #[test]

@@ -267,7 +267,11 @@ mod tests {
         q.enqueue(gpu).await.unwrap();
         q.enqueue(cpu).await.unwrap();
 
-        let got = q.try_dequeue_matching(&["cpu".into()]).await.unwrap().unwrap();
+        let got = q
+            .try_dequeue_matching(&["cpu".into()])
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(got.name, "cpu");
     }
 

@@ -29,7 +29,12 @@ fn resize_image(payload: serde_json::Value) -> Result<serde_json::Value> {
         let g = ((y as f32 / h.max(1) as f32) * 255.0) as u8;
         *pixel = image::Rgb([r, g, 128]);
     }
-    let resized = image::imageops::resize(&img, (w / 2).max(1), (h / 2).max(1), image::imageops::FilterType::Nearest);
+    let resized = image::imageops::resize(
+        &img,
+        (w / 2).max(1),
+        (h / 2).max(1),
+        image::imageops::FilterType::Nearest,
+    );
     Ok(serde_json::json!({
         "status": "ok",
         "input_dims": [w, h],
@@ -40,7 +45,11 @@ fn resize_image(payload: serde_json::Value) -> Result<serde_json::Value> {
 
 /// CPU-bound matrix multiply over random f64 matrices sized by payload.
 fn batch_compute(payload: serde_json::Value) -> Result<serde_json::Value> {
-    let n = payload.get("n").and_then(|v| v.as_u64()).unwrap_or(64).max(2).min(256) as usize;
+    let n = payload
+        .get("n")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(64)
+        .clamp(2, 256) as usize;
     let a = nalgebra::DMatrix::<f64>::new_random(n, n);
     let b = nalgebra::DMatrix::<f64>::new_random(n, n);
     let start = std::time::Instant::now();
@@ -54,7 +63,12 @@ fn batch_compute(payload: serde_json::Value) -> Result<serde_json::Value> {
 
 /// Multi-stage simulated pipeline with staged sleeps + per-stage timings.
 fn simulate_pipeline(payload: serde_json::Value) -> Result<serde_json::Value> {
-    let stages = payload.get("stages").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(3).max(1);
+    let stages = payload
+        .get("stages")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(3)
+        .max(1);
     let names = ["download", "process", "upload"];
     let mut timings = Vec::new();
     for i in 0..stages {
@@ -72,7 +86,9 @@ fn flaky_handler(payload: serde_json::Value) -> Result<serde_json::Value> {
     let seed = payload.get("seed").and_then(|v| v.as_u64()).unwrap_or(0);
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     if rng.gen_bool(0.3) {
-        return Err(ChopFlowError::Other(anyhow::anyhow!("flaky failure (simulated)")));
+        return Err(ChopFlowError::Other(anyhow::anyhow!(
+            "flaky failure (simulated)"
+        )));
     }
     Ok(serde_json::json!({ "status": "ok", "seed": seed }))
 }

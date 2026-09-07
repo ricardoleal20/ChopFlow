@@ -40,10 +40,12 @@ python generate.py        # reads ../../broker/proto/chopflow.proto
 ```python
 from chopflow import ChopFlowWorker, task
 
+
 @task("resize_image")
 def resize(payload):
     # ...your logic; return something JSON-serializable...
     return {"status": "ok", "resized": payload}
+
 
 worker = (
     ChopFlowWorker.builder()
@@ -74,10 +76,10 @@ with ChopFlowClient.connect("localhost:8000") as client:
         .payload({"path": "/img/a.png", "w": 128})
         .tags("image")
         .max_retries(2)
-        .priority(5)             # higher = claimed before lower (default 0)
+        .priority(5)  # higher = claimed before lower (default 0)
         .enqueue()
     )
-    task = result.get(timeout=60)        # blocks until terminal
+    task = result.get(timeout=60)  # blocks until terminal
     print(task.status_name, task.result)
 ```
 
@@ -93,8 +95,9 @@ from chopflow import ChopFlowClient
 from chopflow.models import OverlapPolicy
 
 with ChopFlowClient.connect("localhost:8000") as client:
-    sid = client.create_cron_schedule("nightly", "build", "0 9 * * *",
-                                      tags=["ci"], overlap=OverlapPolicy.OVERLAP_SKIP)
+    sid = client.create_cron_schedule(
+        "nightly", "build", "0 9 * * *", tags=["ci"], overlap=OverlapPolicy.OVERLAP_SKIP
+    )
     print(client.list_schedules())
     client.delete_schedule(sid)
 ```

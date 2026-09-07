@@ -7,9 +7,8 @@
 //! stored, cancellation dead branches).
 
 use chopflow_broker::chopflow::{
-    self, chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest,
-    CancelTaskRequest, EnqueueTaskRequest, FetchTasksRequest, GetTaskStatusRequest,
-    RegisterWorkerRequest,
+    self, chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, CancelTaskRequest,
+    EnqueueTaskRequest, FetchTasksRequest, GetTaskStatusRequest, RegisterWorkerRequest,
 };
 use chopflow_broker::{build_storage, ChopFlowBrokerService, StorageBackend};
 use std::time::Duration;
@@ -124,7 +123,10 @@ async fn task_flows_to_completion_with_stored_result() {
         .into_inner();
     assert_eq!(fetched.tasks.len(), 1);
     assert_eq!(fetched.tasks[0].id, task_id);
-    assert_eq!(fetched.tasks[0].status, chopflow::TaskStatus::Running as i32);
+    assert_eq!(
+        fetched.tasks[0].status,
+        chopflow::TaskStatus::Running as i32
+    );
 
     // Worker acknowledges success with a result.
     client

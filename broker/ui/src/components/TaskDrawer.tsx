@@ -143,7 +143,13 @@ function retryCallout(retries: number, max: number, body: string) {
 
 function Summary({ task }: { task: Task }) {
   const resultTag =
-    task.status === "completed" ? "output" : task.status === "failed" ? "error" : task.status === "cancelled" ? "—" : "pending";
+    task.status === "completed"
+      ? "output"
+      : task.status === "failed"
+        ? "error"
+        : task.status === "cancelled"
+          ? "—"
+          : "pending";
 
   return (
     <div className="dr-pane">
@@ -230,7 +236,10 @@ function Summary({ task }: { task: Task }) {
           <span className="lbl">Result</span>
           <span className="tag">{resultTag}</span>
         </div>
-        <pre className="json-pre" dangerouslySetInnerHTML={{ __html: highlightResult(task.result) }} />
+        <pre
+          className="json-pre"
+          dangerouslySetInnerHTML={{ __html: highlightResult(task.result) }}
+        />
       </div>
     </div>
   );
@@ -253,29 +262,86 @@ function buildSteps(task: Task): Step[] {
   ];
 
   if (task.status === "cancelled") {
-    steps.push({ cls: "queued-done", title: "Queued", badge: "queued", time: "+", note: "Awaiting worker pickup." });
-    steps.push({ cls: "canc", title: "Cancelled", badge: "cancelled", time: t, note: "Cancellation requested by operator before execution." });
+    steps.push({
+      cls: "queued-done",
+      title: "Queued",
+      badge: "queued",
+      time: "+",
+      note: "Awaiting worker pickup.",
+    });
+    steps.push({
+      cls: "canc",
+      title: "Cancelled",
+      badge: "cancelled",
+      time: t,
+      note: "Cancellation requested by operator before execution.",
+    });
   } else if (task.status === "queued") {
-    steps.push({ cls: "cur", title: "Queued", badge: "queued", time: t, note: "Waiting for an available worker matching the task tags." });
+    steps.push({
+      cls: "cur",
+      title: "Queued",
+      badge: "queued",
+      time: t,
+      note: "Waiting for an available worker matching the task tags.",
+    });
     steps.push({ cls: "pend", title: "Running", time: "—", note: "" });
-    steps.push({ cls: "pend", title: task.max_retries > 0 ? "Completed / Failed" : "Completed", time: "—", note: "" });
+    steps.push({
+      cls: "pend",
+      title: task.max_retries > 0 ? "Completed / Failed" : "Completed",
+      time: "—",
+      note: "",
+    });
   } else if (task.status === "created") {
     steps.push({ cls: "pend", title: "Queued", time: "—", note: "" });
     steps.push({ cls: "pend", title: "Running", time: "—", note: "" });
     steps.push({ cls: "pend", title: "Completed", time: "—", note: "" });
   } else {
     // running / completed / failed / dead-lettered all went through queued
-    steps.push({ cls: "queued-done", title: "Queued", badge: "queued", time: "+", note: "Picked up by a worker." });
+    steps.push({
+      cls: "queued-done",
+      title: "Queued",
+      badge: "queued",
+      time: "+",
+      note: "Picked up by a worker.",
+    });
     if (task.status === "running") {
-      steps.push({ cls: "cur", title: "Running", badge: "running", time: t, note: "Executing on a worker. Heartbeat healthy." });
+      steps.push({
+        cls: "cur",
+        title: "Running",
+        badge: "running",
+        time: t,
+        note: "Executing on a worker. Heartbeat healthy.",
+      });
       steps.push({ cls: "pend", title: "Completed", time: "—", note: "" });
     } else if (task.status === "completed") {
-      steps.push({ cls: "done", title: "Running", time: "+", note: "Execution finished without error." });
-      steps.push({ cls: "done", title: "Completed", badge: "completed", time: t, note: "Result persisted to storage." });
+      steps.push({
+        cls: "done",
+        title: "Running",
+        time: "+",
+        note: "Execution finished without error.",
+      });
+      steps.push({
+        cls: "done",
+        title: "Completed",
+        badge: "completed",
+        time: t,
+        note: "Result persisted to storage.",
+      });
     } else if (task.status === "failed" || task.status === "dead-lettered") {
       const label = task.status === "dead-lettered" ? "Dead-lettered" : "Failed";
-      steps.push({ cls: "fail", title: "Running", time: "+", note: `Execution failed after ${task.retry_count} retr${task.retry_count === 1 ? "y" : "ies"}.` });
-      steps.push({ cls: "fail", title: label, badge: task.status, time: t, note: "Retry budget exhausted — moved to dead-letter." });
+      steps.push({
+        cls: "fail",
+        title: "Running",
+        time: "+",
+        note: `Execution failed after ${task.retry_count} retr${task.retry_count === 1 ? "y" : "ies"}.`,
+      });
+      steps.push({
+        cls: "fail",
+        title: label,
+        badge: task.status,
+        time: t,
+        note: "Retry budget exhausted — moved to dead-letter.",
+      });
     }
   }
   return steps;
@@ -285,7 +351,8 @@ function Lifecycle({ task }: { task: Task }) {
   const steps = buildSteps(task);
   return (
     <div className="dr-pane">
-      {task.retry_count > 0 && retryCallout(task.retry_count, task.max_retries, "before terminal state")}
+      {task.retry_count > 0 &&
+        retryCallout(task.retry_count, task.max_retries, "before terminal state")}
       <div className="timeline">
         {steps.map((s, i) => (
           <div key={i} className={`tl-node ${s.cls}`}>
