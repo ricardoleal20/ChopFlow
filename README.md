@@ -104,7 +104,7 @@ end-to-end and extend — read on.
 flowchart LR
     subgraph Clients
         CLI["CLI / HTTP API"]
-        PY["Python / Java client\n(roadmap)"]
+        PY["Python / Java client"]
     end
 
     BROKER["Broker (1 binary)\n— gRPC + HTTP/JSON\n— SQLite / in-memory storage\n— schedule ticker\n— embedded dashboard"]
@@ -112,7 +112,7 @@ flowchart LR
     W2["Worker B\ntags: cpu\nmemory:32"]
 
     CLI -->|"enqueue / cancel"| BROKER
-    PY -.->|"gRPC (roadmap)"| BROKER
+    PY -->|"gRPC"| BROKER
     BROKER -->|"pull matching work"| W1
     BROKER -->|"pull matching work"| W2
     W1 -->|"ack success/failure"| BROKER
@@ -234,8 +234,9 @@ plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
   ChopFlow driving an LLM. An agent enqueues an LLM task via the MCP server's
   `run_llm_task` tool; this worker executes it and acks the result. See
   [`llm-worker/README.md`](llm-worker/README.md).
-- **Client libraries**: Python and Java clients speak gRPC to the broker — on
-  the roadmap; the proto contract is in `broker/proto/chopflow.proto`
+- **Client libraries**: Python and Java clients speak gRPC to the broker — see
+  [`clients/python`](clients/python) and [`clients/java`](clients/java). The
+  proto contract is in `broker/proto/chopflow.proto`
 
 ## Architecture
 
@@ -478,18 +479,20 @@ promised.
 - ✅ Pull-based dispatch
 - ✅ Retries with exponential backoff + dead-letter
 - ✅ Resource-aware scheduling (CPU / GPU / memory)
+- ✅ Priority queues (priority-ordered claim)
+- ✅ Bounded worker concurrency (resource-sized pool + backpressure)
 - ✅ Cron + one-shot schedules with overlap policies
 - ✅ Broker reconciliation on restart
 - ✅ CLI (enqueue, status, schedules)
 - ✅ Embedded operations dashboard
 - ✅ Native macOS app (Tauri)
+- ✅ MCP server (agent-native control + LLM tasks)
+- ✅ Python client library
+- ✅ Java client library
 
 ### v0.2 — next
-- ⬜ Priority queues
 - ⬜ Improved observability (metrics export, OpenTelemetry traces)
 - ⬜ Docker images published to a registry
-- ⬜ Python client library (over the existing gRPC proto)
-- ⬜ Java client library
 - ⬜ Result store / `AsyncResult` handle
 
 ### v0.3 — later
@@ -503,7 +506,7 @@ by the people who'd use it.
 
 ## Client libraries (Python / Java)
 
-The intended client ergonomics — a Celery-like `@task` decorator and an
+The client ergonomics — a Celery-like `@task` decorator and an
 `AsyncResult` handle, speaking gRPC to the broker:
 
 ```python
@@ -521,10 +524,10 @@ result = train_model.delay("imagenet", {"lr": 0.001})
 output = result.get(timeout=3600)
 ```
 
-These client libraries are on the roadmap; the gRPC contract they target is
-already defined in `broker/proto/chopflow.proto`. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) §8 if you want to help land one — it's a
-great first contribution.
+These client libraries have landed in [`clients/python`](clients/python) and
+[`clients/java`](clients/java); the gRPC contract they speak is defined in
+`broker/proto/chopflow.proto`. Both are ready to use — see each client's README
+for installation and examples.
 
 ## Documentation
 
