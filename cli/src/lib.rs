@@ -23,7 +23,11 @@ use std::path::PathBuf;
 use tonic::transport::Channel;
 use tracing::{error, info};
 
-// Generate code from protobuf definitions
+// Generate code from protobuf definitions.
+// The generated gRPC methods return `Result<_, tonic::Status>` and the oneof
+// enums are large, which trips `result_large_err` / `large_enum_variant`. The
+// types come from tonic/prost, so we allow these two lints on the module.
+#[allow(clippy::result_large_err, clippy::large_enum_variant)]
 pub mod chopflow {
     // Include the generated code from the build script
     include!(concat!(env!("OUT_DIR"), "/chopflow.rs"));
