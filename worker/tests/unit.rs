@@ -25,12 +25,27 @@ fn derive_concurrency_single_unit_is_one() {
 }
 
 #[test]
-fn derive_concurrency_sums_mixed_resources() {
+fn derive_concurrency_mixed_resources_defaults_to_one() {
+    // Heterogeneous resources can't be summed (GB + cores), so we default to 1
+    // and let the operator set --concurrency. Correctness still comes from the
+    // broker's per-resource assign_task gate.
     let r = ResourceAvailability {
         available: [("cpu".to_string(), 2), ("gpu".to_string(), 1)].into(),
         total: [("cpu".to_string(), 2), ("gpu".to_string(), 1)].into(),
     };
-    assert_eq!(derive_concurrency(&r), 3);
+    assert_eq!(derive_concurrency(&r), 1);
+}
+
+#[test]
+fn derive_concurrency_ram_and_cpu_defaults_to_one() {
+    // The canonical mixed case: a 16GB / 4-core box. Summing would give 20
+    // (meaningless); min would give 4 (a guess). We default to 1 so the
+    // operator consciously picks --concurrency (e.g. 4 for CPU-bound work).
+    let r = ResourceAvailability {
+        available: [("ram".to_string(), 16), ("cpu".to_string(), 4)].into(),
+        total: [("ram".to_string(), 16), ("cpu".to_string(), 4)].into(),
+    };
+    assert_eq!(derive_concurrency(&r), 1);
 }
 
 #[test]

@@ -104,13 +104,36 @@ impl WorkerState {
     }
 }
 
-/// Derive a concurrency limit from the worker's declared resources: the sum of
-/// all resource totals, at least 1. A worker declaring `{cpu: 4}` runs up to 4
-/// tasks at once; `{gpu: 1}` runs 1. The default `--resources cpu:1` yields 1
-/// (sequential), so the out-of-the-box behavior is unchanged.
+/// Derive a concurrency limit from the worker's declared resources.
+///
+/// For a **single** declared resource the limit is that resource's total
+/// (e.g. `cpu:4` → 4, `gpu:1` → 1): a worker can run up to that many
+/// unit-sized tasks of that kind at once.
+///
+/// For **multiple** declared resources (e.g. `ram:16,cpu:4`) no meaningful
+/// count can be derived without knowing each task's per-resource footprint —
+/// summing the totals mixes incompatible units (GB + cores), and the minimum
+/// total is just a guess that can over- or under-shoot. We default to 1
+/// (sequential) and let the operator set `--concurrency` explicitly.
+///
+/// Correctness is never at stake either way: the broker's `assign_task` is the
+/// hard per-resource gate that prevents over-dispatch. This only chooses the
+/// fetch batch size so the worker doesn't request more in-flight tasks than it
+/// can plausibly run (which would otherwise churn tasks Queued→Running→Queued
+/// each poll).
 pub fn derive_concurrency(resources: &ResourceAvailability) -> usize {
-    let total: u32 = resources.total.values().sum();
-    (total as usize).max(1)
+    match resources.total.len() {
+        // No resources declared — fall back to sequential.
+        0 => 1,
+        // One resource kind: its total is a sensible unit count.
+        1 => {
+            let total: u32 = resources.total.values().sum();
+            (total as usize).max(1)
+        }
+        // Heterogeneous resources: can't sum incompatible units. Let the
+        // operator decide via --concurrency.
+        _ => 1,
+    }
 }
 
 /// Built-in task handler: echoes the payload back as the result. Useful as a
