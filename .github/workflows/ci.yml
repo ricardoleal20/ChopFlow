@@ -77,9 +77,9 @@ jobs:
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: broker/ui/pnpm-lock.yaml
 
