@@ -205,24 +205,24 @@ impl Storage for InMemoryStorage {
         let mut tasks = self.tasks.lock().await;
         let now = chrono::Utc::now();
 
-        // Collect ready, matching, queued candidates, then pick the
-        // highest-priority ones: priority desc, then eta asc (None-first via
-        // `Option::cmp`), then enqueue_time asc as a FIFO tie-breaker. We
-        // collect first because we can't mutate while iterating the borrow.
-        let mut candidates: Vec<Task> = tasks
+        // Collect only the sort key + id for each ready, matching, queued
+        // candidate — NOT a full Task clone. At 100k+ queued tasks cloning
+        // every candidate on every fetch was the dominant cost. The key
+        // ordering is: priority desc, then eta asc (None-first via
+        // `Option::cmp`), then enqueue_time asc as a FIFO tie-breaker.
+        let mut candidates: Vec<(i32, Option<chrono::DateTime<chrono::Utc>>, chrono::DateTime<chrono::Utc>, Uuid)> = tasks
             .values()
             .filter(|t| {
                 t.status == TaskStatus::Queued && t.is_ready_at(now) && Self::tags_match(t, tags)
             })
-            .cloned()
+            .map(|t| (t.priority, t.eta, t.enqueue_time, t.id))
             .collect();
         candidates.sort_by(|a, b| {
-            b.priority
-                .cmp(&a.priority)
-                .then(a.eta.cmp(&b.eta))
-                .then(a.enqueue_time.cmp(&b.enqueue_time))
+            b.0.cmp(&a.0)
+                .then(a.1.cmp(&b.1))
+                .then(a.2.cmp(&b.2))
         });
-        let ids: Vec<Uuid> = candidates.into_iter().take(max).map(|t| t.id).collect();
+        let ids: Vec<Uuid> = candidates.into_iter().take(max).map(|c| c.3).collect();
 
         let mut claimed = Vec::with_capacity(ids.len());
         for id in ids {

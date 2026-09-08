@@ -73,7 +73,7 @@ async fn run_echo_end_to_end() -> chopflow::Task {
         availability,
         tags,
         4,
-    )));
+    ).unwrap()));
 
     // Enqueue an echo task as a producer would.
     let mut client = ChopFlowBrokerClient::connect(url.clone()).await.unwrap();
@@ -143,7 +143,7 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
         availability,
         tags,
         1,
-    )));
+    ).unwrap()));
     {
         let mut state = worker_state.lock().await;
         state.task_registry = chopflow_worker::TaskRegistry::new();
@@ -245,7 +245,7 @@ async fn worker_runs_tasks_concurrently() {
         availability,
         tags.clone(),
         4, // concurrency = 4
-    )));
+    ).unwrap()));
     // Register the slow handler under the enqueued task name.
     {
         let mut state = worker_state.lock().await;

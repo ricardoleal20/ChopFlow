@@ -355,12 +355,15 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
 
     let tasks_processing: usize = workers.iter().map(|w| w.assigned_tasks.len()).sum();
     let active_workers = workers.iter().filter(|w| w.is_alive()).count();
-    let total_tasks = state
-        .storage
-        .list(&TaskFilter::default())
-        .await
-        .map_err(internal)?
-        .len();
+    // Derive total_tasks from the status counts we already have, rather than
+    // calling `list()` (which clones every task into a Vec just to count them).
+    // At 100k+ tasks the clone was the dominant cost in /api/stats.
+    let total_tasks = counts.queued
+        + counts.running
+        + counts.completed
+        + counts.failed
+        + counts.dead_lettered
+        + counts.cancelled;
     let schedules = state
         .storage
         .list_schedules()
