@@ -1,0 +1,7 @@
+# Comparison harness dependencies for ChopFlow benchmarks.
+# Install into a dedicated venv:
+#   uv venv bench/compare/.venv
+#   uv pip install -r bench/compare/requirements.txt
+celery>=5.4,<6
+redis>=5.0,<6
+temporalio>=1.7,<2
