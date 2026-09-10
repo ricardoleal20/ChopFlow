@@ -609,7 +609,13 @@ pub async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Re
         concurrency
     );
 
-    let poll_interval = Duration::from_secs(2);
+    // When the queue is empty, re-poll quickly rather than sleeping for whole
+    // seconds. The old 2s sleep dominated small-batch latency (a 1k run spent
+    // most of its wall-clock asleep on the first empty fetch) and added a long
+    // tail at the end of every run. With the broker's ready index a fetch is
+    // cheap, so a short idle poll keeps the worker responsive without burning
+    // CPU.
+    let poll_interval = Duration::from_millis(100);
     let mut in_flight: JoinSet<()> = JoinSet::new();
 
     loop {

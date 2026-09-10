@@ -157,6 +157,34 @@ struct EnqueueResponse {
     task_id: String,
 }
 
+/// Body for `POST /api/tasks/batch` — enqueue many tasks in a single request,
+/// amortizing the HTTP/JSON/handler overhead over N tasks. This is the HTTP
+/// analog of a Redis pipeline (BullMQ) and is what makes large submits cheap.
+#[derive(Debug, Deserialize)]
+struct BatchEnqueueBody {
+    tasks: Vec<EnqueueBody>,
+}
+
+#[derive(Debug, Serialize)]
+struct BatchEnqueueResponse {
+    task_ids: Vec<String>,
+}
+
+/// Build a `Queued` task from an enqueue body. Shared by the single and batch
+/// enqueue handlers so they stay in lockstep on field handling.
+fn build_task(body: EnqueueBody) -> Task {
+    let mut task = Task::new(body.name, body.payload).with_tags(body.tags);
+    if body.max_retries > 0 {
+        task = task.with_max_retries(body.max_retries);
+    }
+    for (resource, amount) in body.resources {
+        task = task.with_resource(resource, amount);
+    }
+    task = task.with_priority(body.priority);
+    task.status = TaskStatus::Queued;
+    task
+}
+
 #[derive(Debug, Serialize)]
 struct TaskListResponse {
     tasks: Vec<TaskDto>,
@@ -287,6 +315,7 @@ pub fn router(state: BrokerState) -> Router {
     let api = Router::new()
         .route("/stats", get(stats))
         .route("/tasks", get(list_tasks).post(enqueue))
+        .route("/tasks/batch", post(enqueue_batch))
         .route("/tasks/:id", get(get_task))
         .route("/tasks/:id/cancel", post(cancel_task))
         .route("/workers", get(list_workers))
@@ -430,22 +459,33 @@ async fn enqueue(
     State(state): SharedState,
     Json(body): Json<EnqueueBody>,
 ) -> Result<(StatusCode, Json<EnqueueResponse>), ApiError> {
-    let mut task = Task::new(body.name, body.payload).with_tags(body.tags);
-    if body.max_retries > 0 {
-        task = task.with_max_retries(body.max_retries);
-    }
-    for (resource, amount) in body.resources {
-        task = task.with_resource(resource, amount);
-    }
-    task = task.with_priority(body.priority);
-    task.status = TaskStatus::Queued;
-
-    state.storage.insert(task.clone()).await.map_err(internal)?;
+    let task = build_task(body);
+    let task_id = task.id;
+    state.storage.insert(task).await.map_err(internal)?;
 
     Ok((
         StatusCode::CREATED,
         Json(EnqueueResponse {
-            task_id: task.id.to_string(),
+            task_id: task_id.to_string(),
+        }),
+    ))
+}
+
+async fn enqueue_batch(
+    State(state): SharedState,
+    Json(body): Json<BatchEnqueueBody>,
+) -> Result<(StatusCode, Json<BatchEnqueueResponse>), ApiError> {
+    let mut task_ids = Vec::with_capacity(body.tasks.len());
+    for entry in body.tasks {
+        let task = build_task(entry);
+        task_ids.push(task.id);
+        state.storage.insert(task).await.map_err(internal)?;
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(BatchEnqueueResponse {
+            task_ids: task_ids.into_iter().map(|id| id.to_string()).collect(),
         }),
     ))
 }

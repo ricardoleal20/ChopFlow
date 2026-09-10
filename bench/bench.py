@@ -54,6 +54,26 @@ def enqueue_one(client: httpx.Client, base: str, name: str, payload: dict) -> st
     raise last_err  # type: ignore[misc]
 
 
+def enqueue_batch(client: httpx.Client, base: str, name: str, payloads: list[dict]) -> list[str]:
+    """Enqueue a batch of tasks in a single POST /api/tasks/batch request.
+
+    Amortizes the HTTP/JSON/handler overhead over `len(payloads)` tasks — the
+    HTTP analog of a Redis pipeline (BullMQ). Without this, per-task POST
+    overhead dominates submit time at 100k+ tasks even though storage insert is
+    O(log N)."""
+    body = {"tasks": [{"name": name, "payload": p, "tags": ["bench"]} for p in payloads]}
+    last_err = None
+    for _attempt in range(5):
+        try:
+            r = client.post(f"{base}/api/tasks/batch", json=body, timeout=60)
+            r.raise_for_status()
+            return r.json()["task_ids"]
+        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
+            last_err = e
+            time.sleep(0.2)
+    raise last_err  # type: ignore[misc]
+
+
 def fetch_task(client: httpx.Client, base: str, task_id: str) -> dict:
     r = client.get(f"{base}/api/tasks/{task_id}", timeout=30)
     r.raise_for_status()
@@ -87,12 +107,14 @@ def main() -> int:
     p.add_argument("--broker", default=os.environ.get("CHOPFLOW_BENCH_BROKER", "http://localhost:8080"))
     p.add_argument("--tasks", type=int, default=int(os.environ.get("CHOPFLOW_BENCH_TASKS", "1000")))
     p.add_argument("--concurrency", type=int, default=int(os.environ.get("CHOPFLOW_BENCH_CONC", "16")))
+    p.add_argument("--batch-size", type=int, default=int(os.environ.get("CHOPFLOW_BENCH_BATCH", "200")),
+                   help="tasks per POST /api/tasks/batch request (1 = one POST per task, legacy)")
     p.add_argument("--name", default="echo")
     p.add_argument("--workload", choices=["echo", "resize"], default="echo",
                    help="echo = no-op (dispatch overhead); resize = real image-resize work")
     p.add_argument("--width", type=int, default=256)
     p.add_argument("--height", type=int, default=256)
-    p.add_argument("--poll-interval", type=float, default=0.5)
+    p.add_argument("--poll-interval", type=float, default=0.1)
     p.add_argument("--sample-interval", type=float, default=0.5,
                    help="cadence (s) at which sampled tasks are polled for completion (decoupled from stats)")
     p.add_argument("--sample-size", type=int, default=int(os.environ.get("CHOPFLOW_BENCH_SAMPLE", "200")),
@@ -163,14 +185,27 @@ def main() -> int:
         if args.workload == "resize":
             return {"width": args.width, "height": args.height, "i": i}
         return {"i": i}
+
+    batch_size = max(1, args.batch_size)
+    # Chunk the task indices into batches. Each batch is one POST /api/tasks/batch
+    # request, submitted with `conc`-way concurrency — the HTTP analog of a
+    # Redis pipeline. `batch_size=1` reproduces the legacy one-POST-per-task path.
+    batches: list[list[int]] = [list(range(start, min(start + batch_size, n)))
+                                for start in range(0, n, batch_size)]
+
+    def submit_batch(idx_batch: list[int]) -> tuple[list[str], list[int], float]:
+        payloads = [payload_for(i) for i in idx_batch]
+        tids = enqueue_batch(client, base, task_name, payloads)
+        return tids, idx_batch, time.perf_counter()
+
     with ThreadPoolExecutor(max_workers=conc) as pool, httpx.Client(timeout=30, limits=limits) as client:
-        futs = {pool.submit(enqueue_one, client, base, task_name, payload_for(i)): i for i in range(n)}
+        futs = {pool.submit(submit_batch, b): b for b in batches}
         for f in as_completed(futs):
-            i = futs[f]
-            tid = f.result()
-            ids.append(tid)
-            if i in sample_ids:
-                submitted_at[tid] = time.perf_counter()
+            tids, idx_batch, ts = f.result()
+            for i, tid in zip(idx_batch, tids):
+                ids.append(tid)
+                if i in sample_ids:
+                    submitted_at[tid] = ts
     submit_elapsed = time.perf_counter() - submit_start
     print(f"  submitted {len(ids)} tasks in {submit_elapsed:.2f}s "
           f"({len(ids)/submit_elapsed:,.0f} submit/s)")

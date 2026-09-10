@@ -15,6 +15,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Silence per-task info! logs (Dispatched / completed). At 1M tasks these are
+# millions of log lines of pure overhead that swamp the broker and distort the
+# benchmark. warn keeps failures/retries visible.
+export RUST_LOG="${RUST_LOG:-warn}"
+
 BROKER_PORT="${BROKER_PORT:-8100}"
 HTTP_PORT="${HTTP_PORT:-8101}"
 BROKER_URL="http://localhost:${HTTP_PORT}"
