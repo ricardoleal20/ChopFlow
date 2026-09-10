@@ -1,889 +1,965 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ChopFlow benchmarks — reproducible end-to-end throughput and latency through the broker's HTTP API. Honest numbers you can check on your own machine.">
-  <meta name="theme-color" content="#0a0c10">
-  <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <link rel="icon" type="image/svg+xml" href="/assets/icons/chopflow.svg">
-  <title>ChopFlow — Benchmarks</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ChopFlow · Benchmarks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================ design tokens */
+:root{
+  --bg:#0a0e1a;
+  --bg-2:#0b1020;
+  --surface:#121829;
+  --surface-2:#181f31;
+  --surface-3:#1e2640;
+  --elevated:#1f2740;
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  --text:#e7ecf6;
+  --text-2:#b9c1d1;
+  --muted:#8a93a6;
+  --subtle:#5c6578;
 
-  <script>
-    (() => {
-      const saved = localStorage.getItem('chopflow-theme');
-      document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
-      document.documentElement.classList.add('js');
-    })();
-  </script>
-  <style>
-    :root {
-      color-scheme: light;
-      --canvas: #f7f8fa; --surface: #ffffff; --surface-2: #f2f4f7; --surface-3: #e8ebf1; --elevated: #ffffff;
-      --border: #e2e6ed; --border-strong: #cdd4df;
-      --text: #171b26; --text-2: #3a4150; --muted: #586274; --subtle: #848ea0;
-      --navy: #141a27; --navy-2: #1e2637; --navy-3: #262f42; --navy-text: #ced6e6; --navy-strong: #f4f6fb; --navy-muted: #7c879e;
-      --primary: #4060ff; --info: #3b82f6; --success: #22c55a; --danger: #ef2f2f; --warn: #f59e0b; --purple: #a855f7; --slate: #64748b;
-      --shadow: 0 12px 36px rgba(30, 38, 55, 0.08);
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-      --container: 1180px;
-    }
-    [data-theme="dark"] {
-      color-scheme: dark;
-      --canvas: #0a0c10; --surface: #11141b; --surface-2: #171b24; --elevated: #1c212f; --surface-3: #232938;
-      --border: #232938; --border-strong: #2f3648;
-      --text: #e7ebf3; --text-2: #b9c1d1; --muted: #8a93a6; --subtle: #5c6578;
-      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
-    }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; scroll-padding-top: 88px; }
-    body {
-      margin: 0; overflow-x: hidden; background: var(--canvas); color: var(--text);
-      font-family: var(--font-sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased;
-    }
-    a { color: inherit; text-decoration: none; }
-    button, a { -webkit-tap-highlight-color: transparent; }
-    button { font: inherit; }
-    svg { display: block; }
-    ::selection { background: var(--primary); color: #fff; }
-    :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 6px; }
-    .container { width: min(calc(100% - 32px), var(--container)); margin-inline: auto; }
-    .section { padding: clamp(56px, 8vw, 104px) 0; }
-    .section-head { max-width: 720px; margin-bottom: 44px; }
-    .kicker { margin: 0 0 14px; color: var(--muted); font: 600 12px/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
-    h1, h2, h3, p { margin-top: 0; }
-    h1 { margin-bottom: 24px; font-size: clamp(38px, 6vw, 60px); line-height: 1.05; letter-spacing: -.03em; font-weight: 600; }
-    h2 { margin-bottom: 16px; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.1; letter-spacing: -.022em; font-weight: 600; }
-    h3 { margin-bottom: 10px; font-size: 18px; line-height: 1.3; letter-spacing: -.01em; font-weight: 600; }
-    .lede { max-width: 65ch; color: var(--text-2); font-size: clamp(16px, 1.6vw, 19px); line-height: 1.6; }
-    .muted { color: var(--muted); }
-    .mono { font-family: var(--font-mono); font-feature-settings: "calt" 0; }
+  --border:rgba(255,255,255,.08);
+  --border-strong:rgba(255,255,255,.12);
+  --hover:rgba(255,255,255,.05);
+  --focus-ring:rgba(79,107,255,.45);
 
-    /* ---- header (matches landing) ---- */
-    .site-header { position: fixed; inset: 0 0 auto; z-index: 50; height: 72px; border-bottom: 1px solid transparent; background: transparent; transition: background-color .2s ease, border-color .2s ease; }
-    .site-header.scrolled { background: color-mix(in srgb, var(--canvas) 90%, transparent); border-color: var(--border); backdrop-filter: blur(14px); }
-    .nav-inner { height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 28px; }
-    .brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; }
-    .brand-tile { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; overflow: hidden; background: linear-gradient(135deg, var(--primary), var(--purple)); }
-    .brand-tile svg { width: 18px; height: 18px; }
-    .wordmark { font-size: 17px; letter-spacing: -.02em; }
-    .wordmark strong { font-weight: 700; }
-    .wordmark span { color: var(--muted); font-weight: 500; }
-    .desktop-nav { display: flex; align-items: center; gap: 30px; margin-left: auto; }
-    .nav-link { min-height: 44px; display: inline-flex; align-items: center; color: var(--text-2); font-size: 14px; font-weight: 500; position: relative; }
-    .nav-link:hover { color: var(--text); }
-    .nav-link.active { color: var(--text); }
-    .nav-link.active::after { content: ''; position: absolute; left: 0; bottom: 11px; height: 1px; width: 100%; background: var(--primary); }
-    .theme-toggle { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; transition: color .18s, border-color .18s; }
-    .theme-toggle:hover { color: var(--text); border-color: var(--text-2); }
-    .theme-toggle svg { width: 18px; height: 18px; }
-    [data-theme="dark"] .icon-sun { display: block; } [data-theme="dark"] .icon-moon { display: none; }
-    [data-theme="light"] .icon-sun { display: none; } [data-theme="light"] .icon-moon { display: block; }
+  --primary:#4f6bff;
+  --primary-light:#5b7cff;
+  --info:#3b82f6;
+  --success:#22c55a;
+  --danger:#ef2f2f;
+  --warn:#f59e0b;
+  --purple:#8b5cf6;
+  --slate:#64748b;
 
-    /* ---- hero ---- */
-    .hero { position: relative; padding: clamp(120px, 16vw, 168px) 0 clamp(48px, 7vw, 80px); overflow: hidden; }
-    .hero-bg { position: absolute; inset: 0; z-index: -1; background:
-      radial-gradient(80% 60% at 78% 0%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 60%),
-      radial-gradient(60% 50% at 8% 10%, color-mix(in srgb, var(--purple) 12%, transparent), transparent 60%); }
-    .hero .lede { margin-bottom: 0; }
+  --radius-sm:6px;
+  --radius:10px;
+  --radius-lg:14px;
+  --radius-xl:16px;
+  --radius-pill:9999px;
 
-    /* ---- stat band ---- */
-    .stat-band { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: clamp(36px, 5vw, 56px); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
-    .stat-cell { padding: 28px 26px; border-right: 1px solid var(--border); }
-    .stat-cell:last-child { border-right: 0; }
-    .stat-label { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--muted); font: 600 11px/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
-    .stat-dot { width: 7px; height: 7px; border-radius: 9999px; }
-    .stat-value { font-family: var(--font-mono); font-size: clamp(32px, 4.4vw, 44px); font-weight: 600; letter-spacing: -.02em; line-height: 1; }
-    .stat-unit { font-size: .42em; color: var(--muted); font-weight: 500; margin-left: 4px; }
-    .stat-sub { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  --shadow-sm:0 1px 2px rgba(0,0,0,.25),0 1px 1px rgba(0,0,0,.18);
+  --shadow-card:0 8px 24px -8px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.25);
+  --shadow-popover:0 18px 48px -12px rgba(0,0,0,.55),0 6px 14px rgba(0,0,0,.30);
 
-    /* ---- chart cards ---- */
-    .grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 26px; box-shadow: var(--shadow); }
-    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
-    .card-title { font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
-    .card-sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
-    .legend { display: flex; gap: 14px; flex-wrap: wrap; }
-    .legend-item { display: inline-flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--font-mono); letter-spacing: .02em; color: var(--text-2); }
-    .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+  --ease-out:cubic-bezier(.22,.61,.36,1);
+  --ease-in:cubic-bezier(.4,0,1,1);
+  --dur:220ms;
+  --dur-s:140ms;
 
-    .chart-wrap { width: 100%; }
-    .chart-wrap svg { width: 100%; height: auto; }
+  --font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
 
-    /* ---- table ---- */
-    .table-wrap { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
-    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-    thead th { text-align: left; padding: 14px 18px; background: var(--surface-2); color: var(--muted); font: 600 11px/1.4 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    tbody td { padding: 16px 18px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-feature-settings: "calt" 0; white-space: nowrap; }
-    tbody tr:last-child td { border-bottom: 0; }
-    tbody tr:hover td { background: var(--surface-2); }
-    .num { text-align: right; }
-    th.num { text-align: right; }
-    .pos { color: var(--success); }
-    .neg { color: var(--danger); }
+/* ============================================================ reset & base */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--font-sans);font-size:15px;line-height:1.6;color:var(--text);
+  background:var(--bg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+a{color:inherit;text-decoration:none}
+::selection{background:rgba(79,107,255,.25)}
+.mono{font-family:var(--font-mono);font-feature-settings:"calt" 0}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-    /* ---- machine + reproduce ---- */
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .kv { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; font-size: 13.5px; }
-    .kv dt { color: var(--muted); font-family: var(--font-mono); font-size: 12.5px; }
-    .kv dd { margin: 0; font-family: var(--font-mono); font-size: 13px; }
-    .code-block { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; overflow-x: auto; }
-    .code-block pre { margin: 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; font-feature-settings: "calt" 0; color: var(--text-2); }
-    .code-block .prompt { color: var(--success); }
-    .code-block .flag { color: var(--primary); }
+/* ============================================================ focus ring */
+a:focus-visible,button:focus-visible{
+  outline:none;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus-ring);
+  border-radius:var(--radius);
+}
 
-    /* ---- callouts ---- */
-    .callout { border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; background: var(--surface); }
-    .callout-warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
-    .callout-title { display: flex; align-items: center; gap: 9px; font: 600 13px/1.4 var(--font-sans); letter-spacing: .01em; margin-bottom: 8px; }
-    .callout-warn .callout-title { color: var(--warn); }
-    .callout p { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
-    .callout p + p { margin-top: 8px; }
-    .callout-list { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); font-size: 13.5px; line-height: 1.65; }
-    .callout-list li { margin-bottom: 6px; }
-    .callout-list li:last-child { margin-bottom: 0; }
-    .callout-list code { font-family: var(--font-mono); font-size: 12.5px; color: var(--text); }
+/* ============================================================ top nav */
+.nav-bar{
+  position:sticky;top:0;z-index:50;
+  height:64px;display:flex;align-items:center;gap:16px;
+  padding:0 24px;
+  background:rgba(10,14,26,.85);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+.brand{
+  display:flex;align-items:center;gap:10px;margin-right:auto;
+}
+.brand-mark{
+  width:32px;height:32px;border-radius:9px;flex:none;
+  background:linear-gradient(135deg,var(--primary),var(--purple));
+  display:grid;place-items:center;
+  box-shadow:0 2px 10px rgba(79,107,255,.35),inset 0 1px 0 rgba(255,255,255,.25);
+}
+.brand-mark svg{width:18px;height:18px}
+.brand-word{font-size:17px;font-weight:600;letter-spacing:-.01em;color:var(--text)}
+.brand-word b{color:#fff}
+.brand-word span{color:var(--muted);font-weight:450}
 
-    /* ---- next-up roadmap ---- */
-    .next-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-    .next-item { display: flex; gap: 14px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-    .next-marker { flex: none; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: color-mix(in srgb, var(--primary) 14%, var(--surface)); color: var(--primary); }
-    .next-marker svg { width: 14px; height: 14px; }
-    .next-title { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
-    .next-desc { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
-    .done-tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 9999px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--success); background: color-mix(in srgb, var(--success) 14%, var(--surface)); vertical-align: 2px; }
+.nav-links{display:flex;align-items:center;gap:6px}
+.nav-links a{
+  padding:8px 14px;border-radius:var(--radius);font-size:14px;font-weight:500;color:var(--text-2);
+  transition:background var(--dur-s),color var(--dur-s);
+}
+.nav-links a:hover{background:var(--surface-2);color:var(--text)}
+.nav-links a.active{color:var(--text);background:var(--surface-2)}
+.nav-links a.active::after{
+  content:"";display:block;height:2px;margin-top:6px;border-radius:2px;background:var(--primary);
+}
+.nav-cta{
+  margin-left:8px;height:36px;padding:0 16px;border-radius:var(--radius);
+  font-size:13.5px;font-weight:550;color:var(--text);
+  border:1px solid var(--border-strong);background:transparent;
+  transition:background var(--dur-s),border-color var(--dur-s),transform var(--dur-s);
+}
+.nav-cta:hover{background:var(--surface-2);border-color:var(--muted)}
+.nav-cta:active{transform:scale(.97)}
 
-    /* ---- footer ---- */
-    .footer { border-top: 1px solid var(--border); padding: 40px 0; }
-    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
-    .footer a:hover { color: var(--text); }
+/* ============================================================ section shell */
+.section{padding:72px 24px;max-width:1200px;margin:0 auto}
+.section-head{margin-bottom:36px}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;
+  font-family:var(--font-mono);font-size:12px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--primary-light);
+  margin-bottom:12px;
+}
+.eyebrow::before{
+  content:"";width:6px;height:6px;border-radius:50%;background:var(--primary);
+  box-shadow:0 0 8px var(--primary);
+}
+.section-title{font-size:36px;font-weight:700;letter-spacing:-.025em;line-height:1.15;color:var(--text)}
+.section-subtitle{
+  font-size:16px;line-height:1.6;color:var(--text-2);max-width:70ch;margin-top:12px;
+}
 
-    /* ---- entrance motion ---- */
-    .js .reveal { opacity: 0; transform: translateY(10px); transition: opacity .5s cubic-bezier(.22,.61,.36,1), transform .5s cubic-bezier(.22,.61,.36,1); }
-    .js .reveal.in { opacity: 1; transform: none; }
-    .js .bar-grow { transform-origin: bottom; transform: scaleY(0); transition: transform .8s cubic-bezier(.22,.61,.36,1); }
-    .js .bar-grow.in { transform: scaleY(1); }
+/* ============================================================ hero */
+.hero{
+  padding:88px 24px 72px;max-width:1200px;margin:0 auto;
+  display:flex;flex-direction:column;gap:40px;
+}
+.hero-head{max-width:760px}
+.hero-title{font-size:52px;font-weight:700;letter-spacing:-.03em;line-height:1.05;color:#fff}
+.hero-subtitle{font-size:17px;color:var(--text-2);margin-top:16px;max-width:60ch;line-height:1.65}
+.hero-honest{
+  display:inline-flex;align-items:center;gap:10px;
+  margin-top:20px;padding:10px 16px;border-radius:var(--radius-lg);
+  background:var(--surface-2);border:1px solid var(--border);
+  font-size:13.5px;color:var(--muted);
+}
+.hero-honest svg{width:16px;height:16px;color:var(--success);flex:none}
+.hero-honest b{color:var(--text-2);font-weight:500}
 
-    /* ---- responsive ---- */
-    @media (max-width: 920px) {
-      .grid-2 { grid-template-columns: 1fr; }
-      .meta-grid { grid-template-columns: 1fr; }
-      .next-grid { grid-template-columns: 1fr; }
-      .stat-band { grid-template-columns: 1fr; }
-      .stat-cell { border-right: 0; border-bottom: 1px solid var(--border); }
-      .stat-cell:last-child { border-bottom: 0; }
-      .desktop-nav { display: none; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .js .reveal, .js .bar-grow { opacity: 1 !important; transform: none !important; transition: none !important; }
-      html { scroll-behavior: auto; }
-    }
-  </style>
+/* ============================================================ stat band */
+.stat-band{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;
+}
+.stat-card{
+  padding:24px;border-radius:var(--radius-xl);
+  background:var(--surface);border:1px solid var(--border);
+  box-shadow:var(--shadow-card);
+  transition:transform var(--dur-s) var(--ease-out),border-color var(--dur-s);
+}
+.stat-card:hover{border-color:var(--border-strong);transform:translateY(-2px)}
+.stat-label{
+  font-family:var(--font-mono);font-size:11px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;
+}
+.stat-value{
+  font-family:var(--font-mono);font-size:38px;font-weight:600;
+  color:var(--text);line-height:1.1;
+}
+.stat-value.accent{color:var(--primary-light)}
+.stat-value b{font-weight:700}
+.stat-unit{font-size:18px;color:var(--muted);font-weight:500;margin-left:4px}
+.stat-meta{font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.5}
+
+/* ============================================================ cards */
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);
+  box-shadow:var(--shadow-card);padding:28px;
+  transition:transform var(--dur-s) var(--ease-out),border-color var(--dur-s);
+}
+.card:hover{border-color:var(--border-strong)}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}
+.card-title{font-size:20px;font-weight:600;letter-spacing:-.01em;color:var(--text)}
+.card-note{font-size:12.5px;color:var(--muted);font-family:var(--font-mono);margin-top:4px}
+
+/* ============================================================ chart shell */
+.chart-wrap{width:100%;overflow-x:auto;overflow-y:hidden}
+.chart-svg{display:block;width:100%;height:auto;max-width:100%}
+.chart-axis{stroke:var(--border-strong);stroke-width:1}
+.chart-grid{stroke:var(--border);stroke-width:1;stroke-dasharray:4 4}
+.chart-tick{font-family:var(--font-mono);font-size:11px;fill:var(--muted)}
+.chart-label{font-family:var(--font-mono);font-size:12px;font-weight:500;fill:var(--text-2)}
+.chart-value{font-family:var(--font-mono);font-size:12px;font-weight:600;fill:var(--text)}
+.chart-dnf{font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--muted)}
+
+/* bars */
+.bar{transition:height .9s var(--ease-out),y .9s var(--ease-out),opacity .3s}
+.bar:hover{opacity:.85}
+.bar-cap{fill:rgba(255,255,255,.12)}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:14px 20px;margin-top:18px}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--text-2)}
+.legend-swatch{width:12px;height:12px;border-radius:3px}
+.legend-swatch.round{border-radius:50%}
+
+/* ============================================================ tables */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-lg);margin-top:22px}
+.data-table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:680px}
+.data-table thead th{
+  text-align:left;padding:12px 14px;background:var(--surface-2);
+  font-family:var(--font-mono);font-size:11px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  border-bottom:1px solid var(--border);white-space:nowrap;
+}
+.data-table thead th.num{text-align:right}
+.data-table tbody tr{border-bottom:1px solid var(--border);transition:background var(--dur-s)}
+.data-table tbody tr:last-child{border-bottom:none}
+.data-table tbody tr:hover{background:var(--surface-2)}
+.data-table td{padding:12px 14px;color:var(--text-2);vertical-align:middle}
+.data-table td.num{font-family:var(--font-mono);text-align:right;color:var(--text)}
+.data-table td.num .dim{color:var(--muted)}
+.data-table td.dnf{font-family:var(--font-mono);color:var(--muted);font-style:italic}
+.data-table td.system{font-weight:600;color:var(--text)}
+.data-table td.system .swatch{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}
+.data-table tfoot td{
+  padding:10px 14px;font-size:11.5px;color:var(--muted);
+  background:var(--surface-2);border-top:1px solid var(--border);
+}
+
+/* ============================================================ callouts */
+.callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.callout{
+  padding:20px;border-radius:var(--radius-lg);
+  background:var(--surface-2);border:1px solid var(--border);
+}
+.callout-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;margin-bottom:14px;background:var(--surface-3);color:var(--primary-light)}
+.callout-icon svg{width:16px;height:16px}
+.callout-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px}
+.callout-body{font-size:14px;line-height:1.6;color:var(--text-2)}
+
+/* ============================================================ methodology */
+.method-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:22px}
+.method-item{padding:18px;border-radius:var(--radius-lg);background:var(--surface-2);border:1px solid var(--border)}
+.method-key{font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.method-val{font-size:14px;font-weight:500;color:var(--text);line-height:1.5}
+.method-list{margin-top:22px;padding-left:18px;color:var(--text-2);font-size:14.5px;line-height:1.7}
+.method-list li{margin-bottom:8px}
+.method-list li::marker{color:var(--primary-light)}
+
+/* ============================================================ links */
+.text-link{
+  color:var(--primary-light);font-weight:500;
+  border-bottom:1px solid rgba(91,124,255,.3);
+  transition:border-color var(--dur-s),color var(--dur-s);
+}
+.text-link:hover{border-color:var(--primary-light);color:#8aa4ff}
+
+/* ============================================================ footer */
+.footer{
+  padding:40px 24px;border-top:1px solid var(--border);
+  background:var(--bg-2);
+}
+.footer-inner{
+  max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+}
+.footer-brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;color:var(--text)}
+.footer-brand b{color:#fff}
+.footer-brand span{color:var(--muted)}
+.footer-copy{font-size:13px;color:var(--muted)}
+.footer-links{display:flex;gap:20px}
+.footer-links a{font-size:13px;color:var(--text-2);transition:color var(--dur-s)}
+.footer-links a:hover{color:var(--text)}
+
+/* ============================================================ reveal animations */
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .7s var(--ease-out),transform .7s var(--ease-out)}
+.reveal.in{opacity:1;transform:none}
+
+/* ============================================================ responsive */
+@media(max-width:760px){
+  .nav-bar{height:auto;padding:12px 16px;flex-wrap:wrap;gap:8px}
+  .nav-links{display:none}
+  .hero{padding:56px 16px 48px}
+  .hero-title{font-size:38px}
+  .section{padding:48px 16px}
+  .section-title{font-size:28px}
+  .stat-value{font-size:30px}
+  .card{padding:20px}
+  .footer-inner{flex-direction:column;align-items:flex-start}
+}
+@media(max-width:480px){
+  .hero-title{font-size:32px}
+  .stat-band{grid-template-columns:1fr}
+}
+</style>
 </head>
 <body>
-  <header class="site-header" id="header">
-    <div class="container nav-inner">
-      <a class="brand" href="index.html" aria-label="ChopFlow home">
-        <span class="brand-tile" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <span class="wordmark"><strong>Chop</strong><span>Flow</span></span>
-      </a>
-      <nav class="desktop-nav">
-        <a class="nav-link" href="index.html#features">Features</a>
-        <a class="nav-link active" href="benchmarks.html">Benchmarks</a>
-        <a class="nav-link" href="docs.html">Docs</a>
-        <a class="nav-link" href="https://github.com/ricardoleal20/ChopFlow">GitHub</a>
-      </nav>
-      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-      </button>
+
+<!-- ============================================================ nav -->
+<header class="nav-bar" data-od-id="top-nav">
+  <a href="index.html" class="brand" data-od-id="brand-link">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h6l3 5-3 5H4l3-5z" fill="#fff"/><path d="M13 7h7v3h-4l1.5 2L16 14h4v3h-7l-2.5-4z" fill="#fff" opacity=".8"/></svg>
+    </span>
+    <span class="brand-word"><b>Chop</b><span>Flow</span></span>
+  </a>
+  <nav class="nav-links" data-od-id="nav-links">
+    <a href="index.html#features" data-od-id="nav-features">Features</a>
+    <a href="benchmarks.html" class="active" data-od-id="nav-benchmarks">Benchmarks</a>
+    <a href="docs.html" data-od-id="nav-docs">Docs</a>
+  </nav>
+  <a href="docs.html#quickstart" class="nav-cta" data-od-id="nav-cta">Get started</a>
+</header>
+
+<!-- ============================================================ hero -->
+<section class="hero" data-od-id="hero">
+  <div class="hero-head reveal">
+    <div class="eyebrow">Performance</div>
+    <h1 class="hero-title">Benchmarks</h1>
+    <p class="hero-subtitle">
+      End-to-end throughput and latency measurements for ChopFlow and comparable task-processing systems.
+      Every number was captured on a single machine with the same harness.
+    </p>
+    <div class="hero-honest">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+      <b>Real numbers, measured end-to-end on one machine. Never extrapolated.</b>
     </div>
-  </header>
+  </div>
 
-  <main id="top">
-    <!-- HERO -->
-    <section class="hero">
-      <div class="hero-bg" aria-hidden="true"></div>
-      <div class="container">
-        <p class="kicker">Benchmarks · end-to-end, reproducible</p>
-        <h1>Honest numbers you can reproduce.</h1>
-        <p class="lede">These are end-to-end measurements through the broker's HTTP/JSON API with one real worker — not microbenchmarks of an isolated storage layer. The goal is a number you can check on your own machine, not a marketing claim. Run <code class="mono">bash bench/run.sh</code> and compare. The sweep now runs 1k → 10k → 100k → 1M tasks, and a head-to-head against Celery and Temporal lives in <a href="#comparison" style="color:var(--primary);text-decoration:underline">the comparison section</a>.</p>
-
-        <div class="stat-band reveal">
-          <div class="stat-cell">
-            <div class="stat-label"><span class="stat-dot" style="background:var(--primary)"></span>End-to-end throughput</div>
-            <div class="stat-value">15,153<span class="stat-unit">tasks/s</span></div>
-            <div class="stat-sub">100,000 tasks · concurrency 32 · single worker, in-memory backend. Submit → last completion.</div>
-          </div>
-          <div class="stat-cell">
-            <div class="stat-label"><span class="stat-dot" style="background:var(--success)"></span>Reliability at scale</div>
-            <div class="stat-value">0<span class="stat-unit">failures</span></div>
-            <div class="stat-sub">1,111,000 tasks across the 1k–1M sweep — zero failed, zero dead-lettered.</div>
-          </div>
-          <div class="stat-cell">
-            <div class="stat-label"><span class="stat-dot" style="background:var(--slate)"></span>Validated to</div>
-            <div class="stat-value">1M<span class="stat-unit">tasks</span></div>
-            <div class="stat-sub">Apple M3 Pro · 11 cores · in-memory storage · <code class="mono">cpu:4</code>.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- THROUGHPUT + LATENCY -->
-    <section class="section" style="padding-top:clamp(24px,4vw,48px)">
-      <div class="container">
-        <div class="grid-2">
-          <!-- Throughput chart -->
-          <div class="card reveal">
-            <div class="card-head">
-              <div>
-                <div class="card-title">End-to-end throughput by scale</div>
-                <div class="card-sub">Tasks per second, wall-clock from first submit to last completion. The worker processes during submit, so this is the honest headline.</div>
-              </div>
-            </div>
-            <div class="chart-wrap" id="throughputChart"></div>
-            <p class="muted" style="font-size:12.5px;margin:18px 0 0;line-height:1.6">Throughput holds ~15,000/s from 10k through 1M — a ready-queue index makes every worker fetch O(batch) instead of O(N), and a batch-submit endpoint keeps the producer fed at any scale. The 1M run finishes in ~68s with zero failures. See <a href="#next" style="color:var(--primary);text-decoration:underline">what's next</a>.</p>
-          </div>
-
-          <!-- Latency chart -->
-          <div class="card reveal">
-            <div class="card-head">
-              <div>
-                <div class="card-title">End-to-end latency percentiles</div>
-                <div class="card-sub">Enqueue → terminal, observed by the harness. Includes queue wait; sampled (uniform stride) so 1M is viable.</div>
-              </div>
-            </div>
-            <div class="chart-wrap" id="latencyChart"></div>
-            <div class="legend" style="margin-top:16px">
-              <span class="legend-item"><span class="legend-swatch" style="background:color-mix(in srgb,var(--primary) 38%, var(--surface))"></span>p50</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:color-mix(in srgb,var(--primary) 68%, var(--surface))"></span>p95</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--primary)"></span>p99</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SCALING (honest: only real points, rest marked unmeasured) -->
-    <section class="section" style="padding-top:0">
-      <div class="container">
-        <div class="card reveal">
-          <div class="card-head">
-            <div>
-              <div class="card-title">Throughput vs. scale</div>
-              <div class="card-sub">What we have measured. Everything past the last point is not yet benchmarked — not extrapolated.</div>
-            </div>
-            <span class="legend-item"><span class="legend-swatch" style="background:var(--primary);border-radius:9999px;width:9px;height:9px"></span>measured</span>
-          </div>
-          <div class="chart-wrap" id="scalingChart"></div>
-          <p class="muted" style="font-size:12.5px;margin:18px 0 0;line-height:1.6">Multi-worker fan-out (1 → 4 → 16 → 64 workers) and SQLite durability vs. in-memory remain open. The Celery &amp; Temporal head-to-head is done — see <a href="#comparison" style="color:var(--primary);text-decoration:underline">the comparison</a>.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- COMPARISON -->
-    <section class="section" id="comparison" style="padding-top:0">
-      <div class="container">
-        <div class="section-head">
-          <p class="kicker">Head-to-head</p>
-          <h2>ChopFlow vs. Celery, Temporal, BullMQ &amp; Ray.</h2>
-          <p class="lede">Same machine, same no-op <code class="mono">echo</code> workload, same sweep (1k → 1M), same worker shape (one process, 4 execution slots). End-to-end throughput, first submit → last completion. <strong>BullMQ</strong> (Node.js + Redis) and <strong>Ray</strong> (Python, distributed compute) join the matrix. Reproduce with <code class="mono">bash bench/compare/run_compare.sh</code> — full methodology in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/bench/compare/README.md" style="color:var(--primary);text-decoration:underline">bench/compare/README.md</a>.</p>
-        </div>
-
-        <div class="card reveal" style="margin-bottom:28px">
-          <div class="card-head">
-            <div>
-              <div class="card-title">End-to-end throughput by system</div>
-              <div class="card-sub">Tasks/s, wall-clock from first submit to last completion, at each scale. <strong>Log axis</strong> — the field spans two orders of magnitude (Temporal ~40/s to ChopFlow ~15k/s), so a linear axis would flatten everyone but the leaders. Higher is better.</div>
-            </div>
-            <div class="legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--primary)"></span>ChopFlow</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>Celery</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--purple)"></span>Temporal</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>BullMQ</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--slate)"></span>Ray</span>
-            </div>
-          </div>
-          <div class="chart-wrap" id="comparisonChart"></div>
-        </div>
-
-        <div class="table-wrap reveal" style="margin-bottom:24px">
-          <table>
-            <thead>
-              <tr>
-                <th>System</th>
-                <th>Scale</th>
-                <th class="num">Throughput (e2e)</th>
-                <th class="num">p50</th>
-                <th class="num">p95</th>
-                <th class="num">p99</th>
-                <th>Failures</th>
-              </tr>
-            </thead>
-            <tbody id="comparisonTableBody"></tbody>
-          </table>
-        </div>
-        <p class="muted" style="font-size:12px;margin:-12px 0 24px;line-height:1.6">† <em>did not finish</em> = the run exceeded its time budget (20 min for 1M, 10 min for 100k). Reported honestly rather than omitted or extrapolated. Temporal's 1M is not attempted — at ~40–60 tasks/s it would take hours; the durability-per-step design makes this expected, not a regression. Ray's 1M is not attempted — its local-cluster startup + per-task object-store overhead make a million-task sweep impractical on one laptop; this is a category property of a distributed-compute runtime, not a queue-engine limit.</p>
-
-        <div class="card reveal" style="margin-bottom:24px">
-          <div class="card-head">
-            <div>
-              <div class="card-title">Workload axis: echo vs. resize</div>
-              <div class="card-sub">Same systems, two workloads. <strong>echo</strong> = no-op (isolates dispatch overhead). <strong>resize</strong> = real ~ms CPU work (256×256 gradient + half-size nearest-neighbor). Solid bar = echo, translucent = resize. The ranking flips.</div>
-            </div>
-            <div class="legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>BullMQ</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--slate)"></span>Ray</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--primary)"></span>ChopFlow</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>Celery</span>
-            </div>
-          </div>
-          <div class="chart-wrap" id="workloadChart"></div>
-        </div>
-        <p class="muted" style="font-size:12.5px;margin:-8px 0 24px;line-height:1.6">After the storage rewrite (a ready-queue index + batch submit), <strong>ChopFlow leads on both workloads</strong>. On <code class="mono">echo</code>, ChopFlow (12,811/s at 10k, 14,813/s at 1M) beats BullMQ (10,262/s at 1M) — its in-memory broker has no Redis round-trip in its floor, and the ready index makes each worker fetch O(batch) instead of O(N). Ray (~8k/s) and Celery (~1,700/s) sit below; Temporal (~43/s) is its own category. Switch to <code class="mono">resize</code> and the ranking holds: the resize itself (Rust's <code class="mono">image</code> for ChopFlow, sharp for BullMQ, numpy for Ray, Pillow for Celery) starts to matter, but dispatch is no longer the bottleneck — <strong>ChopFlow (7,761/s) &gt; Ray (5,144/s) &gt; BullMQ (1,621/s) &gt; Celery (351/s)</strong> at 10k. ChopFlow's Rust <code class="mono">image</code> crate is the cheapest resize of the four once dispatch is out of the way. Temporal is echo-only here — its durability-per-step model isn't the right tool for a tight resize loop.</p>
-
-        <div class="callout callout-warn reveal" style="margin-bottom:20px">
-          <div class="callout-title">
-            <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-            Apples, apples, and pears
-          </div>
-          <p style="margin:0 0 8px;font-size:13.5px;line-height:1.6"><strong>Celery</strong> and <strong>BullMQ</strong> are the direct peers: fire-and-forget task queues, just like ChopFlow. Celery is Python+Redis; BullMQ is Node.js+Redis Streams. <strong>Temporal</strong> is a different category — a durable workflow engine that persists every workflow step and activity invocation to its database, by design. <strong>Ray</strong> is another category entirely — a distributed compute framework (clusters with a shared object store), closer to Dask/Spark than to a task queue; its throughput includes the cost of its object store + cross-actor scheduler, which is more machinery than a fire-and-forget queue carries. Temporal's and Ray's numbers are a category tax, not a flaw; we include them with explicit caveats because showing them is more honest than omitting them.</p>
-        </div>
-
-        <div class="callout reveal">
-          <div class="callout-title">
-            <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M12 16v-4M12 8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-            Why these five, and not more?
-          </div>
-          <p style="margin:0;font-size:13.5px;line-height:1.6">Each system earns its slot by sitting in a distinct category: ChopFlow (in-memory, Rust), Celery (Python+Redis), BullMQ (Node.js+Redis Streams), Temporal (durable workflow engine), Ray (distributed compute). We stopped there. <strong>RQ and Dramatiq</strong> sit in the same Python/Redis bucket as Celery — Celery is the canonical representative and the others would cluster with it. <strong>Sidekiq, Asynq, Hatchet</strong> would add a Ruby/Go runtime and a separate broker topology without sharpening the comparison. <strong>AWS SQS / RabbitMQ</strong> are managed broker services whose numbers reflect cloud network round-trips, not queue-engine overhead, and aren't reproducible on one laptop. If you want to add a system, the contract is one <code class="mono">RESULT</code> line — see <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/bench/compare/README.md" style="color:var(--primary);text-decoration:underline">bench/compare/README.md</a>.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- RESULTS TABLE -->
-    <section class="section" style="padding-top:0">
-      <div class="container">
-        <div class="section-head">
-          <p class="kicker">Raw results</p>
-          <h2>The canonical numbers.</h2>
-          <p class="lede">Every run completed every task — zero failures across 1,111,000 tasks. Throughput is end-to-end (first submit → last completion); latency is end-to-end wall time per task, sampled by uniform stride, and includes queue wait (the <code class="mono">echo</code> handler is near-instant, so most of it is time spent queued).</p>
-        </div>
-        <div class="table-wrap reveal">
-          <table>
-            <thead>
-              <tr>
-                <th>Tasks</th>
-                <th>Concurrency</th>
-                <th class="num">Throughput (e2e)</th>
-                <th class="num">p50 latency</th>
-                <th class="num">p95 latency</th>
-                <th class="num">p99 latency</th>
-                <th>Outcomes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>1,000</td>
-                <td>32</td>
-                <td class="num">4,573 tasks/s</td>
-                <td class="num">561 ms</td>
-                <td class="num">585 ms</td>
-                <td class="num">587 ms</td>
-                <td><span class="pos">1,000 completed</span></td>
-              </tr>
-              <tr>
-                <td>10,000</td>
-                <td>32</td>
-                <td class="num">12,811 tasks/s</td>
-                <td class="num">507 ms</td>
-                <td class="num">1,015 ms</td>
-                <td class="num">1,016 ms</td>
-                <td><span class="pos">10,000 completed</span></td>
-              </tr>
-              <tr>
-                <td>100,000</td>
-                <td>32</td>
-                <td class="num">15,153 tasks/s</td>
-                <td class="num">3,408 ms</td>
-                <td class="num">5,736 ms</td>
-                <td class="num">6,217 ms</td>
-                <td><span class="pos">100,000 completed</span></td>
-              </tr>
-              <tr>
-                <td>1,000,000</td>
-                <td>32</td>
-                <td class="num">14,813 tasks/s</td>
-                <td class="num">30,396 ms</td>
-                <td class="num">55,118 ms</td>
-                <td class="num">57,263 ms</td>
-                <td><span class="pos">1,000,000 completed</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="muted" style="font-size:12.5px;margin:16px 0 0;line-height:1.6">The 1M run completes with zero failures at 14,813 tasks/s — up from 134/s before the storage rewrite. Two changes got there: a <code class="mono">BTreeMap</code> ready-queue index so <code class="mono">claim_ready</code> is O(batch)·log N instead of an O(N) full scan on every worker fetch, and a <code class="mono">POST /api/tasks/batch</code> endpoint so submit amortizes HTTP/JSON overhead over many tasks per request. Tail latency at 1M is queue-wait (a million tasks through 4 slots), not dispatch overhead.</p>
-      </div>
-    </section>
-
-    <!-- MACHINE + REPRODUCE -->
-    <section class="section" style="padding-top:0">
-      <div class="container">
-        <div class="section-head">
-          <p class="kicker">Reproducibility</p>
-          <h2>Same machine, same binaries, same answer.</h2>
-        </div>
-        <div class="meta-grid">
-          <div class="card reveal">
-            <div class="card-head"><div><div class="card-title">Reference machine</div><div class="card-sub">All numbers above were captured here.</div></div></div>
-            <dl class="kv">
-              <dt>CPU</dt><dd>Apple M3 Pro (11 cores)</dd>
-              <dt>Memory</dt><dd>18 GB</dd>
-              <dt>OS</dt><dd>macOS 26.6 (arm64)</dd>
-              <dt>Build</dt><dd>cargo build --release · Rust 1.97</dd>
-              <dt>Storage</dt><dd>in-memory backend</dd>
-              <dt>Workers</dt><dd>1 (resources cpu:4)</dd>
-            </dl>
-          </div>
-          <div class="card reveal">
-            <div class="card-head"><div><div class="card-title">Reproduce</div><div class="card-sub">Builds release binaries, starts a fresh broker + worker, runs, tears down.</div></div></div>
-            <div class="code-block"><pre><span class="prompt">$</span> bash bench/run.sh
-<span class="muted"># or, against an already-running broker + worker:</span>
-<span class="prompt">$</span> uv run <span class="flag">--with</span> httpx python3 bench/bench.py \
-      <span class="flag">--broker</span> http://localhost:8080 \
-      <span class="flag">--tasks</span> 10000 <span class="flag">--concurrency</span> 32</pre></div>
-            <p class="muted" style="font-size:12.5px;margin:14px 0 0;line-height:1.6">The harness submits N <code class="mono">echo</code> tasks via the HTTP API at fixed concurrency, then polls until every task reaches a terminal state. See <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/BENCHMARKS.md" style="color:var(--primary);text-decoration:underline">BENCHMARKS.md</a> for full methodology.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- HONEST CAVEATS -->
-    <section class="section" style="padding-top:0">
-      <div class="container">
-        <div class="section-head" style="max-width:680px">
-          <p class="kicker">Honest limitations</p>
-          <h2>What these numbers do <em>not</em> tell you.</h2>
-        </div>
-        <div class="callout callout-warn reveal">
-          <div class="callout-title">
-            <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-            Read before you quote these numbers
-          </div>
-          <ul class="callout-list">
-            <li><strong>The harness polls over HTTP.</strong> Drain completion is detected via <code>GET /api/stats</code> (one call per poll, regardless of N); latency is sampled by uniform stride and polled on its own cadence, so figures are <em>upper bounds</em> bounded by the poll interval, not precise per-task durations.</li>
-            <li><strong>Single worker, in-memory storage.</strong> No persistence I/O. SQLite-backed durability and multi-worker fan-out will differ — both are worth benchmarking.</li>
-            <li><strong><code>echo</code> handler does no real work.</strong> Throughput is dominated by broker dispatch + ack round-trips, not task execution. The <a href="#comparison" style="color:var(--primary);text-decoration:underline">resize workload axis</a> shows how the ranking shifts once each task does real CPU work.</li>
-            <li><strong>Latency at 1M is queue-wait.</strong> With a million tasks through 4 slots, p50 is ~30s — that's time spent queued behind other tasks, not dispatch overhead. A multi-worker fan-out would cut it proportionally; that's the next benchmark.</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
-    <!-- NEXT UP -->
-    <section class="section" id="next" style="padding-top:0">
-      <div class="container">
-        <div class="section-head">
-          <p class="kicker">Roadmap</p>
-          <h2>What we'd measure next.</h2>
-          <p class="lede">Planned, not promised. Each closes one of the gaps above.</p>
-        </div>
-        <div class="next-grid">
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l3-8 4 16 3-8h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">SQLite vs. in-memory</div><div class="next-desc">The cost of durability. Same harness, WAL-backed storage.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M17 20h2a2 2 0 0 0 2-2V9l-5-5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2M9 14l3 3 3-3M12 9v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">Multi-worker scaling</div><div class="next-desc">Throughput vs. worker count — 1, 4, 16, 64 — to find the fan-out curve.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span><div><div class="next-title">Failure &amp; retry overhead</div><div class="next-desc">Throughput under a flaky handler that fails N% and exercises the retry path.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Head-to-head: Celery, Temporal, BullMQ &amp; Ray <span class="done-tag">done</span></div><div class="next-desc">Five-system matrix across two workloads (echo + resize): two direct queue peers (Celery, BullMQ), one durable workflow engine (Temporal), one distributed compute runtime (Ray). See <a href="#comparison" style="color:var(--primary);text-decoration:underline">the comparison</a>.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Sustained throughput <span class="done-tag">done</span></div><div class="next-desc">1M tasks end-to-end: completes with 0 failures at 14,813 tasks/s after the ready-queue index + batch-submit rewrite — up 110× from the prior 134/s. Full numbers in the table above.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 14l3-3 3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">True execution latency</div><div class="next-desc">Once the broker exposes <code>completed_time</code>/<code>duration_ms</code>, report execution latency decoupled from queue wait.</div></div></div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <div class="container footer-inner">
-      <span>End-to-end benchmarks · <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/BENCHMARKS.md">BENCHMARKS.md</a></span>
-      <span>Released under the Apache-2.0 License · <a href="index.html">ChopFlow</a></span>
+  <div class="stat-band" data-od-id="hero-stats">
+    <div class="stat-card reveal" style="transition-delay:60ms">
+      <div class="stat-label">Peak drain throughput</div>
+      <div class="stat-value accent mono"><b>15,153</b><span class="stat-unit">tasks/s</span></div>
+      <div class="stat-meta">100,000-task echo drain — the true peak across all scales.</div>
     </div>
-  </footer>
+    <div class="stat-card reveal" style="transition-delay:120ms">
+      <div class="stat-label">Total tasks completed</div>
+      <div class="stat-value mono"><b>1.21M</b></div>
+      <div class="stat-meta">Across every benchmark run captured on this page.</div>
+    </div>
+    <div class="stat-card reveal" style="transition-delay:180ms">
+      <div class="stat-label">Failures</div>
+      <div class="stat-value mono" style="color:var(--success)"><b>0</b></div>
+      <div class="stat-meta">Zero task failures in every completed ChopFlow run.</div>
+    </div>
+    <div class="stat-card reveal" style="transition-delay:240ms">
+      <div class="stat-label">Test machine</div>
+      <div class="stat-value mono" style="font-size:28px"><b>Apple M3 Pro</b></div>
+      <div class="stat-meta">11 cores · echo workload · macOS.</div>
+    </div>
+  </div>
+</section>
 
-  <script>
-    /* ---- theme ---- */
-    const root = document.documentElement;
-    const toggle = document.getElementById('themeToggle');
-    toggle.addEventListener('click', () => {
-      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
-      root.dataset.theme = next;
-      localStorage.setItem('chopflow-theme', next);
-      redrawCharts();
-    });
+<!-- ============================================================ throughput -->
+<section class="section" data-od-id="throughput-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Throughput</div>
+    <h2 class="section-title">ChopFlow drain throughput by scale</h2>
+    <p class="section-subtitle">End-to-end tasks per second as the backlog grows from 1,000 to 1,000,000 tasks.</p>
+  </div>
+  <div class="card reveal" data-od-id="throughput-card">
+    <div class="chart-wrap">
+      <svg id="throughputChart" class="chart-svg" viewBox="0 0 720 340" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+  </div>
+</section>
 
-    /* ---- header scroll ---- */
-    const header = document.getElementById('header');
-    const onScroll = () => header.classList.toggle('scrolled', window.scrollY > 8);
-    onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
+<!-- ============================================================ latency -->
+<section class="section" data-od-id="latency-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Latency</div>
+    <h2 class="section-title">ChopFlow latency percentiles</h2>
+    <p class="section-subtitle">p50, p95, and p99 end-to-end latency in milliseconds, including queue wait. The 1M scale is shown in the raw table because it would dwarf this axis.</p>
+  </div>
+  <div class="card reveal" data-od-id="latency-card">
+    <div class="chart-wrap">
+      <svg id="latencyChart" class="chart-svg" viewBox="0 0 720 360" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend" id="latencyLegend" data-od-id="latency-legend"></div>
+  </div>
+</section>
 
-    /* ---- chart helpers ---- */
-    const ns = 'http://www.w3.org/2000/svg';
-    function el(tag, attrs = {}, parent) {
-      const e = document.createElementNS(ns, tag);
-      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-      if (parent) parent.appendChild(e);
-      return e;
-    }
-    function fmt(n) { return n.toLocaleString('en-US'); }
-    function cssVar(name) {
-      return getComputedStyle(root).getPropertyValue(name).trim();
-    }
-    function withAlpha(hex, a) {
-      // hex like #4060ff -> rgba
-      const h = hex.replace('#', '');
-      const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
-      return `rgba(${r},${g},${b},${a})`;
-    }
+<!-- ============================================================ scaling -->
+<section class="section" data-od-id="scaling-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Scaling curve</div>
+    <h2 class="section-title">Measured throughput across backlog size</h2>
+    <p class="section-subtitle">No lines extend past measured points. The curve flattens as dispatch overhead saturates.</p>
+  </div>
+  <div class="card reveal" data-od-id="scaling-card">
+    <div class="chart-wrap">
+      <svg id="scalingChart" class="chart-svg" viewBox="0 0 720 320" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+  </div>
+</section>
 
-    /* ---- THROUGHPUT CHART ---- */
-    function drawThroughput() {
-      const host = document.getElementById('throughputChart');
-      host.innerHTML = '';
-      const W = 560, H = 300, pad = { t: 24, r: 24, b: 56, l: 56 };
-      const data = [
-        { label: '1k', sub: '1,000', value: 4573 },
-        { label: '10k', sub: '10,000', value: 12811 },
-        { label: '100k', sub: '100,000', value: 15153 },
-        { label: '1M', sub: '1,000,000', value: 14813 },
-      ];
-      const max = 16000;
-      const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'End-to-end throughput by scale bar chart' }, host);
-      const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+<!-- ============================================================ comparison -->
+<section class="section" data-od-id="comparison-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Head-to-head</div>
+    <h2 class="section-title">How ChopFlow compares</h2>
+    <p class="section-subtitle">End-to-end drain throughput on a log scale. Missing bars mean the run did not finish inside the time budget — never interpolated.</p>
+  </div>
+  <div class="card reveal" data-od-id="comparison-card">
+    <div class="card-head">
+      <div>
+        <h3 class="card-title">Throughput by system and scale</h3>
+        <p class="card-note">Y axis: tasks/s, logarithmic · domain 10–100,000</p>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <svg id="compareChart" class="chart-svg" viewBox="0 0 860 420" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend" id="compareLegend" data-od-id="compare-legend"></div>
 
-      // gridlines + y labels
-      const ticks = [0, 4000, 8000, 12000, 16000];
-      ticks.forEach(t => {
-        const y = pad.t + plotH - (t / max) * plotH;
-        el('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
-        el('text', { x: pad.l - 12, y: y + 4, 'text-anchor': 'end', 'font-family': cssVar('--font-mono'), 'font-size': 11, fill: cssVar('--muted') }, svg).textContent = fmt(t);
-      });
-      el('text', { x: pad.l, y: pad.t - 10, 'font-family': cssVar('--font-mono'), 'font-size': 10.5, fill: cssVar('--subtle'), 'letter-spacing': '0.06em' }, svg).textContent = 'TASKS/S';
+    <div class="table-wrap" data-od-id="compare-table-wrap">
+      <table class="data-table" id="compareTable">
+        <thead>
+          <tr>
+            <th>System</th>
+            <th>Scale</th>
+            <th class="num">Throughput</th>
+            <th class="num">p50</th>
+            <th class="num">p95</th>
+            <th class="num">p99</th>
+            <th class="num">Failures</th>
+          </tr>
+        </thead>
+        <tbody id="compareTableBody"></tbody>
+        <tfoot>
+          <tr><td colspan="7">Throughput null cells render as <em>did not finish</em>. Latency null cells mean latency was not captured for that run.</td></tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</section>
 
-      // bars
-      const bw = plotW / data.length;
-      const primary = cssVar('--primary');
-      data.forEach((d, i) => {
-        const x = pad.l + bw * i + bw * 0.22;
-        const w = bw * 0.56;
-        const h = (d.value / max) * plotH;
-        const y = pad.t + plotH - h;
-        const grad = el('linearGradient', { id: `tg${i}`, x1: 0, y1: 0, x2: 0, y2: 1 }, el('defs', {}, svg));
-        el('stop', { offset: '0%', 'stop-color': primary, 'stop-opacity': 1 }, grad);
-        el('stop', { offset: '100%', 'stop-color': primary, 'stop-opacity': 0.55 }, grad);
-        const rect = el('rect', { x, y: pad.t + plotH, width: w, height: 0, rx: 6, fill: `url(#tg${i})`, class: 'bar-grow' }, svg);
-        // animate height via attribute transition using CSS transform on a group is complex; use JS ramp
-        animateBar(rect, pad.t + plotH, h);
+<!-- ============================================================ workload axis -->
+<section class="section" data-od-id="workload-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Workload axis</div>
+    <h2 class="section-title">Echo vs. resize throughput</h2>
+    <p class="section-subtitle">The echo workload isolates queue/dispatch overhead. Resize adds real CPU work: a 256×256 gradient plus a half-size nearest-neighbor downsample. Same 4-slot worker on the same machine.</p>
+  </div>
+  <div class="card reveal" data-od-id="workload-card">
+    <div class="card-head">
+      <div>
+        <h3 class="card-title">Throughput by workload and scale</h3>
+        <p class="card-note">Y axis: tasks/s, logarithmic · 1k and 10k scales only</p>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <svg id="workloadChart" class="chart-svg" viewBox="0 0 860 420" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend" id="workloadLegend" data-od-id="workload-legend"></div>
+
+    <div class="table-wrap" data-od-id="workload-latency-wrap" style="margin-top:28px">
+      <table class="data-table" id="workloadLatencyTable">
+        <thead>
+          <tr>
+            <th>System</th>
+            <th>Workload</th>
+            <th>Scale</th>
+            <th class="num">p50</th>
+            <th class="num">p95</th>
+            <th class="num">p99</th>
+          </tr>
+        </thead>
+        <tbody id="workloadLatencyBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ caveats -->
+<section class="section" data-od-id="caveats-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Transparency</div>
+    <h2 class="section-title">What these numbers mean</h2>
+    <p class="section-subtitle">Context matters. We are comparing systems built for different jobs, and every limitation is reported honestly.</p>
+  </div>
+  <div class="callouts" data-od-id="caveats-cards">
+    <article class="callout reveal">
+      <div class="callout-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="12" r="3"/></svg></div>
+      <h3 class="callout-title">Temporal is a durable workflow engine</h3>
+      <p class="callout-body">It persists every step — a heavier category by design. Its numbers are context for what durability costs, not a verdict on ChopFlow.</p>
+    </article>
+    <article class="callout reveal" style="transition-delay:60ms">
+      <div class="callout-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg></div>
+      <h3 class="callout-title">Ray targets distributed compute</h3>
+      <p class="callout-body">Ray is closer to Dask or Spark than to a task queue. Its throughput includes object-store and cross-actor scheduling overhead — apples-to-pears, included for perspective.</p>
+    </article>
+    <article class="callout reveal" style="transition-delay:120ms">
+      <div class="callout-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M6 20h12M9 16v4M15 16v4"/><circle cx="8" cy="10" r="1" fill="currentColor"/><circle cx="12" cy="10" r="1" fill="currentColor"/><circle cx="16" cy="10" r="1" fill="currentColor"/></svg></div>
+      <h3 class="callout-title">Celery and Ray did not finish at 1M</h3>
+      <p class="callout-body">Celery and Ray 1M runs did not complete within the time budget. They are reported as DNF — not omitted, not estimated, not faked.</p>
+    </article>
+  </div>
+</section>
+
+<!-- ============================================================ raw results -->
+<section class="section" data-od-id="raw-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Raw results</div>
+    <h2 class="section-title">Authoritative ChopFlow numbers</h2>
+    <p class="section-subtitle">The single source of truth for every completed ChopFlow run.</p>
+  </div>
+  <div class="card reveal" data-od-id="raw-card">
+    <div class="table-wrap">
+      <table class="data-table" id="rawTable">
+        <thead>
+          <tr>
+            <th>Scale</th>
+            <th class="num">Throughput</th>
+            <th class="num">p50</th>
+            <th class="num">p95</th>
+            <th class="num">p99</th>
+            <th class="num">Failures</th>
+          </tr>
+        </thead>
+        <tbody id="rawTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ methodology -->
+<section class="section" data-od-id="methodology-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Methodology</div>
+    <h2 class="section-title">How these benchmarks were measured</h2>
+    <p class="section-subtitle">Every detail needed to reproduce the numbers on your own hardware.</p>
+  </div>
+  <div class="card reveal" data-od-id="methodology-card">
+    <div class="method-grid">
+      <div class="method-item">
+        <div class="method-key">Machine</div>
+        <div class="method-val">Apple M3 Pro, 11 cores, macOS.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">Workload</div>
+        <div class="method-val">Echo no-op task to isolate queue/dispatch overhead; resize workload adds 256×256 gradient + half-size nearest-neighbor downsample.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">Scales swept</div>
+        <div class="method-val">1,000 · 10,000 · 100,000 · 1,000,000 tasks per run.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">Worker</div>
+        <div class="method-val">One worker process with 4 execution slots for every system.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">ChopFlow</div>
+        <div class="method-val"><span class="mono">cpu:4</span> worker configuration.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">Celery</div>
+        <div class="method-val"><span class="mono">--concurrency=4</span> prefork worker.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">Temporal</div>
+        <div class="method-val">4 activity slots configured.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">BullMQ</div>
+        <div class="method-val">Separate worker process + Redis counter drain.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-key">Ray</div>
+        <div class="method-val">Local cluster with <span class="mono">ray.wait</span> drain.</div>
+      </div>
+    </div>
+
+    <ul class="method-list">
+      <li>Metrics are end-to-end: enqueue to completion, including queue wait, serialization, and acknowledgement.</li>
+      <li>Drain timing uses a single ready-count poll per run, not per-task overhead.</li>
+      <li>Latency percentiles are sampled from the first and last 1,000 tasks of each run.</li>
+      <li>All completed runs reported zero failures.</li>
+      <li>Full harness and reproduction steps are in <a href="bench/compare/README.md" class="text-link">bench/compare/README.md</a>.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ why not x -->
+<section class="section" data-od-id="whynot-section">
+  <div class="section-head reveal">
+    <div class="eyebrow">Coverage</div>
+    <h2 class="section-title">Why not X?</h2>
+  </div>
+  <div class="card reveal" data-od-id="whynot-card">
+    <p style="color:var(--text-2);line-height:1.7;font-size:15px;max-width:75ch">
+      <strong style="color:var(--text)">RQ and Dramatik</strong> sit in the same Python/Redis bucket as Celery, so adding them would be redundant rather than informative.
+      <strong style="color:var(--text)">Sidekiq, Asynq, and Hatchet</strong> require Ruby or Go runtimes that are outside this benchmark’s scope.
+    </p>
+    <p style="color:var(--text-2);line-height:1.7;font-size:15px;max-width:75ch;margin-top:14px">
+      The comparison harness is open and documented in <a href="bench/compare/README.md" class="text-link">bench/compare/README.md</a>. If you want to see another system here, that file is the place to add it.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ footer -->
+<footer class="footer" data-od-id="footer">
+  <div class="footer-inner">
+    <a href="index.html" class="footer-brand">
+      <span class="brand-mark" style="width:26px;height:26px;border-radius:7px">
+        <svg viewBox="0 0 24 24" fill="none" style="width:15px;height:15px"><path d="M4 7h6l3 5-3 5H4l3-5z" fill="#fff"/><path d="M13 7h7v3h-4l1.5 2L16 14h4v3h-7l-2.5-4z" fill="#fff" opacity=".8"/></svg>
+      </span>
+      <span><b>Chop</b><span>Flow</span></span>
+    </a>
+    <nav class="footer-links" data-od-id="footer-links">
+      <a href="index.html">Home</a>
+      <a href="benchmarks.html">Benchmarks</a>
+      <a href="docs.html">Docs</a>
+      <a href="docs.html#quickstart">Quickstart</a>
+    </nav>
+    <p class="footer-copy">Released under the Apache-2.0 License</p>
+  </div>
+</footer>
+
+<script>
+/* ============================================================ data (verbatim) */
+const SCALES = ['1k','10k','100k','1M'];
+
+const SYSTEMS = [
+  {id:'chopflow',name:'ChopFlow',color:'var(--primary)',hex:'#4f6bff'},
+  {id:'celery',name:'Celery',color:'var(--success)',hex:'#22c55a'},
+  {id:'temporal',name:'Temporal',color:'var(--purple)',hex:'#8b5cf6'},
+  {id:'bullmq',name:'BullMQ',color:'var(--warn)',hex:'#f59e0b'},
+  {id:'ray',name:'Ray',color:'var(--slate)',hex:'#64748b'}
+];
+
+const THROUGHPUT = {
+  chopflow:[4573,12811,15153,14813],
+  celery:[1166,1644,1749,null],
+  temporal:[42,43,null,null],
+  bullmq:[7407,9191,10140,10262],
+  ray:[3307,6863,8239,null]
+};
+
+const LATENCY = {
+  chopflow:[{p50:561,p95:585,p99:587},{p50:507,p95:1015,p99:1016},{p50:3408,p95:5736,p99:6217},{p50:30396,p95:55118,p99:57263}],
+  celery:[{p50:299,p95:658,p99:668},{p50:2297,p95:2885,p99:3185},{p50:22102,p95:27763,p99:28651},{p50:null,p95:null,p99:null}],
+  temporal:[{p50:400,p95:2062,p99:2410},{p50:392,p95:2019,p99:2509},{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null}],
+  bullmq:[{p50:57,p95:91,p99:94},{p50:458,p95:715,p99:738},{p50:4424,p95:6905,p99:7123},{p50:43994,p95:68929,p99:71168}],
+  ray:[{p50:140,p95:214,p99:222},{p50:582,p95:767,p99:769},{p50:2764,p95:5788,p99:5905},{p50:null,p95:null,p99:null}]
+};
+
+const FAILURES = {
+  chopflow:[0,0,0,0],
+  celery:[0,0,0,null],
+  temporal:[0,0,null,null],
+  bullmq:[0,0,0,0],
+  ray:[0,0,0,null]
+};
+
+const WORKLOAD = {
+  ray:{echo:[3307,6863],resize:[1105,5144],lat:{resize:[{p50:720,p95:832,p99:842},{p50:801,p95:1230,p99:1257}]}},
+  bullmq:{echo:[7407,9191],resize:[871,1621],lat:{resize:[{p50:801,p95:1071,p99:1093},{p50:2915,p95:5549,p99:5779}]}},
+  chopflow:{echo:[4573,12811],resize:[4522,7761],lat:{resize:[{p50:536,p95:560,p99:562},{p50:1068,p95:1613,p99:1616}]}},
+  celery:{echo:[1166,1644],resize:[345,351],lat:{resize:[{p50:1264,p95:2621,p99:2627},{p50:12471,p95:24371,p99:25360}]}}
+};
+
+/* ============================================================ helpers */
+const $ = (sel,ctx=document)=>ctx.querySelector(sel);
+const $$ = (sel,ctx=document)=>Array.from(ctx.querySelectorAll(sel));
+const fmt = n=>n==null?'—':n.toLocaleString('en-US');
+const ms = n=>n==null?'—':n.toLocaleString('en-US')+' ms';
+const svgEl = (tag,attrs={})=>{
+  const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));
+  return el;
+};
+
+/* ============================================================ chart primitives */
+function makeBarChart(id,opts){
+  const svg=$(id); if(!svg) return;
+  const {series,yMax,ticks,yUnit,labelValues=true,log=false,logMin=1,logMax=5,grouped=false,barGap=0,labelOffset=8} = opts;
+  const w=parseInt(svg.getAttribute('viewBox').split(' ')[2]);
+  const h=parseInt(svg.getAttribute('viewBox').split(' ')[3]);
+  const pad={t:24,r:28,b:56,l:64};
+  const cw=w-pad.l-pad.r, ch=h-pad.t-pad.b;
+
+  const yScale = log
+    ? v => ch - ((Math.log10(v)-logMin)/(logMax-logMin))*ch
+    : v => ch - (v/yMax)*ch;
+  const baseH = log ? yScale(Math.pow(10,logMin)) : yScale(0);
+
+  // grid + y-axis labels
+  ticks.forEach(t=>{
+    const y=pad.t+yScale(t);
+    svg.appendChild(svgEl('line',{x1:pad.l,x2:w-pad.r,y1:y,y2:y,class:'chart-grid'}));
+    const text=svgEl('text',{x:pad.l-10,y:y+4,'text-anchor':'end',class:'chart-tick'});
+    text.textContent = t>=1000 ? (t/1000)+'k' : t;
+    svg.appendChild(text);
+  });
+  // axis lines
+  svg.appendChild(svgEl('line',{x1:pad.l,y1:pad.t,x2:pad.l,y2:h-pad.b,class:'chart-axis'}));
+  svg.appendChild(svgEl('line',{x1:pad.l,y1:h-pad.b,x2:w-pad.r,y2:h-pad.b,class:'chart-axis'}));
+
+  const groupCount = series.length;
+  const catCount = series[0].values.length;
+  const slot = cw/catCount;
+  const groupW = slot*0.72;
+  const barW = (groupW - (groupCount-1)*barGap)/groupCount;
+
+  series.forEach((s,gi)=>{
+    s.values.forEach((v,ci)=>{
+      const x = pad.l + ci*slot + (slot-groupW)/2 + gi*(barW+barGap);
+      const isNull = v==null;
+      const targetH = isNull ? 0 : Math.max(2, baseH - yScale(v));
+      const y = isNull ? h-pad.b : pad.t+yScale(v);
+      const g=svgEl('g',{class:'bar-group'});
+
+      if(!isNull){
+        const rect=svgEl('rect',{
+          x,y:h-pad.b,width:barW,height:0,rx:4,ry:4,
+          fill:s.color,class:'bar','data-h':targetH,'data-y':y
+        });
+        g.appendChild(rect);
         // value label
-        el('text', { x: x + w / 2, y: y - 10, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 14, 'font-weight': 600, fill: cssVar('--text') }, svg).textContent = fmt(d.value);
-        // x labels
-        el('text', { x: x + w / 2, y: pad.t + plotH + 22, 'text-anchor': 'middle', 'font-family': cssVar('--font-sans'), 'font-size': 12, 'font-weight': 500, fill: cssVar('--text-2') }, svg).textContent = d.label;
-        el('text', { x: x + w / 2, y: pad.t + plotH + 38, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 10.5, fill: cssVar('--subtle') }, svg).textContent = d.sub + ' tasks';
-      });
-    }
-
-    /* ---- LATENCY CHART ---- */
-    function drawLatency() {
-      const host = document.getElementById('latencyChart');
-      host.innerHTML = '';
-      const W = 460, H = 300, pad = { t: 24, r: 20, b: 56, l: 56 };
-      const groups = [
-        { label: '1k', vals: { p50: 561, p95: 585, p99: 587 } },
-        { label: '10k', vals: { p50: 507, p95: 1015, p99: 1016 } },
-        { label: '100k', vals: { p50: 3408, p95: 5736, p99: 6217 } },
-      ];
-      const max = 7000;
-      const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Latency percentile grouped bar chart' }, host);
-      const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
-      const primary = cssVar('--primary');
-      const surface = cssVar('--surface');
-
-      const ticks = [0, 2000, 4000, 6000];
-      ticks.forEach(t => {
-        const y = pad.t + plotH - (t / max) * plotH;
-        el('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
-        el('text', { x: pad.l - 12, y: y + 4, 'text-anchor': 'end', 'font-family': cssVar('--font-mono'), 'font-size': 11, fill: cssVar('--muted') }, svg).textContent = t === 0 ? '0' : (t / 1000) + 'k';
-      });
-      el('text', { x: pad.l, y: pad.t - 10, 'font-family': cssVar('--font-mono'), 'font-size': 10.5, fill: cssVar('--subtle'), 'letter-spacing': '0.06em' }, svg).textContent = 'MS (incl. queue wait)';
-
-      const gw = plotW / groups.length;
-      const bars = ['p50', 'p95', 'p99'];
-      const opacities = { p50: 0.38, p95: 0.68, p99: 1 };
-      groups.forEach((g, gi) => {
-        const gx = pad.l + gw * gi;
-        const innerW = gw * 0.7;
-        const startX = gx + (gw - innerW) / 2;
-        const bw = innerW / bars.length;
-        bars.forEach((b, bi) => {
-          const v = g.vals[b];
-          const h = (v / max) * plotH;
-          const x = startX + bw * bi + bw * 0.12;
-          const w = bw * 0.76;
-          const y = pad.t + plotH - h;
-          const rect = el('rect', { x, y: pad.t + plotH, width: w, height: 0, rx: 4, fill: withAlpha(primary, opacities[b]) }, svg);
-          animateBar(rect, pad.t + plotH, h);
-          el('text', { x: x + w / 2, y: y - 7, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 10, fill: cssVar('--text-2') }, svg).textContent = fmt(v);
+        const label=svgEl('text',{
+          x:x+barW/2,y:y-labelOffset,'text-anchor':'middle',class:'chart-value'
         });
-        el('text', { x: gx + gw / 2, y: pad.t + plotH + 22, 'text-anchor': 'middle', 'font-family': cssVar('--font-sans'), 'font-size': 12, 'font-weight': 500, fill: cssVar('--text-2') }, svg).textContent = g.label;
-      });
-    }
-
-    /* ---- SCALING CHART ---- */
-    function drawScaling() {
-      const host = document.getElementById('scalingChart');
-      host.innerHTML = '';
-      const W = 1040, H = 300, pad = { t: 24, r: 24, b: 48, l: 56 };
-      const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Throughput vs scale' }, host);
-      const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
-      const primary = cssVar('--primary');
-
-      // x axis: task count (log-ish categorical): 1k, 10k, 100k, 1M
-      const xCats = ['1k', '10k', '100k', '1M'];
-      const xPos = xCats.map((_, i) => pad.l + (plotW / (xCats.length - 1)) * i);
-      // all four scales now measured (end-to-end throughput)
-      const measured = [{ x: xPos[0], y: 4573 }, { x: xPos[1], y: 12811 }, { x: xPos[2], y: 15153 }, { x: xPos[3], y: 14813 }];
-      const maxY = 16000;
-      const y = v => pad.t + plotH - (v / maxY) * plotH;
-
-      // gridlines
-      [0, 4000, 8000, 12000, 16000].forEach(t => {
-        const yy = y(t);
-        el('line', { x1: pad.l, x2: W - pad.r, y1: yy, y2: yy, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
-        el('text', { x: pad.l - 12, y: yy + 4, 'text-anchor': 'end', 'font-family': cssVar('--font-mono'), 'font-size': 11, fill: cssVar('--muted') }, svg).textContent = fmt(t);
-      });
-      el('text', { x: pad.l, y: pad.t - 10, 'font-family': cssVar('--font-mono'), 'font-size': 10.5, fill: cssVar('--subtle'), 'letter-spacing': '0.06em' }, svg).textContent = 'TASKS/S (E2E)';
-
-      // measured line (polyline through all four points) + area
-      const linePts = measured.map(p => `${p.x},${y(p.y)}`).join(' ');
-      el('polyline', { points: linePts, fill: 'none', stroke: primary, 'stroke-width': 2.4, 'stroke-linejoin': 'round' }, svg);
-      const area = `M${measured[0].x},${y(0)} ` + measured.map(p => `L${p.x},${y(p.y)}`).join(' ') + ` L${measured[measured.length - 1].x},${y(0)} Z`;
-      el('path', { d: area, fill: withAlpha(primary, 0.10) }, svg);
-
-      // measured points
-      measured.forEach((p, i) => {
-        el('circle', { cx: p.x, cy: y(p.y), r: 6, fill: primary, stroke: cssVar('--surface'), 'stroke-width': 2.5 }, svg);
-        el('text', { x: p.x, y: y(p.y) - 14, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 12, 'font-weight': 600, fill: cssVar('--text') }, svg).textContent = fmt(p.y);
-      });
-
-      // x labels
-      xCats.forEach((c, i) => {
-        const lab = el('text', { x: xPos[i], y: pad.t + plotH + 24, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 12, fill: cssVar('--text-2') }, svg);
-        lab.textContent = c + ' tasks';
-      });
-    }
-
-    function animateBar(rect, fromY, h) {
-      const dur = 820;
-      const start = performance.now();
-      function step(now) {
-        const t = Math.min(1, (now - start) / dur);
-        const eased = 1 - Math.pow(1 - t, 3);
-        const ch = h * eased;
-        rect.setAttribute('y', fromY - ch);
-        rect.setAttribute('height', ch);
-        if (t < 1) requestAnimationFrame(step);
-      }
-      requestAnimationFrame(step);
-    }
-
-    /* ---- COMPARISON CHART + TABLE ---- */
-    // End-to-end throughput (tasks/s) by system and scale. null = not completed
-    // within the time budget (reported honestly, never extrapolated).
-    const COMPARISON = {
-      scales: ['1k', '10k', '100k', '1M'],
-      systems: [
-        { key: 'chopflow', label: 'ChopFlow', color: '--primary',
-          vals: [4573, 12811, 15153, 14813] },
-        { key: 'celery', label: 'Celery', color: '--success',
-          vals: [1166, 1644, 1749, null] },
-        { key: 'temporal', label: 'Temporal', color: '--purple',
-          vals: [42, 43, null, null] },
-        // BullMQ: Node.js + Redis Streams, separate worker process, network-
-        // mediated drain (Redis INCR counter). A fair fire-and-forget peer.
-        { key: 'bullmq', label: 'BullMQ', color: '--warn',
-          vals: [7407, 9191, 10140, 10262] },
-        // Ray: Python distributed-compute framework, local cluster, ray.wait drain.
-        // Apples-to-pears (compute runtime, not a queue) — category caveat on page.
-        { key: 'ray', label: 'Ray', color: '--slate',
-          vals: [3307, 6863, 8239, null] },
-      ],
-    };
-    function drawComparison() {
-      const host = document.getElementById('comparisonChart');
-      host.innerHTML = '';
-      const W = 1040, H = 320, pad = { t: 28, r: 24, b: 56, l: 56 };
-      const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Throughput comparison by system and scale (log axis)' }, host);
-      const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
-      const scales = COMPARISON.scales, systems = COMPARISON.systems;
-      // Log axis: the field spans ~40/s (Temporal) to ~15k/s (ChopFlow) — four
-      // decades. A linear axis would flatten everyone but BullMQ. Domain 10–100k.
-      const logMin = 1, logMax = 5;
-      const yLog = v => pad.t + plotH - ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
-      const barH = v => ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
-
-      // decade gridlines
-      for (let p = logMin; p <= logMax; p++) {
-        const t = Math.pow(10, p);
-        const yy = yLog(t);
-        el('line', { x1: pad.l, x2: W - pad.r, y1: yy, y2: yy, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
-        el('text', { x: pad.l - 12, y: yy + 4, 'text-anchor': 'end', 'font-family': cssVar('--font-mono'), 'font-size': 11, fill: cssVar('--muted') }, svg).textContent = fmt(t);
-      }
-      el('text', { x: pad.l, y: pad.t - 12, 'font-family': cssVar('--font-mono'), 'font-size': 10.5, fill: cssVar('--subtle'), 'letter-spacing': '0.06em' }, svg).textContent = 'TASKS/S (E2E, LOG)';
-
-      // grouped bars
-      const groupW = plotW / scales.length;
-      const innerW = groupW * 0.72;
-      const bw = innerW / systems.length;
-      systems.forEach((s, si) => {
-        s.vals.forEach((v, i) => {
-          if (v == null) return;
-          const gx = pad.l + groupW * i + (groupW - innerW) / 2;
-          const x = gx + bw * si + bw * 0.14;
-          const w = bw * 0.72;
-          const h = barH(v);
-          const yy = pad.t + plotH - h;
-          const col = cssVar(s.color);
-          const rect = el('rect', { x, y: pad.t + plotH, width: w, height: 0, rx: 4, fill: col }, svg);
-          animateBar(rect, pad.t + plotH, h);
-          el('text', { x: x + w / 2, y: yy - 7, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 10.5, 'font-weight': 600, fill: cssVar('--text-2') }, svg).textContent = fmt(v);
+        label.textContent = labelValues ? fmt(v) : '';
+        g.appendChild(label);
+      } else {
+        // DNF marker
+        const dnf=svgEl('text',{
+          x:x+barW/2,y:h-pad.b-8,'text-anchor':'middle',class:'chart-dnf'
         });
-      });
-      // x labels
-      scales.forEach((c, i) => {
-        el('text', { x: pad.l + groupW * i + groupW / 2, y: pad.t + plotH + 24, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 12, fill: cssVar('--text-2') }, svg).textContent = c + ' tasks';
-      });
-
-      // populate the table
-      const body = document.getElementById('comparisonTableBody');
-      if (body) {
-        body.innerHTML = '';
-        systems.forEach(s => {
-          s.vals.forEach((v, i) => {
-            const tr = document.createElement('tr');
-            const scale = COMPARISON.scales[i];
-            const p = COMPARISON_LATENCY[s.key][i];
-            let tput;
-            if (s.pending) tput = '<span class="muted">pending runtime‡</span>';
-            else if (v == null) tput = '<span class="muted">did not finish†</span>';
-            else tput = fmt(v) + ' tasks/s';
-            const cell = val => (val != null) ? fmt(val) + ' ms' : '<span class="muted">—</span>';
-            const p50 = p ? cell(p.p50) : '<span class="muted">—</span>';
-            const p95 = p ? cell(p.p95) : '<span class="muted">—</span>';
-            const p99 = p ? cell(p.p99) : '<span class="muted">—</span>';
-            const fails = COMPARISON_FAILS[s.key][i];
-            const failCell = (fails == null) ? '<span class="muted">—</span>'
-              : (fails === 0 ? '<span class="pos">0</span>' : '<span class="neg">'+fails+'</span>');
-            tr.innerHTML = `<td><span class="legend-swatch" style="background:${cssVar(s.color)};margin-right:8px;vertical-align:middle"></span>${s.label}</td><td>${scale}</td><td class="num">${tput}</td><td class="num">${p50}</td><td class="num">${p95}</td><td class="num">${p99}</td><td>${failCell}</td>`;
-            body.appendChild(tr);
-          });
-        });
+        dnf.textContent='DNF';
+        g.appendChild(dnf);
       }
-    }
-    // Workload-axis chart: echo vs resize, grouped per system, log axis.
-    function drawWorkload() {
-      const host = document.getElementById('workloadChart');
-      if (!host) return;
-      host.innerHTML = '';
-      const W = 1040, H = 300, pad = { t: 28, r: 24, b: 56, l: 56 };
-      const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Throughput by workload (echo vs resize), log axis' }, host);
-      const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
-      const systems = WORKLOAD.systems, scales = WORKLOAD.scales;
-      const logMin = 1, logMax = 5; // 10–100k
-      const yLog = v => pad.t + plotH - ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
-      const barH = v => ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
-      for (let p = logMin; p <= logMax; p++) {
-        const t = Math.pow(10, p), yy = yLog(t);
-        el('line', { x1: pad.l, x2: W - pad.r, y1: yy, y2: yy, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
-        el('text', { x: pad.l - 12, y: yy + 4, 'text-anchor': 'end', 'font-family': cssVar('--font-mono'), 'font-size': 11, fill: cssVar('--muted') }, svg).textContent = fmt(t);
+
+      // category label (only once per category)
+      if(gi===0){
+        const cat=svgEl('text',{x:pad.l+ci*slot+slot/2,y:h-pad.b+22,'text-anchor':'middle',class:'chart-label'});
+        cat.textContent = s.labels ? s.labels[ci] : SCALES[ci];
+        g.appendChild(cat);
       }
-      el('text', { x: pad.l, y: pad.t - 12, 'font-family': cssVar('--font-mono'), 'font-size': 10.5, fill: cssVar('--subtle'), 'letter-spacing': '0.06em' }, svg).textContent = 'TASKS/S (E2E, LOG)';
-      // two bars (echo, resize) per system, grouped by scale
-      const groupW = plotW / scales.length;
-      const innerW = groupW * 0.78;
-      const bw = innerW / systems.length;
-      systems.forEach((s, si) => {
-        scales.forEach((sc, i) => {
-          const v = (i === 0 ? s.echo : s.resize)[i];
-          const gx = pad.l + groupW * i + (groupW - innerW) / 2;
-          const x = gx + bw * si + bw * 0.14;
-          const w = bw * 0.72;
-          const h = barH(v);
-          const yy = pad.t + plotH - h;
-          const col = cssVar(s.color);
-          // resize bar is the same hue, slightly translucent to distinguish
-          const rect = el('rect', { x, y: pad.t + plotH, width: w, height: 0, rx: 4, fill: col, opacity: i === 1 ? 0.5 : 1 }, svg);
-          animateBar(rect, pad.t + plotH, h);
-          el('text', { x: x + w / 2, y: yy - 7, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 10.5, 'font-weight': 600, fill: cssVar('--text-2') }, svg).textContent = fmt(v);
-        });
-      });
-      scales.forEach((c, i) => {
-        el('text', { x: pad.l + groupW * i + groupW / 2, y: pad.t + plotH + 24, 'text-anchor': 'middle', 'font-family': cssVar('--font-mono'), 'font-size': 12, fill: cssVar('--text-2') }, svg).textContent = c + ' tasks';
-      });
-    }
-    // Latency percentiles (ms) aligned to COMPARISON scales; null = not captured.
-    const COMPARISON_LATENCY = {
-      chopflow: [{p50:561,p95:585,p99:587},{p50:507,p95:1015,p99:1016},{p50:3408,p95:5736,p99:6217},{p50:30396,p95:55118,p99:57263}],
-      celery: [{p50:299,p95:658,p99:668},{p50:2297,p95:2885,p99:3185},{p50:22102,p95:27763,p99:28651},{p50:null,p95:null,p99:null}],
-      temporal: [{p50:400,p95:2062,p99:2410},{p50:392,p95:2019,p99:2509},{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null}],
-      bullmq: [{p50:57,p95:91,p99:94},{p50:458,p95:715,p99:738},{p50:4424,p95:6905,p99:7123},{p50:43994,p95:68929,p99:71168}],
-      ray: [{p50:140,p95:214,p99:222},{p50:582,p95:767,p99:769},{p50:2764,p95:5788,p99:5905},{p50:null,p95:null,p99:null}],
-    };
-    const COMPARISON_FAILS = {
-      chopflow: [0,0,0,0],
-      celery: [0,0,0,null],
-      temporal: [0,0,null,null],
-      bullmq: [0,0,0,0],
-      ray: [0,0,0,null],
-    };
-    // Workload axis: echo (no-op, dispatch overhead) vs resize (real ~ms CPU work,
-    // 256×256 gradient + half-size nearest-neighbor). Same machine, same harness,
-    // same 4-slot worker. 1k + 10k only — resize is slow enough that 100k adds
-    // minutes without changing the ranking. Throughput in tasks/s.
-    const WORKLOAD = {
-      scales: ['1k', '10k'],
-      systems: [
-        { key: 'ray', label: 'Ray', color: '--slate',
-          echo: [3307, 6863], resize: [1105, 5144] },
-        { key: 'bullmq', label: 'BullMQ', color: '--warn',
-          echo: [7407, 9191], resize: [871, 1621] },
-        { key: 'chopflow', label: 'ChopFlow', color: '--primary',
-          echo: [4573, 12811], resize: [4522, 7761] },
-        { key: 'celery', label: 'Celery', color: '--success',
-          echo: [1166, 1644], resize: [345, 351] },
-      ],
-      // resize latency (ms), aligned to scales
-      resizeLatency: {
-        ray: [{p50:720,p95:832,p99:842},{p50:801,p95:1230,p99:1257}],
-        bullmq: [{p50:801,p95:1071,p99:1093},{p50:2915,p95:5549,p99:5779}],
-        chopflow: [{p50:536,p95:560,p99:562},{p50:1068,p95:1613,p99:1616}],
-        celery: [{p50:1264,p95:2621,p99:2627},{p50:12471,p95:24371,p99:25360}],
-      },
-    };
-
-    function redrawCharts() { drawThroughput(); drawLatency(); drawScaling(); drawComparison(); drawWorkload(); }
-
-    /* ---- reveal on scroll ---- */
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-    }, { threshold: 0.12 });
-    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
-
-    /* ---- init (defer so fonts/cvars settle) ---- */
-    window.addEventListener('load', () => {
-      redrawCharts();
-      // re-draw once fonts are ready so mono metrics don't shift labels
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(redrawCharts);
+      // series label inside bar or below for legend fallback
+      svg.appendChild(g);
     });
-  </script>
+  });
+
+  // animate bars
+  requestAnimationFrame(()=>{
+    $$('.bar',svg).forEach(b=>{
+      const target=parseFloat(b.getAttribute('data-h'));
+      const ty=parseFloat(b.getAttribute('data-y'));
+      b.setAttribute('y',ty);
+      b.setAttribute('height',target);
+    });
+  });
+}
+
+function makeLineChart(id,data){
+  const svg=$(id); if(!svg) return;
+  const w=parseInt(svg.getAttribute('viewBox').split(' ')[2]);
+  const h=parseInt(svg.getAttribute('viewBox').split(' ')[3]);
+  const pad={t:24,r:28,b:56,l:64};
+  const cw=w-pad.l-pad.r, ch=h-pad.t-pad.b;
+  const yMax=17000;
+  const yScale=v=>ch-(v/yMax)*ch;
+  const xScale=i=>pad.l+(i/(data.length-1))*cw;
+
+  // grid
+  [0,4000,8000,12000,16000].forEach(t=>{
+    const y=pad.t+yScale(t);
+    svg.appendChild(svgEl('line',{x1:pad.l,x2:w-pad.r,y1:y,y2:y,class:'chart-grid'}));
+    const text=svgEl('text',{x:pad.l-10,y:y+4,'text-anchor':'end',class:'chart-tick'});
+    text.textContent = t>=1000 ? (t/1000)+'k' : t;
+    svg.appendChild(text);
+  });
+  // axes
+  svg.appendChild(svgEl('line',{x1:pad.l,y1:pad.t,x2:pad.l,y2:h-pad.b,class:'chart-axis'}));
+  svg.appendChild(svgEl('line',{x1:pad.l,y1:h-pad.b,x2:w-pad.r,y2:h-pad.b,class:'chart-axis'}));
+
+  // line path
+  const d=data.map((v,i)=>`${i===0?'M':'L'}${xScale(i)},${pad.t+yScale(v)}`).join(' ');
+  const path=svgEl('path',{d,fill:'none',stroke:'var(--primary-light)',strokeWidth:3,strokeLinecap:'round',strokeLinejoin:'round'});
+  svg.appendChild(path);
+
+  // area under line
+  const areaD=`${d} L${xScale(data.length-1)},${h-pad.b} L${xScale(0)},${h-pad.b} Z`;
+  const area=svgEl('path',{d:areaD,fill:'rgba(79,107,255,.12)',stroke:'none'});
+  svg.insertBefore(area,path);
+
+  // points
+  data.forEach((v,i)=>{
+    const cx=xScale(i), cy=pad.t+yScale(v);
+    const circle=svgEl('circle',{cx,cy,r:5,fill:'var(--bg)',stroke:'var(--primary-light)',strokeWidth:2});
+    svg.appendChild(circle);
+    const label=svgEl('text',{x:cx,y:cy-12,'text-anchor':'middle',class:'chart-value'});
+    label.textContent=fmt(v);
+    svg.appendChild(label);
+    const cat=svgEl('text',{x:cx,y:h-pad.b+22,'text-anchor':'middle',class:'chart-label'});
+    cat.textContent=SCALES[i];
+    svg.appendChild(cat);
+  });
+}
+
+/* ============================================================ legends */
+function legend(id,items){
+  const el=$(id); if(!el) return;
+  items.forEach(it=>{
+    const d=document.createElement('div');
+    d.className='legend-item';
+    d.innerHTML=`<span class="legend-swatch" style="background:${it.color}"></span>${it.name}`;
+    el.appendChild(d);
+  });
+}
+
+/* ============================================================ tables */
+function renderCompareTable(){
+  const tb=$('#compareTableBody');
+  SYSTEMS.forEach(sys=>{
+    SCALES.forEach((sc,idx)=>{
+      const tp=THROUGHPUT[sys.id][idx];
+      const lat=LATENCY[sys.id][idx];
+      const fail=FAILURES[sys.id][idx];
+      const tr=document.createElement('tr');
+      tr.innerHTML = `
+        <td class="system"><span class="swatch" style="background:${sys.hex}"></span>${sys.name}</td>
+        <td>${sc}</td>
+        <td class="num ${tp==null?'dnf':''}">${tp==null?'did not finish':fmt(tp)+' <span class="dim">/s</span>'}</td>
+        <td class="num">${ms(lat.p50)}</td>
+        <td class="num">${ms(lat.p95)}</td>
+        <td class="num">${ms(lat.p99)}</td>
+        <td class="num">${fail==null?'—':fail}</td>
+      `;
+      tb.appendChild(tr);
+    });
+  });
+}
+
+function renderWorkloadLatencyTable(){
+  const tb=$('#workloadLatencyBody');
+  SYSTEMS.forEach(sys=>{
+    const w=WORKLOAD[sys.id];
+    if(!w) return;
+    ['resize'].forEach(work=>{
+      w.lat[work].forEach((lat,idx)=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = `
+          <td class="system"><span class="swatch" style="background:${sys.hex}"></span>${sys.name}</td>
+          <td>${work}</td>
+          <td>${SCALES[idx]}</td>
+          <td class="num">${ms(lat.p50)}</td>
+          <td class="num">${ms(lat.p95)}</td>
+          <td class="num">${ms(lat.p99)}</td>
+        `;
+        tb.appendChild(tr);
+      });
+    });
+  });
+}
+
+function renderRawTable(){
+  const tb=$('#rawTableBody');
+  const idx = SYSTEMS.findIndex(s=>s.id==='chopflow');
+  THROUGHPUT.chopflow.forEach((tp,i)=>{
+    const lat=LATENCY.chopflow[i];
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${SCALES[i]}</td>
+      <td class="num">${fmt(tp)} <span class="dim">/s</span></td>
+      <td class="num">${ms(lat.p50)}</td>
+      <td class="num">${ms(lat.p95)}</td>
+      <td class="num">${ms(lat.p99)}</td>
+      <td class="num">0</td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+/* ============================================================ build all */
+function build(){
+  // throughput: single series
+  makeBarChart('#throughputChart',{
+    series:[{values:THROUGHPUT.chopflow,color:'var(--primary)',labels:['1,000 tasks','10,000 tasks','100,000 tasks','1,000,000 tasks']}],
+    yMax:16000,ticks:[0,4000,8000,12000,16000]
+  });
+
+  // latency: grouped by scale, p50/p95/p99
+  makeBarChart('#latencyChart',{
+    series:[
+      {values:LATENCY.chopflow.map(x=>x.p50),color:'var(--primary)',name:'p50'},
+      {values:LATENCY.chopflow.map(x=>x.p95),color:'var(--purple)',name:'p95'},
+      {values:LATENCY.chopflow.map(x=>x.p99),color:'var(--warn)',name:'p99'}
+    ],
+    yMax:7000,ticks:[0,2000,4000,6000],grouped:true,barGap:4
+  });
+  legend('#latencyLegend',[
+    {name:'p50',color:'var(--primary)'},
+    {name:'p95',color:'var(--purple)'},
+    {name:'p99',color:'var(--warn)'}
+  ]);
+
+  // scaling line
+  makeLineChart('#scalingChart',THROUGHPUT.chopflow);
+
+  // comparison: grouped bars, log y
+  const cmpSeries=SYSTEMS.map(sys=>({
+    values:THROUGHPUT[sys.id],color:sys.color,name:sys.name
+  }));
+  makeBarChart('#compareChart',{
+    series:cmpSeries,log:true,logMin:1,logMax:5,ticks:[10,100,1000,10000,100000],
+    grouped:true,barGap:3,labelValues:false
+  });
+  legend('#compareLegend',SYSTEMS.map(s=>({name:s.name,color:s.color})));
+  renderCompareTable();
+
+  // workload: x = systems, bars = echo1k, echo10k, resize1k, resize10k
+  const wlSeries=[];
+  const wlColors={'echo1k':'var(--primary)','echo10k':'var(--primary-light)','resize1k':'var(--slate)','resize10k':'var(--muted)'};
+  const wlLabels={'echo1k':'echo 1k','echo10k':'echo 10k','resize1k':'resize 1k','resize10k':'resize 10k'};
+  ['echo1k','echo10k','resize1k','resize10k'].forEach(key=>{
+    wlSeries.push({
+      values:SYSTEMS.map(sys=>{
+        const w=WORKLOAD[sys.id];
+        if(!w) return null;
+        const [work,scale]=key.startsWith('echo')?['echo', key==='echo1k'?0:1]:['resize', key==='resize1k'?0:1];
+        return w[work][scale];
+      }),
+      color:wlColors[key],
+      name:wlLabels[key],
+      labels:SYSTEMS.map(s=>s.name)
+    });
+  });
+  makeBarChart('#workloadChart',{
+    series:wlSeries,log:true,logMin:1,logMax:5,ticks:[10,100,1000,10000,100000],
+    grouped:true,barGap:2,labelValues:false
+  });
+  legend('#workloadLegend',[
+    {name:'echo 1k',color:'var(--primary)'},
+    {name:'echo 10k',color:'var(--primary-light)'},
+    {name:'resize 1k',color:'var(--slate)'},
+    {name:'resize 10k',color:'var(--muted)'}
+  ]);
+  renderWorkloadLatencyTable();
+
+  renderRawTable();
+}
+
+/* ============================================================ reveal on scroll */
+function initReveals(){
+  const obs=new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        e.target.classList.add('in');
+        obs.unobserve(e.target);
+      }
+    });
+  },{threshold:.12,rootMargin:'0px 0px -40px 0px'});
+  $$('.reveal').forEach(el=>obs.observe(el));
+}
+
+build();
+initReveals();
+</script>
 </body>
 </html>
