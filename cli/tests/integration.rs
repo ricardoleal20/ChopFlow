@@ -50,7 +50,7 @@ async fn start_worker(url: String) {
         availability,
         tags,
         4,
-    )));
+    ).unwrap()));
     tokio::spawn(async move {
         let _ = chopflow_worker::start_task_processing(&worker_state).await;
     });
