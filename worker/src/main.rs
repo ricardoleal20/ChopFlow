@@ -29,8 +29,9 @@ enum Commands {
         #[arg(long, short, default_value = "cpu:1")]
         resources: String,
 
-        /// Heartbeat interval in seconds
-        #[arg(long, default_value = "30")]
+        /// Heartbeat interval in seconds. Must stay well below the broker's
+        /// 30s liveness threshold or the worker is marked stale under load.
+        #[arg(long, default_value = "5")]
         heartbeat_interval: u64,
 
         /// Max tasks to run at once. Defaults to the sum of declared resources

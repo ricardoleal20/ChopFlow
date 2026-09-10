@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node (BullMQ driver)
+echo_bullmq/node_modules/
+
+# Rust / Go build artifacts (drivers that build in place)
+echo_apalis/target/
+echo_river/echo_river
+
+# Temporal dev-server SQLite db + scratch logs
+/tmp/chopflow_bench_*

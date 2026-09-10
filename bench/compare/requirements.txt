@@ -1,0 +1,11 @@
+# Comparison harness dependencies for ChopFlow benchmarks.
+# Install into a dedicated venv:
+#   uv venv bench/compare/.venv
+#   uv pip install -r bench/compare/requirements.txt
+celery>=5.4,<6
+redis>=5.0,<6
+temporalio>=1.7,<2
+# Ray driver + its resize workload dep (numpy). Ray is a heavy install; it's
+# a separate category (distributed compute, not a queue) — see README.md.
+ray>=2.5,<3
+numpy>=2.0,<3

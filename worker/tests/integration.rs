@@ -67,13 +67,9 @@ async fn run_echo_end_to_end() -> chopflow::Task {
         available: resources.clone(),
         total: resources.clone(),
     };
-    let worker_state = Arc::new(Mutex::new(WorkerState::new(
-        worker_id.clone(),
-        url.clone(),
-        availability,
-        tags,
-        4,
-    )));
+    let worker_state = Arc::new(Mutex::new(
+        WorkerState::new(worker_id.clone(), url.clone(), availability, tags, 4).unwrap(),
+    ));
 
     // Enqueue an echo task as a producer would.
     let mut client = ChopFlowBrokerClient::connect(url.clone()).await.unwrap();
@@ -137,13 +133,9 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
         total: resources.clone(),
     };
     // Remove the `default` handler so unknown tasks are acked as failure.
-    let worker_state = Arc::new(Mutex::new(WorkerState::new(
-        worker_id.clone(),
-        url.clone(),
-        availability,
-        tags,
-        1,
-    )));
+    let worker_state = Arc::new(Mutex::new(
+        WorkerState::new(worker_id.clone(), url.clone(), availability, tags, 1).unwrap(),
+    ));
     {
         let mut state = worker_state.lock().await;
         state.task_registry = chopflow_worker::TaskRegistry::new();
@@ -239,13 +231,16 @@ async fn worker_runs_tasks_concurrently() {
         available: resources.clone(),
         total: resources.clone(),
     };
-    let worker_state = Arc::new(Mutex::new(WorkerState::new(
-        worker_id.clone(),
-        url.clone(),
-        availability,
-        tags.clone(),
-        4, // concurrency = 4
-    )));
+    let worker_state = Arc::new(Mutex::new(
+        WorkerState::new(
+            worker_id.clone(),
+            url.clone(),
+            availability,
+            tags.clone(),
+            4, // concurrency = 4
+        )
+        .unwrap(),
+    ));
     // Register the slow handler under the enqueued task name.
     {
         let mut state = worker_state.lock().await;

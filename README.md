@@ -453,19 +453,55 @@ A few focused scripts live in `demos/` to exercise specific behaviors — see
 
 ## Benchmarks
 
-Reproducible throughput and latency benchmarks live in
-[`BENCHMARKS.md`](BENCHMARKS.md), with a runnable harness in `bench/`.
-End-to-end through the HTTP API + one worker, Apple M3 Pro, in-memory storage:
+End-to-end through the broker's HTTP API + one worker (`cpu:4`), Apple M3 Pro
+(11 cores), in-memory storage, `echo` no-op workload. Real numbers, measured on
+one machine — never extrapolated. Full methodology, charts, and a live
+benchmarks page: [`BENCHMARKS.md`](BENCHMARKS.md) and
+[`docs/design/chopflow-benchmarks.html`](docs/design/chopflow-benchmarks.html).
 
-| Tasks  | Throughput (drain) | p50 latency | p99 latency |
-|--------|--------------------|-------------|-------------|
-| 1,000  | 540 tasks/s        | 2,067 ms    | 2,344 ms    |
-| 10,000 | 3,462 tasks/s      | 7,481 ms    | 10,786 ms   |
+**Peak drain throughput: 15,153 tasks/s** (100k tasks) — sustained 14,813 tasks/s
+at 1M tasks, with **0 failures across 1.21M tasks**.
+
+### ChopFlow scaling
+
+| Tasks      | Throughput (drain) | p50 latency | p95 latency | p99 latency |
+|------------|--------------------|-------------|-------------|-------------|
+| 1,000      | 4,573 tasks/s      | 561 ms      | 585 ms      | 587 ms      |
+| 10,000     | 12,811 tasks/s     | 507 ms      | 1,015 ms    | 1,016 ms    |
+| 100,000    | 15,153 tasks/s     | 3,408 ms    | 5,736 ms    | 6,217 ms    |
+| 1,000,000  | 14,813 tasks/s     | 30,396 ms   | 55,118 ms   | 57,263 ms   |
+
+### Head-to-head — drain throughput (tasks/s)
+
+Same machine, same `echo` workload, same 4-slot worker shape, sweep 1K→1M.
+`DNF` = did not finish within the time budget (reported honestly, not omitted).
+
+| System   | 1K    | 10K   | 100K   | 1M      |
+|----------|-------|-------|--------|---------|
+| **ChopFlow** | 4,573 | 12,811 | 15,153 | 14,813  |
+| BullMQ   | 7,407 | 9,191 | 10,140 | 10,262  |
+| Ray      | 3,307 | 6,863 | 8,239  | DNF     |
+| Celery   | 1,166 | 1,644 | 1,749  | DNF     |
+| Temporal | 42    | 43    | DNF    | DNF     |
+
+ChopFlow wins at 100K and 1M — **44% faster than BullMQ at 1M** (14,813 vs
+10,262 tasks/s). BullMQ leads the 1K/10K echo race (lower per-task dispatch
+overhead via Redis Streams); ChopFlow pulls ahead as scale rises and its
+in-memory broker avoids per-task Redis round-trips.
+
+> **Category caveats (honest, not a flaw in either system):** Temporal is a
+> durable workflow engine that persists every step — a heavier category by
+> design, included for context. Ray is a distributed-compute framework
+> (Dask/Spark-like); its throughput includes object-store + cross-actor
+> scheduler cost — apples-to-pears. Celery 1M and Ray 1M did not complete
+> within the time budget.
 
 Reproduce with:
 
 ```bash
-bash bench/run.sh
+bash bench/run.sh                          # ChopFlow 1K/10K/100K sweep
+TASKS="1000 10000 100000 1000000" bash bench/run.sh   # add the 1M run
+bash bench/compare/run_compare.sh          # Celery + Temporal + BullMQ + Ray
 ```
 
 ## Roadmap

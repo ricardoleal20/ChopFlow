@@ -28,7 +28,9 @@ use crate::schedule::Schedule;
 use crate::task::{Task, TaskStatus};
 use async_trait::async_trait;
 use rusqlite::Connection;
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -110,17 +112,122 @@ pub trait Storage: Send + Sync + 'static {
 // In-memory implementation
 // ---------------------------------------------------------------------------
 
+/// BTreeMap key for the ready queue. Ascending iteration yields the next task
+/// to claim: highest priority first (via `Reverse`), then earliest ETA (`None`
+/// sorts before `Some`, so immediately-ready tasks come first), then earliest
+/// enqueue time (FIFO tie-break), then id as a unique tie-breaker so two tasks
+/// can never collide on the same key.
+type ReadyKey = (
+    Reverse<i32>,
+    Option<chrono::DateTime<chrono::Utc>>,
+    chrono::DateTime<chrono::Utc>,
+    Uuid,
+);
+
+/// O(1) atomic status counters. `count_by_status` / `count_pending` read these
+/// instead of scanning the task map, so the stats poll (dashboard + benchmark
+/// drain loop) costs nothing regardless of how many tasks are stored. `Created`
+/// is intentionally untracked — it mirrors the old scan-based behavior where
+/// `Created` tasks were skipped.
+#[derive(Default)]
+struct StatusCounters {
+    queued: AtomicU64,
+    running: AtomicU64,
+    completed: AtomicU64,
+    failed: AtomicU64,
+    dead_lettered: AtomicU64,
+    cancelled: AtomicU64,
+}
+
+impl StatusCounters {
+    fn snapshot(&self) -> StatusCounts {
+        StatusCounts {
+            queued: self.queued.load(Ordering::Relaxed) as usize,
+            running: self.running.load(Ordering::Relaxed) as usize,
+            completed: self.completed.load(Ordering::Relaxed) as usize,
+            failed: self.failed.load(Ordering::Relaxed) as usize,
+            dead_lettered: self.dead_lettered.load(Ordering::Relaxed) as usize,
+            cancelled: self.cancelled.load(Ordering::Relaxed) as usize,
+        }
+    }
+
+    fn inc(&self, status: TaskStatus) {
+        match status {
+            TaskStatus::Queued => {
+                self.queued.fetch_add(1, Ordering::Relaxed);
+            }
+            TaskStatus::Running => {
+                self.running.fetch_add(1, Ordering::Relaxed);
+            }
+            TaskStatus::Completed => {
+                self.completed.fetch_add(1, Ordering::Relaxed);
+            }
+            TaskStatus::Failed => {
+                self.failed.fetch_add(1, Ordering::Relaxed);
+            }
+            TaskStatus::DeadLettered => {
+                self.dead_lettered.fetch_add(1, Ordering::Relaxed);
+            }
+            TaskStatus::Cancelled => {
+                self.cancelled.fetch_add(1, Ordering::Relaxed);
+            }
+            TaskStatus::Created => {}
+        }
+    }
+
+    fn dec(&self, status: TaskStatus) {
+        match status {
+            TaskStatus::Queued => {
+                self.queued.fetch_sub(1, Ordering::Relaxed);
+            }
+            TaskStatus::Running => {
+                self.running.fetch_sub(1, Ordering::Relaxed);
+            }
+            TaskStatus::Completed => {
+                self.completed.fetch_sub(1, Ordering::Relaxed);
+            }
+            TaskStatus::Failed => {
+                self.failed.fetch_sub(1, Ordering::Relaxed);
+            }
+            TaskStatus::DeadLettered => {
+                self.dead_lettered.fetch_sub(1, Ordering::Relaxed);
+            }
+            TaskStatus::Cancelled => {
+                self.cancelled.fetch_sub(1, Ordering::Relaxed);
+            }
+            TaskStatus::Created => {}
+        }
+    }
+}
+
 /// In-memory `Storage` backed by a `HashMap` under a `tokio::Mutex`.
+///
+/// Beyond the task map it keeps two derived structures so the hot paths stay
+/// cheap at scale:
+/// - `ready` — a `BTreeMap` index of every `Queued` task keyed by
+///   `(priority, eta, enqueue_time, id)`, so [`Storage::claim_ready`] is
+///   O(batch · log N) instead of an O(N) full scan on every worker fetch. At
+///   1M tasks the old scan capped throughput around ~130 tasks/s; the index
+///   makes each fetch independent of the total task count.
+/// - `stats` — atomic per-status counters, so [`Storage::count_by_status`] /
+///   [`Storage::count_pending`] are O(1) instead of scanning all tasks.
+///
+/// Both are maintained inside `insert` / `claim_ready` / `reconcile`, which all
+/// acquire `tasks` then `ready` in that order to avoid deadlock.
 pub struct InMemoryStorage {
     tasks: Arc<Mutex<HashMap<Uuid, Task>>>,
+    ready: Arc<Mutex<BTreeMap<ReadyKey, Uuid>>>,
     schedules: Arc<Mutex<HashMap<Uuid, Schedule>>>,
+    stats: StatusCounters,
 }
 
 impl InMemoryStorage {
     pub fn new() -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
+            ready: Arc::new(Mutex::new(BTreeMap::new())),
             schedules: Arc::new(Mutex::new(HashMap::new())),
+            stats: StatusCounters::default(),
         }
     }
 }
@@ -139,12 +246,38 @@ impl InMemoryStorage {
         }
         tags.iter().any(|t| task.tags.contains(t))
     }
+
+    /// The ready-queue key for a task. Derived from the task's scheduling
+    /// fields (priority / eta / enqueue_time / id), not its status, so it is
+    /// stable across status transitions and cheap to recompute for removal.
+    fn ready_key(task: &Task) -> ReadyKey {
+        (Reverse(task.priority), task.eta, task.enqueue_time, task.id)
+    }
 }
 
 #[async_trait]
 impl Storage for InMemoryStorage {
     async fn insert(&self, task: Task) -> Result<()> {
         let mut tasks = self.tasks.lock().await;
+        let mut ready = self.ready.lock().await;
+
+        // Undo the previous state of this id (if any) so the counters and the
+        // ready index stay consistent on upsert. Every status transition in the
+        // broker flows through `insert`, so this is the single place that
+        // reconciles derived state with the task map.
+        if let Some(old) = tasks.get(&task.id) {
+            if old.status == TaskStatus::Queued {
+                ready.remove(&Self::ready_key(old));
+            }
+            self.stats.dec(old.status);
+        }
+
+        let new_status = task.status;
+        if new_status == TaskStatus::Queued {
+            ready.insert(Self::ready_key(&task), task.id);
+        }
+        self.stats.inc(new_status);
+
         tasks.insert(task.id, task);
         Ok(())
     }
@@ -176,74 +309,82 @@ impl Storage for InMemoryStorage {
     }
 
     async fn count_pending(&self) -> Result<usize> {
-        let tasks = self.tasks.lock().await;
-        Ok(tasks
-            .values()
-            .filter(|t| t.status == TaskStatus::Queued)
-            .count())
+        Ok(self.stats.queued.load(Ordering::Relaxed) as usize)
     }
 
     async fn count_by_status(&self) -> Result<StatusCounts> {
-        let tasks = self.tasks.lock().await;
-        let mut counts = StatusCounts::default();
-        for t in tasks.values() {
-            match t.status {
-                TaskStatus::Queued => counts.queued += 1,
-                TaskStatus::Running => counts.running += 1,
-                TaskStatus::Completed => counts.completed += 1,
-                TaskStatus::Failed => counts.failed += 1,
-                TaskStatus::DeadLettered => counts.dead_lettered += 1,
-                TaskStatus::Cancelled => counts.cancelled += 1,
-                TaskStatus::Created => {}
-            }
-        }
-        Ok(counts)
+        Ok(self.stats.snapshot())
     }
 
     async fn claim_ready(&self, tags: &[String], max: usize) -> Result<Vec<Task>> {
         let max = max.max(1);
         let mut tasks = self.tasks.lock().await;
+        let mut ready = self.ready.lock().await;
         let now = chrono::Utc::now();
 
-        // Collect ready, matching, queued candidates, then pick the
-        // highest-priority ones: priority desc, then eta asc (None-first via
-        // `Option::cmp`), then enqueue_time asc as a FIFO tie-breaker. We
-        // collect first because we can't mutate while iterating the borrow.
-        let mut candidates: Vec<Task> = tasks
-            .values()
-            .filter(|t| {
-                t.status == TaskStatus::Queued && t.is_ready_at(now) && Self::tags_match(t, tags)
-            })
-            .cloned()
-            .collect();
-        candidates.sort_by(|a, b| {
-            b.priority
-                .cmp(&a.priority)
-                .then(a.eta.cmp(&b.eta))
-                .then(a.enqueue_time.cmp(&b.enqueue_time))
-        });
-        let ids: Vec<Uuid> = candidates.into_iter().take(max).map(|t| t.id).collect();
+        // The ready index holds every Queued task, ordered so that ascending
+        // iteration yields the next-to-claim (highest priority, earliest ETA,
+        // earliest enqueue). Walk it and take the first `max` tasks that are
+        // actually due (`is_ready_at`) and whose tags match. Tasks with a
+        // future ETA, or a tag mismatch belonging to another worker, are
+        // skipped but left in the index. In the common no-ETA / matching-tag
+        // case every visited entry is claimable, so this is O(batch) rather
+        // than the old O(N) full scan — the cost of a fetch no longer grows
+        // with the total number of stored tasks.
+        let mut claimed_ids: Vec<Uuid> = Vec::with_capacity(max);
+        let mut stale_keys: Vec<ReadyKey> = Vec::new();
+        for (key, id) in ready.iter() {
+            if claimed_ids.len() >= max {
+                break;
+            }
+            match tasks.get(id) {
+                // Ghost entry (task gone but index not): clean it up lazily.
+                None => stale_keys.push(*key),
+                Some(task) => {
+                    if task.status == TaskStatus::Queued
+                        && task.is_ready_at(now)
+                        && Self::tags_match(task, tags)
+                    {
+                        claimed_ids.push(*id);
+                    }
+                }
+            }
+        }
 
-        let mut claimed = Vec::with_capacity(ids.len());
-        for id in ids {
-            if let Some(task) = tasks.get_mut(&id) {
+        // Remove claimed + stale entries from the index and flip the claimed
+        // tasks to Running in one pass over the task map.
+        let mut claimed: Vec<Task> = Vec::with_capacity(claimed_ids.len());
+        for id in &claimed_ids {
+            if let Some(task) = tasks.get_mut(id) {
+                ready.remove(&Self::ready_key(task));
                 task.mark_running();
                 claimed.push(task.clone());
             }
         }
+        for key in stale_keys {
+            ready.remove(&key);
+        }
+
+        let n = claimed.len() as u64;
+        self.stats.queued.fetch_sub(n, Ordering::Relaxed);
+        self.stats.running.fetch_add(n, Ordering::Relaxed);
         Ok(claimed)
     }
 
     async fn reconcile(&self) -> Result<usize> {
         let mut tasks = self.tasks.lock().await;
-        let mut n = 0;
+        let mut ready = self.ready.lock().await;
+        let mut n: u64 = 0;
         for task in tasks.values_mut() {
             if task.status == TaskStatus::Running {
                 task.status = TaskStatus::Queued;
+                ready.insert(Self::ready_key(task), task.id);
                 n += 1;
             }
         }
-        Ok(n)
+        self.stats.running.fetch_sub(n, Ordering::Relaxed);
+        self.stats.queued.fetch_add(n, Ordering::Relaxed);
+        Ok(n as usize)
     }
 
     async fn insert_schedule(&self, schedule: Schedule) -> Result<()> {

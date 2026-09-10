@@ -44,13 +44,9 @@ async fn start_worker(url: String) {
         available: resources.clone(),
         total: resources.clone(),
     };
-    let worker_state = Arc::new(Mutex::new(WorkerState::new(
-        worker_id,
-        url,
-        availability,
-        tags,
-        4,
-    )));
+    let worker_state = Arc::new(Mutex::new(
+        WorkerState::new(worker_id, url, availability, tags, 4).unwrap(),
+    ));
     tokio::spawn(async move {
         let _ = chopflow_worker::start_task_processing(&worker_state).await;
     });

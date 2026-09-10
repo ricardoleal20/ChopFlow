@@ -24,6 +24,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio::time;
+use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use tracing::{error, info};
 
@@ -46,6 +47,12 @@ use chopflow::{
 pub struct WorkerState {
     pub id: String,
     pub broker_address: String,
+    /// A persistent gRPC channel to the broker, created once at startup and
+    /// reused for every heartbeat / fetch / ack. Reconnecting per call (the
+    /// old behavior) exhausted the ephemeral port range over a long run —
+    /// each call left a socket in TIME_WAIT, and at 100k+ tasks the worker
+    /// alone opened tens of thousands of connections.
+    pub channel: Channel,
     pub resources: ResourceAvailability,
     pub tags: Vec<String>,
     pub assigned_tasks: HashMap<String, ProtoTask>,
@@ -57,6 +64,15 @@ pub struct WorkerState {
     pub concurrency: usize,
 }
 
+/// Build a lazy (non-blocking) gRPC channel to `broker_address`. The channel
+/// connects on first use and reconnects automatically on failure, so it is
+/// cheap to create even before the broker is reachable.
+fn broker_channel(broker_address: &str) -> Result<Channel> {
+    let endpoint = Endpoint::from_shared(broker_address.to_string())
+        .map_err(|e| ChopFlowError::NetworkError(format!("invalid broker address: {e}")))?;
+    Ok(endpoint.connect_lazy())
+}
+
 impl WorkerState {
     pub fn new(
         id: String,
@@ -64,7 +80,7 @@ impl WorkerState {
         resources: ResourceAvailability,
         tags: Vec<String>,
         concurrency: usize,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut registry = TaskRegistry::new();
 
         // Register a built-in `echo` handler and a `default` fallback so the
@@ -73,15 +89,18 @@ impl WorkerState {
         registry.register("echo", echo_handler);
         registry.register("default", echo_handler);
 
-        Self {
+        let channel = broker_channel(&broker_address)?;
+
+        Ok(Self {
             id,
             broker_address,
+            channel,
             resources,
             tags,
             assigned_tasks: HashMap::new(),
             task_registry: registry,
             concurrency: concurrency.max(1),
-        }
+        })
     }
 
     /// Build a worker state with a caller-supplied handler registry (used by
@@ -93,16 +112,18 @@ impl WorkerState {
         tags: Vec<String>,
         concurrency: usize,
         registry: TaskRegistry,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let channel = broker_channel(&broker_address)?;
+        Ok(Self {
             id,
             broker_address,
+            channel,
             resources,
             tags,
             assigned_tasks: HashMap::new(),
             task_registry: registry,
             concurrency: concurrency.max(1),
-        }
+        })
     }
 }
 
@@ -272,7 +293,7 @@ pub async fn start_worker(
         resources,
         tags,
         concurrency,
-    )));
+    )?));
 
     run_worker(worker_state, heartbeat_interval).await
 }
@@ -312,7 +333,7 @@ pub async fn start_worker_with_registry(
         tags,
         concurrency,
         registry,
-    )));
+    )?));
 
     run_worker(worker_state, heartbeat_interval).await
 }
@@ -417,12 +438,7 @@ pub async fn try_connect_and_register(
 pub async fn send_heartbeat(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()> {
     let state = worker_state.lock().await;
 
-    let mut client = ChopFlowBrokerClient::connect(state.broker_address.clone())
-        .await
-        .map_err(|e| {
-            error!("Failed to connect to broker for heartbeat: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
+    let mut client = ChopFlowBrokerClient::new(state.channel.clone());
 
     let heartbeat_request = Request::new(WorkerHeartbeatRequest {
         worker_id: state.id.clone(),
@@ -554,12 +570,7 @@ pub async fn send_task_acknowledgment(
     result: serde_json::Value,
 ) -> Result<String> {
     let state = worker_state.lock().await;
-    let mut client = ChopFlowBrokerClient::connect(state.broker_address.clone())
-        .await
-        .map_err(|e| {
-            error!("Failed to connect to broker for task acknowledgment: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
+    let mut client = ChopFlowBrokerClient::new(state.channel.clone());
 
     let result_json = serde_json::to_string(&result).unwrap_or_else(|_| {
         r#"{"status": "error", "message": "Failed to serialize result"}"#.to_string()
@@ -598,7 +609,13 @@ pub async fn start_task_processing(worker_state: &Arc<Mutex<WorkerState>>) -> Re
         concurrency
     );
 
-    let poll_interval = Duration::from_secs(2);
+    // When the queue is empty, re-poll quickly rather than sleeping for whole
+    // seconds. The old 2s sleep dominated small-batch latency (a 1k run spent
+    // most of its wall-clock asleep on the first empty fetch) and added a long
+    // tail at the end of every run. With the broker's ready index a fetch is
+    // cheap, so a short idle poll keeps the worker responsive without burning
+    // CPU.
+    let poll_interval = Duration::from_millis(100);
     let mut in_flight: JoinSet<()> = JoinSet::new();
 
     loop {
@@ -645,17 +662,12 @@ pub async fn fetch_tasks(
     worker_state: &Arc<Mutex<WorkerState>>,
     max_tasks: u32,
 ) -> Result<Vec<ProtoTask>> {
-    let (broker_address, worker_id) = {
+    let (channel, worker_id) = {
         let state = worker_state.lock().await;
-        (state.broker_address.clone(), state.id.clone())
+        (state.channel.clone(), state.id.clone())
     };
 
-    let mut client = ChopFlowBrokerClient::connect(broker_address)
-        .await
-        .map_err(|e| {
-            error!("Failed to connect to broker for fetch: {}", e);
-            chopflow_core::error::ChopFlowError::NetworkError(e.to_string())
-        })?;
+    let mut client = ChopFlowBrokerClient::new(channel);
 
     let request = Request::new(FetchTasksRequest {
         worker_id,
