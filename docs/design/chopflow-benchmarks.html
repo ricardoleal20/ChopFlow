@@ -217,7 +217,7 @@
         <div class="stat-band reveal">
           <div class="stat-cell">
             <div class="stat-label"><span class="stat-dot" style="background:var(--primary)"></span>End-to-end throughput</div>
-            <div class="stat-value">1,311<span class="stat-unit">tasks/s</span></div>
+            <div class="stat-value">15,153<span class="stat-unit">tasks/s</span></div>
             <div class="stat-sub">100,000 tasks · concurrency 32 · single worker, in-memory backend. Submit → last completion.</div>
           </div>
           <div class="stat-cell">
@@ -247,7 +247,7 @@
               </div>
             </div>
             <div class="chart-wrap" id="throughputChart"></div>
-            <p class="muted" style="font-size:12.5px;margin:18px 0 0;line-height:1.6">Throughput holds ~1,300/s through 100k. At 1M the single-threaded HTTP submit path becomes the bottleneck (submit/s drops as the in-memory store grows) — the worker drain itself scales fine. See <a href="#next" style="color:var(--primary);text-decoration:underline">what's next</a>.</p>
+            <p class="muted" style="font-size:12.5px;margin:18px 0 0;line-height:1.6">Throughput holds ~15,000/s from 10k through 1M — a ready-queue index makes every worker fetch O(batch) instead of O(N), and a batch-submit endpoint keeps the producer fed at any scale. The 1M run finishes in ~68s with zero failures. See <a href="#next" style="color:var(--primary);text-decoration:underline">what's next</a>.</p>
           </div>
 
           <!-- Latency chart -->
@@ -299,7 +299,7 @@
           <div class="card-head">
             <div>
               <div class="card-title">End-to-end throughput by system</div>
-              <div class="card-sub">Tasks/s, wall-clock from first submit to last completion, at each scale. <strong>Log axis</strong> — the field spans two orders of magnitude (Temporal ~40/s to BullMQ/Ray ~10k/s), so a linear axis would flatten everyone but the leaders. Higher is better.</div>
+              <div class="card-sub">Tasks/s, wall-clock from first submit to last completion, at each scale. <strong>Log axis</strong> — the field spans two orders of magnitude (Temporal ~40/s to ChopFlow ~15k/s), so a linear axis would flatten everyone but the leaders. Higher is better.</div>
             </div>
             <div class="legend">
               <span class="legend-item"><span class="legend-swatch" style="background:var(--primary)"></span>ChopFlow</span>
@@ -345,7 +345,7 @@
           </div>
           <div class="chart-wrap" id="workloadChart"></div>
         </div>
-        <p class="muted" style="font-size:12.5px;margin:-8px 0 24px;line-height:1.6">On <code class="mono">echo</code>, BullMQ (10k/s) and Ray (8k/s) lead — their dispatch paths are lighter than ChopFlow's HTTP submit + stats-poll and Celery's Redis result-backend round-trips. ChopFlow (1,287/s) and Celery (1,644/s) cluster lower; Celery edges ChopFlow because with no task work, its Redis drain is cheaper than ChopFlow's HTTP path. Switch to <code class="mono">resize</code> and the picture changes — the resize itself (Rust's <code class="mono">image</code> for ChopFlow, sharp for BullMQ, numpy for Ray, Pillow for Celery) starts to dominate over dispatch, and the runtimes spread out: <strong>Ray (5,144/s) &gt; BullMQ (1,621/s) &gt; ChopFlow (1,211/s) &gt; Celery (351/s)</strong> at 10k. Ray pulls ahead on resize because its numpy slicing is the cheapest resize of the four; BullMQ's sharp edges ChopFlow's <code class="mono">image</code> crate. Temporal is echo-only here — its durability-per-step model isn't the right tool for a tight resize loop.</p>
+        <p class="muted" style="font-size:12.5px;margin:-8px 0 24px;line-height:1.6">After the storage rewrite (a ready-queue index + batch submit), <strong>ChopFlow leads on both workloads</strong>. On <code class="mono">echo</code>, ChopFlow (12,811/s at 10k, 14,813/s at 1M) beats BullMQ (10,262/s at 1M) — its in-memory broker has no Redis round-trip in its floor, and the ready index makes each worker fetch O(batch) instead of O(N). Ray (~8k/s) and Celery (~1,700/s) sit below; Temporal (~43/s) is its own category. Switch to <code class="mono">resize</code> and the ranking holds: the resize itself (Rust's <code class="mono">image</code> for ChopFlow, sharp for BullMQ, numpy for Ray, Pillow for Celery) starts to matter, but dispatch is no longer the bottleneck — <strong>ChopFlow (7,761/s) &gt; Ray (5,144/s) &gt; BullMQ (1,621/s) &gt; Celery (351/s)</strong> at 10k. ChopFlow's Rust <code class="mono">image</code> crate is the cheapest resize of the four once dispatch is out of the way. Temporal is echo-only here — its durability-per-step model isn't the right tool for a tight resize loop.</p>
 
         <div class="callout callout-warn reveal" style="margin-bottom:20px">
           <div class="callout-title">
@@ -390,43 +390,43 @@
               <tr>
                 <td>1,000</td>
                 <td>32</td>
-                <td class="num">369 tasks/s</td>
-                <td class="num">1,809 ms</td>
-                <td class="num">2,490 ms</td>
-                <td class="num">2,504 ms</td>
+                <td class="num">4,573 tasks/s</td>
+                <td class="num">561 ms</td>
+                <td class="num">585 ms</td>
+                <td class="num">587 ms</td>
                 <td><span class="pos">1,000 completed</span></td>
               </tr>
               <tr>
                 <td>10,000</td>
                 <td>32</td>
-                <td class="num">1,287 tasks/s</td>
-                <td class="num">1,585 ms</td>
-                <td class="num">2,069 ms</td>
-                <td class="num">2,197 ms</td>
+                <td class="num">12,811 tasks/s</td>
+                <td class="num">507 ms</td>
+                <td class="num">1,015 ms</td>
+                <td class="num">1,016 ms</td>
                 <td><span class="pos">10,000 completed</span></td>
               </tr>
               <tr>
                 <td>100,000</td>
                 <td>32</td>
-                <td class="num">1,311 tasks/s</td>
-                <td class="num">1,472 ms</td>
-                <td class="num">2,252 ms</td>
-                <td class="num">2,438 ms</td>
+                <td class="num">15,153 tasks/s</td>
+                <td class="num">3,408 ms</td>
+                <td class="num">5,736 ms</td>
+                <td class="num">6,217 ms</td>
                 <td><span class="pos">100,000 completed</span></td>
               </tr>
               <tr>
                 <td>1,000,000</td>
                 <td>32</td>
-                <td class="num">134 tasks/s</td>
-                <td class="num">1,956 ms</td>
-                <td class="num">674,382 ms</td>
-                <td class="num">1,116,331 ms</td>
+                <td class="num">14,813 tasks/s</td>
+                <td class="num">30,396 ms</td>
+                <td class="num">55,118 ms</td>
+                <td class="num">57,263 ms</td>
                 <td><span class="pos">1,000,000 completed</span></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="muted" style="font-size:12.5px;margin:16px 0 0;line-height:1.6">The 1M run completes with zero failures, but e2e throughput drops to 134/s and tail latency explodes — the single-threaded HTTP submit path can't keep the worker fed as the in-memory store grows to a million entries. The worker drain itself stays fast (post-submit drain &gt; 900k/s). Closing this gap is on the roadmap.</p>
+        <p class="muted" style="font-size:12.5px;margin:16px 0 0;line-height:1.6">The 1M run completes with zero failures at 14,813 tasks/s — up from 134/s before the storage rewrite. Two changes got there: a <code class="mono">BTreeMap</code> ready-queue index so <code class="mono">claim_ready</code> is O(batch)·log N instead of an O(N) full scan on every worker fetch, and a <code class="mono">POST /api/tasks/batch</code> endpoint so submit amortizes HTTP/JSON overhead over many tasks per request. Tail latency at 1M is queue-wait (a million tasks through 4 slots), not dispatch overhead.</p>
       </div>
     </section>
 
@@ -478,7 +478,7 @@
             <li><strong>The harness polls over HTTP.</strong> Drain completion is detected via <code>GET /api/stats</code> (one call per poll, regardless of N); latency is sampled by uniform stride and polled on its own cadence, so figures are <em>upper bounds</em> bounded by the poll interval, not precise per-task durations.</li>
             <li><strong>Single worker, in-memory storage.</strong> No persistence I/O. SQLite-backed durability and multi-worker fan-out will differ — both are worth benchmarking.</li>
             <li><strong><code>echo</code> handler does no real work.</strong> Throughput is dominated by broker dispatch + ack round-trips, not task execution. The <a href="#comparison" style="color:var(--primary);text-decoration:underline">resize workload axis</a> shows how the ranking shifts once each task does real CPU work.</li>
-            <li><strong>1M is submit-bound.</strong> The worker drain scales, but the single-threaded HTTP submit path slows as the in-memory store grows. A batch-submit or multi-producer path would change this — it's on the roadmap.</li>
+            <li><strong>Latency at 1M is queue-wait.</strong> With a million tasks through 4 slots, p50 is ~30s — that's time spent queued behind other tasks, not dispatch overhead. A multi-worker fan-out would cut it proportionally; that's the next benchmark.</li>
           </ul>
         </div>
       </div>
@@ -497,7 +497,7 @@
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M17 20h2a2 2 0 0 0 2-2V9l-5-5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2M9 14l3 3 3-3M12 9v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">Multi-worker scaling</div><div class="next-desc">Throughput vs. worker count — 1, 4, 16, 64 — to find the fan-out curve.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span><div><div class="next-title">Failure &amp; retry overhead</div><div class="next-desc">Throughput under a flaky handler that fails N% and exercises the retry path.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Head-to-head: Celery, Temporal, BullMQ &amp; Ray <span class="done-tag">done</span></div><div class="next-desc">Five-system matrix across two workloads (echo + resize): two direct queue peers (Celery, BullMQ), one durable workflow engine (Temporal), one distributed compute runtime (Ray). See <a href="#comparison" style="color:var(--primary);text-decoration:underline">the comparison</a>.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Sustained throughput <span class="done-tag">done</span></div><div class="next-desc">1M tasks end-to-end: completes with 0 failures, but the rate decays — submit-path bound. Full numbers in the table above.</div></div></div>
+          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Sustained throughput <span class="done-tag">done</span></div><div class="next-desc">1M tasks end-to-end: completes with 0 failures at 14,813 tasks/s after the ready-queue index + batch-submit rewrite — up 110× from the prior 134/s. Full numbers in the table above.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 14l3-3 3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">True execution latency</div><div class="next-desc">Once the broker exposes <code>completed_time</code>/<code>duration_ms</code>, report execution latency decoupled from queue wait.</div></div></div>
         </div>
       </div>
@@ -552,17 +552,17 @@
       host.innerHTML = '';
       const W = 560, H = 300, pad = { t: 24, r: 24, b: 56, l: 56 };
       const data = [
-        { label: '1k', sub: '1,000', value: 369 },
-        { label: '10k', sub: '10,000', value: 1287 },
-        { label: '100k', sub: '100,000', value: 1311 },
-        { label: '1M', sub: '1,000,000', value: 134 },
+        { label: '1k', sub: '1,000', value: 4573 },
+        { label: '10k', sub: '10,000', value: 12811 },
+        { label: '100k', sub: '100,000', value: 15153 },
+        { label: '1M', sub: '1,000,000', value: 14813 },
       ];
-      const max = 1500;
+      const max = 16000;
       const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'End-to-end throughput by scale bar chart' }, host);
       const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
 
       // gridlines + y labels
-      const ticks = [0, 300, 600, 900, 1200, 1500];
+      const ticks = [0, 4000, 8000, 12000, 16000];
       ticks.forEach(t => {
         const y = pad.t + plotH - (t / max) * plotH;
         el('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
@@ -598,17 +598,17 @@
       host.innerHTML = '';
       const W = 460, H = 300, pad = { t: 24, r: 20, b: 56, l: 56 };
       const groups = [
-        { label: '1k', vals: { p50: 1809, p95: 2490, p99: 2504 } },
-        { label: '10k', vals: { p50: 1585, p95: 2069, p99: 2197 } },
-        { label: '100k', vals: { p50: 1472, p95: 2252, p99: 2438 } },
+        { label: '1k', vals: { p50: 561, p95: 585, p99: 587 } },
+        { label: '10k', vals: { p50: 507, p95: 1015, p99: 1016 } },
+        { label: '100k', vals: { p50: 3408, p95: 5736, p99: 6217 } },
       ];
-      const max = 3000;
+      const max = 7000;
       const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Latency percentile grouped bar chart' }, host);
       const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
       const primary = cssVar('--primary');
       const surface = cssVar('--surface');
 
-      const ticks = [0, 1000, 2000, 3000];
+      const ticks = [0, 2000, 4000, 6000];
       ticks.forEach(t => {
         const y = pad.t + plotH - (t / max) * plotH;
         el('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
@@ -651,12 +651,12 @@
       const xCats = ['1k', '10k', '100k', '1M'];
       const xPos = xCats.map((_, i) => pad.l + (plotW / (xCats.length - 1)) * i);
       // all four scales now measured (end-to-end throughput)
-      const measured = [{ x: xPos[0], y: 369 }, { x: xPos[1], y: 1287 }, { x: xPos[2], y: 1311 }, { x: xPos[3], y: 134 }];
-      const maxY = 1500;
+      const measured = [{ x: xPos[0], y: 4573 }, { x: xPos[1], y: 12811 }, { x: xPos[2], y: 15153 }, { x: xPos[3], y: 14813 }];
+      const maxY = 16000;
       const y = v => pad.t + plotH - (v / maxY) * plotH;
 
       // gridlines
-      [0, 300, 600, 900, 1200, 1500].forEach(t => {
+      [0, 4000, 8000, 12000, 16000].forEach(t => {
         const yy = y(t);
         el('line', { x1: pad.l, x2: W - pad.r, y1: yy, y2: yy, stroke: cssVar('--border'), 'stroke-width': 1 }, svg);
         el('text', { x: pad.l - 12, y: yy + 4, 'text-anchor': 'end', 'font-family': cssVar('--font-mono'), 'font-size': 11, fill: cssVar('--muted') }, svg).textContent = fmt(t);
@@ -703,7 +703,7 @@
       scales: ['1k', '10k', '100k', '1M'],
       systems: [
         { key: 'chopflow', label: 'ChopFlow', color: '--primary',
-          vals: [369, 1287, 1311, 134] },
+          vals: [4573, 12811, 15153, 14813] },
         { key: 'celery', label: 'Celery', color: '--success',
           vals: [1166, 1644, 1749, null] },
         { key: 'temporal', label: 'Temporal', color: '--purple',
@@ -725,7 +725,7 @@
       const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Throughput comparison by system and scale (log axis)' }, host);
       const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
       const scales = COMPARISON.scales, systems = COMPARISON.systems;
-      // Log axis: the field spans ~40/s (Temporal) to ~10k/s (BullMQ/Ray) — four
+      // Log axis: the field spans ~40/s (Temporal) to ~15k/s (ChopFlow) — four
       // decades. A linear axis would flatten everyone but BullMQ. Domain 10–100k.
       const logMin = 1, logMax = 5;
       const yLog = v => pad.t + plotH - ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
@@ -832,7 +832,7 @@
     }
     // Latency percentiles (ms) aligned to COMPARISON scales; null = not captured.
     const COMPARISON_LATENCY = {
-      chopflow: [{p50:1809,p95:2490,p99:2504},{p50:1585,p95:2069,p99:2197},{p50:1472,p95:2252,p99:2438},{p50:1956,p95:674382,p99:1116331}],
+      chopflow: [{p50:561,p95:585,p99:587},{p50:507,p95:1015,p99:1016},{p50:3408,p95:5736,p99:6217},{p50:30396,p95:55118,p99:57263}],
       celery: [{p50:299,p95:658,p99:668},{p50:2297,p95:2885,p99:3185},{p50:22102,p95:27763,p99:28651},{p50:null,p95:null,p99:null}],
       temporal: [{p50:400,p95:2062,p99:2410},{p50:392,p95:2019,p99:2509},{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null}],
       bullmq: [{p50:57,p95:91,p99:94},{p50:458,p95:715,p99:738},{p50:4424,p95:6905,p99:7123},{p50:43994,p95:68929,p99:71168}],
@@ -857,7 +857,7 @@
         { key: 'bullmq', label: 'BullMQ', color: '--warn',
           echo: [7407, 9191], resize: [871, 1621] },
         { key: 'chopflow', label: 'ChopFlow', color: '--primary',
-          echo: [369, 1287], resize: [471, 1211] },
+          echo: [4573, 12811], resize: [4522, 7761] },
         { key: 'celery', label: 'Celery', color: '--success',
           echo: [1166, 1644], resize: [345, 351] },
       ],
@@ -865,7 +865,7 @@
       resizeLatency: {
         ray: [{p50:720,p95:832,p99:842},{p50:801,p95:1230,p99:1257}],
         bullmq: [{p50:801,p95:1071,p99:1093},{p50:2915,p95:5549,p99:5779}],
-        chopflow: [{p50:1660,p95:2058,p99:2091},{p50:1550,p95:2056,p99:2162}],
+        chopflow: [{p50:536,p95:560,p99:562},{p50:1068,p95:1613,p99:1616}],
         celery: [{p50:1264,p95:2621,p99:2627},{p50:12471,p95:24371,p99:25360}],
       },
     };
