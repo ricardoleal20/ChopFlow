@@ -291,22 +291,22 @@
       <div class="container">
         <div class="section-head">
           <p class="kicker">Head-to-head</p>
-          <h2>ChopFlow vs. Celery, Temporal, apalis &amp; River.</h2>
-          <p class="lede">Same machine, same no-op <code class="mono">echo</code> workload, same sweep (1k → 1M), same worker shape (one process, 4 execution slots). End-to-end throughput, first submit → last completion. <strong>apalis</strong> (Rust + Redis) and <strong>River</strong> (Go + Postgres) join the matrix — River's driver is built but pending a local PostgreSQL instance, so its cells stay empty rather than guessed. Reproduce with <code class="mono">bash bench/compare/run_compare.sh</code> — full methodology in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/bench/compare/README.md" style="color:var(--primary);text-decoration:underline">bench/compare/README.md</a>.</p>
+          <h2>ChopFlow vs. Celery, Temporal, BullMQ &amp; Ray.</h2>
+          <p class="lede">Same machine, same no-op <code class="mono">echo</code> workload, same sweep (1k → 1M), same worker shape (one process, 4 execution slots). End-to-end throughput, first submit → last completion. <strong>BullMQ</strong> (Node.js + Redis) and <strong>Ray</strong> (Python, distributed compute) join the matrix. Reproduce with <code class="mono">bash bench/compare/run_compare.sh</code> — full methodology in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/bench/compare/README.md" style="color:var(--primary);text-decoration:underline">bench/compare/README.md</a>.</p>
         </div>
 
         <div class="card reveal" style="margin-bottom:28px">
           <div class="card-head">
             <div>
               <div class="card-title">End-to-end throughput by system</div>
-              <div class="card-sub">Tasks/s, wall-clock from first submit to last completion, at each scale. <strong>Log axis</strong> — the field spans four orders of magnitude (Temporal ~40/s to apalis ~45k/s), so a linear axis would flatten everyone but apalis. Higher is better.</div>
+              <div class="card-sub">Tasks/s, wall-clock from first submit to last completion, at each scale. <strong>Log axis</strong> — the field spans two orders of magnitude (Temporal ~40/s to BullMQ/Ray ~10k/s), so a linear axis would flatten everyone but the leaders. Higher is better.</div>
             </div>
             <div class="legend">
               <span class="legend-item"><span class="legend-swatch" style="background:var(--primary)"></span>ChopFlow</span>
               <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>Celery</span>
               <span class="legend-item"><span class="legend-swatch" style="background:var(--purple)"></span>Temporal</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>apalis</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--slate)"></span>River <span style="opacity:.7">(pending)</span></span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>BullMQ</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--slate)"></span>Ray</span>
             </div>
           </div>
           <div class="chart-wrap" id="comparisonChart"></div>
@@ -328,7 +328,7 @@
             <tbody id="comparisonTableBody"></tbody>
           </table>
         </div>
-        <p class="muted" style="font-size:12px;margin:-12px 0 24px;line-height:1.6">† <em>did not finish</em> = the run exceeded its time budget (20 min for 1M, 10 min for 100k). Reported honestly rather than omitted or extrapolated. Temporal's 1M is not attempted — at ~40–60 tasks/s it would take hours; the durability-per-step design makes this expected, not a regression. ‡ <em>pending runtime</em> = River's driver is built and compiles (Go + PostgreSQL), but it needs a local Postgres instance none of the other systems require; its cells stay empty until that's installed, rather than being guessed or marked DNF.</p>
+        <p class="muted" style="font-size:12px;margin:-12px 0 24px;line-height:1.6">† <em>did not finish</em> = the run exceeded its time budget (20 min for 1M, 10 min for 100k). Reported honestly rather than omitted or extrapolated. Temporal's 1M is not attempted — at ~40–60 tasks/s it would take hours; the durability-per-step design makes this expected, not a regression. Ray's 1M is not attempted — its local-cluster startup + per-task object-store overhead make a million-task sweep impractical on one laptop; this is a category property of a distributed-compute runtime, not a queue-engine limit.</p>
 
         <div class="card reveal" style="margin-bottom:24px">
           <div class="card-head">
@@ -337,21 +337,22 @@
               <div class="card-sub">Same systems, two workloads. <strong>echo</strong> = no-op (isolates dispatch overhead). <strong>resize</strong> = real ~ms CPU work (256×256 gradient + half-size nearest-neighbor). Solid bar = echo, translucent = resize. The ranking flips.</div>
             </div>
             <div class="legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>apalis</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>BullMQ</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--slate)"></span>Ray</span>
               <span class="legend-item"><span class="legend-swatch" style="background:var(--primary)"></span>ChopFlow</span>
               <span class="legend-item"><span class="legend-swatch" style="background:var(--success)"></span>Celery</span>
             </div>
           </div>
           <div class="chart-wrap" id="workloadChart"></div>
         </div>
-        <p class="muted" style="font-size:12.5px;margin:-8px 0 24px;line-height:1.6">On <code class="mono">echo</code>, Celery (1,644/s) beats ChopFlow (1,287/s): Celery's Redis result-backend drain is cheaper than ChopFlow's HTTP submit + stats-poll path, and with no task work that overhead is the whole story. Switch to <code class="mono">resize</code> and the ranking flips — <strong>apalis (4,175/s) &gt; ChopFlow (1,211/s) &gt; Celery (351/s)</strong> at 10k. Once each task does real CPU work, the runtime doing the resize (Rust's <code class="mono">image</code> crate for apalis &amp; ChopFlow, Python's Pillow for Celery) dominates over dispatch overhead, and Celery falls to the back. apalis stays ahead of ChopFlow on both axes because its in-process worker + atomic-counter drain carry less per-task overhead than ChopFlow's HTTP-submitted, gRPC-fetched, stats-drained path. Temporal is echo-only here — its durability-per-step model isn't the right tool for a tight resize loop.</p>
+        <p class="muted" style="font-size:12.5px;margin:-8px 0 24px;line-height:1.6">On <code class="mono">echo</code>, BullMQ (10k/s) and Ray (8k/s) lead — their dispatch paths are lighter than ChopFlow's HTTP submit + stats-poll and Celery's Redis result-backend round-trips. ChopFlow (1,287/s) and Celery (1,644/s) cluster lower; Celery edges ChopFlow because with no task work, its Redis drain is cheaper than ChopFlow's HTTP path. Switch to <code class="mono">resize</code> and the picture changes — the resize itself (Rust's <code class="mono">image</code> for ChopFlow, sharp for BullMQ, numpy for Ray, Pillow for Celery) starts to dominate over dispatch, and the runtimes spread out: <strong>Ray (5,144/s) &gt; BullMQ (1,621/s) &gt; ChopFlow (1,211/s) &gt; Celery (351/s)</strong> at 10k. Ray pulls ahead on resize because its numpy slicing is the cheapest resize of the four; BullMQ's sharp edges ChopFlow's <code class="mono">image</code> crate. Temporal is echo-only here — its durability-per-step model isn't the right tool for a tight resize loop.</p>
 
         <div class="callout callout-warn reveal" style="margin-bottom:20px">
           <div class="callout-title">
             <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
             Apples, apples, and pears
           </div>
-          <p style="margin:0 0 8px;font-size:13.5px;line-height:1.6"><strong>Celery</strong> and <strong>apalis</strong> are the direct peers: fire-and-forget task queues, just like ChopFlow. Celery is Python+Redis; apalis is Rust+Redis, so it isolates language/runtime with the same broker. <strong>Temporal</strong> is a different category — a durable workflow engine that persists every workflow step and activity invocation to its database, by design. <strong>River</strong> sits in between: a durable, transactional Postgres-backed queue that persists per-task state without Temporal's workflow/replay machinery — the "cost of lightweight durability" datapoint. Temporal's lower numbers are a category tax, not a flaw; we include these systems with explicit caveats because showing them is more honest than omitting them.</p>
+          <p style="margin:0 0 8px;font-size:13.5px;line-height:1.6"><strong>Celery</strong> and <strong>BullMQ</strong> are the direct peers: fire-and-forget task queues, just like ChopFlow. Celery is Python+Redis; BullMQ is Node.js+Redis Streams. <strong>Temporal</strong> is a different category — a durable workflow engine that persists every workflow step and activity invocation to its database, by design. <strong>Ray</strong> is another category entirely — a distributed compute framework (clusters with a shared object store), closer to Dask/Spark than to a task queue; its throughput includes the cost of its object store + cross-actor scheduler, which is more machinery than a fire-and-forget queue carries. Temporal's and Ray's numbers are a category tax, not a flaw; we include them with explicit caveats because showing them is more honest than omitting them.</p>
         </div>
 
         <div class="callout reveal">
@@ -359,7 +360,7 @@
             <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M12 16v-4M12 8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
             Why these five, and not more?
           </div>
-          <p style="margin:0;font-size:13.5px;line-height:1.6">Each system earns its slot by sitting in a distinct category: ChopFlow (in-memory, Rust), Celery (Python+Redis), apalis (Rust+Redis), Temporal (durable workflow engine), River (durable lightweight, Postgres). We stopped there. <strong>RQ and Dramatiq</strong> sit in the same Python/Redis bucket as Celery — Celery is the canonical representative and the others would cluster with it. <strong>Sidekiq, Asynq, Hatchet</strong> would add a Ruby/Go runtime and a separate broker topology without sharpening the comparison. <strong>AWS SQS / RabbitMQ</strong> are managed broker services whose numbers reflect cloud network round-trips, not queue-engine overhead, and aren't reproducible on one laptop. If you want to add a system, the contract is one <code class="mono">RESULT</code> line — see <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/bench/compare/README.md" style="color:var(--primary);text-decoration:underline">bench/compare/README.md</a>.</p>
+          <p style="margin:0;font-size:13.5px;line-height:1.6">Each system earns its slot by sitting in a distinct category: ChopFlow (in-memory, Rust), Celery (Python+Redis), BullMQ (Node.js+Redis Streams), Temporal (durable workflow engine), Ray (distributed compute). We stopped there. <strong>RQ and Dramatiq</strong> sit in the same Python/Redis bucket as Celery — Celery is the canonical representative and the others would cluster with it. <strong>Sidekiq, Asynq, Hatchet</strong> would add a Ruby/Go runtime and a separate broker topology without sharpening the comparison. <strong>AWS SQS / RabbitMQ</strong> are managed broker services whose numbers reflect cloud network round-trips, not queue-engine overhead, and aren't reproducible on one laptop. If you want to add a system, the contract is one <code class="mono">RESULT</code> line — see <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/bench/compare/README.md" style="color:var(--primary);text-decoration:underline">bench/compare/README.md</a>.</p>
         </div>
       </div>
     </section>
@@ -495,8 +496,7 @@
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l3-8 4 16 3-8h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">SQLite vs. in-memory</div><div class="next-desc">The cost of durability. Same harness, WAL-backed storage.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M17 20h2a2 2 0 0 0 2-2V9l-5-5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2M9 14l3 3 3-3M12 9v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">Multi-worker scaling</div><div class="next-desc">Throughput vs. worker count — 1, 4, 16, 64 — to find the fan-out curve.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span><div><div class="next-title">Failure &amp; retry overhead</div><div class="next-desc">Throughput under a flaky handler that fails N% and exercises the retry path.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Head-to-head: Celery, Temporal, apalis &amp; River <span class="done-tag">done</span></div><div class="next-desc">Five-system matrix across two workloads (echo + resize). apalis &amp; the resize axis added; River's driver is built, pending PostgreSQL. See <a href="#comparison" style="color:var(--primary);text-decoration:underline">the comparison</a>.</div></div></div>
-          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">River numbers (pending PostgreSQL)</div><div class="next-desc">Install Postgres, point <code class="mono">DATABASE_URL</code> at it, fill River's row — the durable-lightweight datapoint the matrix is missing.</div></div></div>
+          <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Head-to-head: Celery, Temporal, BullMQ &amp; Ray <span class="done-tag">done</span></div><div class="next-desc">Five-system matrix across two workloads (echo + resize): two direct queue peers (Celery, BullMQ), one durable workflow engine (Temporal), one distributed compute runtime (Ray). See <a href="#comparison" style="color:var(--primary);text-decoration:underline">the comparison</a>.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><div class="next-title">Sustained throughput <span class="done-tag">done</span></div><div class="next-desc">1M tasks end-to-end: completes with 0 failures, but the rate decays — submit-path bound. Full numbers in the table above.</div></div></div>
           <div class="next-item reveal"><span class="next-marker"><svg viewBox="0 0 24 24" fill="none"><path d="M3 3v18h18M7 14l3-3 3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="next-title">True execution latency</div><div class="next-desc">Once the broker exposes <code>completed_time</code>/<code>duration_ms</code>, report execution latency decoupled from queue wait.</div></div></div>
         </div>
@@ -708,18 +708,14 @@
           vals: [1166, 1644, 1749, null] },
         { key: 'temporal', label: 'Temporal', color: '--purple',
           vals: [42, 43, null, null] },
-        // apalis: Rust + Redis, in-process worker, atomic-counter drain. Measured
-        // in a follow-up sweep on the same machine; its absolute is load-sensitive
-        // (40k–100k/s observed across runs) because the no-op echo + free drain
-        // leaves it with almost no fixed cost. The structural finding — an order of
-        // magnitude above the HTTP-submitted, stats-drained systems — is stable.
-        { key: 'apalis', label: 'apalis', color: '--warn',
-          vals: [80505, 83110, 101710, 97656] },
-        // River: Go + Postgres durable queue. Driver builds + compiles, but needs a
-        // local PostgreSQL instance none of the other systems require. Pending
-        // runtime, not pending measurement of a finished run — shown empty, not DNF.
-        { key: 'river', label: 'River', color: '--slate',
-          vals: [null, null, null, null], pending: true },
+        // BullMQ: Node.js + Redis Streams, separate worker process, network-
+        // mediated drain (Redis INCR counter). A fair fire-and-forget peer.
+        { key: 'bullmq', label: 'BullMQ', color: '--warn',
+          vals: [7407, 9191, 10140, 10262] },
+        // Ray: Python distributed-compute framework, local cluster, ray.wait drain.
+        // Apples-to-pears (compute runtime, not a queue) — category caveat on page.
+        { key: 'ray', label: 'Ray', color: '--slate',
+          vals: [3307, 6863, 8239, null] },
       ],
     };
     function drawComparison() {
@@ -729,8 +725,8 @@
       const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Throughput comparison by system and scale (log axis)' }, host);
       const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
       const scales = COMPARISON.scales, systems = COMPARISON.systems;
-      // Log axis: the field spans ~40/s (Temporal) to ~100k/s (apalis) — four
-      // decades. A linear axis would flatten everyone but apalis. Domain 10–100k.
+      // Log axis: the field spans ~40/s (Temporal) to ~10k/s (BullMQ/Ray) — four
+      // decades. A linear axis would flatten everyone but BullMQ. Domain 10–100k.
       const logMin = 1, logMax = 5;
       const yLog = v => pad.t + plotH - ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
       const barH = v => ((Math.log10(v) - logMin) / (logMax - logMin)) * plotH;
@@ -839,15 +835,15 @@
       chopflow: [{p50:1809,p95:2490,p99:2504},{p50:1585,p95:2069,p99:2197},{p50:1472,p95:2252,p99:2438},{p50:1956,p95:674382,p99:1116331}],
       celery: [{p50:299,p95:658,p99:668},{p50:2297,p95:2885,p99:3185},{p50:22102,p95:27763,p99:28651},{p50:null,p95:null,p99:null}],
       temporal: [{p50:400,p95:2062,p99:2410},{p50:392,p95:2019,p99:2509},{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null}],
-      apalis: [{p50:2,p95:3,p99:4},{p50:3,p95:9,p99:11},{p50:3,p95:8,p99:11},{p50:3,p95:8,p99:11}],
-      river: [{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null},{p50:null,p95:null,p99:null}],
+      bullmq: [{p50:57,p95:91,p99:94},{p50:458,p95:715,p99:738},{p50:4424,p95:6905,p99:7123},{p50:43994,p95:68929,p99:71168}],
+      ray: [{p50:140,p95:214,p99:222},{p50:582,p95:767,p99:769},{p50:2764,p95:5788,p99:5905},{p50:null,p95:null,p99:null}],
     };
     const COMPARISON_FAILS = {
       chopflow: [0,0,0,0],
       celery: [0,0,0,null],
       temporal: [0,0,null,null],
-      apalis: [0,0,0,0],
-      river: [null,null,null,null],
+      bullmq: [0,0,0,0],
+      ray: [0,0,0,null],
     };
     // Workload axis: echo (no-op, dispatch overhead) vs resize (real ~ms CPU work,
     // 256×256 gradient + half-size nearest-neighbor). Same machine, same harness,
@@ -856,8 +852,10 @@
     const WORKLOAD = {
       scales: ['1k', '10k'],
       systems: [
-        { key: 'apalis', label: 'apalis', color: '--warn',
-          echo: [80505, 83110], resize: [4175, 4175] },
+        { key: 'ray', label: 'Ray', color: '--slate',
+          echo: [3307, 6863], resize: [1105, 5144] },
+        { key: 'bullmq', label: 'BullMQ', color: '--warn',
+          echo: [7407, 9191], resize: [871, 1621] },
         { key: 'chopflow', label: 'ChopFlow', color: '--primary',
           echo: [369, 1287], resize: [471, 1211] },
         { key: 'celery', label: 'Celery', color: '--success',
@@ -865,7 +863,8 @@
       ],
       // resize latency (ms), aligned to scales
       resizeLatency: {
-        apalis: [{p50:116,p95:216,p99:225},{p50:1155,p95:2192,p99:2282}],
+        ray: [{p50:720,p95:832,p99:842},{p50:801,p95:1230,p99:1257}],
+        bullmq: [{p50:801,p95:1071,p99:1093},{p50:2915,p95:5549,p99:5779}],
         chopflow: [{p50:1660,p95:2058,p99:2091},{p50:1550,p95:2056,p99:2162}],
         celery: [{p50:1264,p95:2621,p99:2627},{p50:12471,p95:24371,p99:25360}],
       },

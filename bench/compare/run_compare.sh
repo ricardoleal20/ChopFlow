@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Head-to-head comparison runner: Celery + Temporal + apalis + River vs ChopFlow.
+# Head-to-head comparison runner: Celery + Temporal + BullMQ + Ray vs ChopFlow.
 #
-# Starts the dependencies each system needs (Redis for Celery+apalis, Temporal
-# dev server for Temporal, PostgreSQL for River), runs the same sweep through
-# each driver, and prints RESULT lines in the shared machine-readable format.
-# ChopFlow's own numbers come from bench/run.sh — run that first.
+# Starts the dependencies each system needs (Redis for Celery+BullMQ, Temporal
+# dev server for Temporal, a local Ray cluster for Ray), runs the same sweep
+# through each driver, and prints RESULT lines in the shared machine-readable
+# format. ChopFlow's own numbers come from bench/run.sh — run that first.
 #
 # Same fairness contract for every system (see README.md):
 #   - same machine, same workload, same sweep
@@ -28,6 +28,7 @@ SAMPLE="${SAMPLE:-500}"
 BUDGET="${BUDGET:-0}"
 WORKLOAD="${WORKLOAD:-echo}"
 PY="${PY:-python3}"
+NODE="${NODE:-node}"
 
 # Prefer the dedicated venv if present.
 if [ -x .venv/bin/python ]; then PY=".venv/bin/python"; fi
@@ -37,19 +38,18 @@ cleanup() {
   pkill -f "redis-server .*6379" 2>/dev/null || true
   pkill -f "temporal.*start-dev" 2>/dev/null || true
   pkill -f "celery -A echo_celery worker" 2>/dev/null || true
+  pkill -f "node .*echo_bullmq/worker.mjs" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# Redis is shared by Celery and apalis. Start it once up front.
-REDIS_UP=0
+# Redis is shared by Celery and BullMQ. Start it once up front.
 if command -v redis-server >/dev/null 2>&1; then
-  echo "▶ starting Redis (Celery + apalis)…"
+  echo "▶ starting Redis (Celery + BullMQ)…"
   redis-server --daemonize yes --port 6379 --save "" --appendonly no 2>/dev/null || true
-  REDIS_UP=1
 else
   echo "✗ redis-server not found. Install: brew install redis"
-  echo "  skipping Celery + apalis comparisons."
-  SKIP_CELERY=1; SKIP_APALIS=1
+  echo "  skipping Celery + BullMQ comparisons."
+  SKIP_CELERY=1; SKIP_BULLMQ=1
 fi
 
 # ── Celery (needs Redis + a Celery worker) ────────────────────────────────
@@ -71,23 +71,26 @@ if [ -z "${SKIP_CELERY:-}" ]; then
   wait "$CELERY_WORKER_PID" 2>/dev/null || true
 fi
 
-# ── apalis (Rust + Redis, in-process worker) ──────────────────────────────
-if [ -z "${SKIP_APALIS:-}" ]; then
-  APALIS_BIN="$ROOT/bench/compare/echo_apalis/target/release/echo_apalis"
-  if [ ! -x "$APALIS_BIN" ]; then
-    echo "▶ building apalis driver…"
-    (cd "$ROOT/bench/compare/echo_apalis" && cargo build --release 2>&1 | tail -1)
-  fi
-  if [ -x "$APALIS_BIN" ]; then
+# ── BullMQ (Node.js + Redis Streams, separate worker process) ─────────────
+if [ -z "${SKIP_BULLMQ:-}" ]; then
+  if [ -d echo_bullmq/node_modules ]; then
+    echo "▶ starting BullMQ worker (concurrency=4)…"
+    "$NODE" echo_bullmq/worker.mjs --workload "$WORKLOAD" \
+        > /tmp/chopflow_bench_bullmq_worker.log 2>&1 &
+    BULLMQ_WORKER_PID=$!
+    sleep 2
     for n in $TASKS; do
-      echo "════ apalis: ${n} ${WORKLOAD} ════"
-      redis-cli flushdb >/dev/null 2>&1 || true
-      "$APALIS_BIN" --tasks "$n" --concurrency "$CONC" \
+      echo "════ bullmq: ${n} ${WORKLOAD} ════"
+      redis-cli del bench:completed bench:failures bench:latency >/dev/null 2>&1 || true
+      "$NODE" echo_bullmq/driver.mjs --tasks "$n" --concurrency "$CONC" \
           --sample-size "$SAMPLE" --workload "$WORKLOAD" --time-budget "$BUDGET" || true
       echo
     done
+    kill "$BULLMQ_WORKER_PID" 2>/dev/null || true
+    wait "$BULLMQ_WORKER_PID" 2>/dev/null || true
   else
-    echo "✗ apalis driver did not build; skipping."
+    echo "✗ BullMQ deps not installed. Run: (cd echo_bullmq && npm install)"
+    echo "  skipping BullMQ comparison."
   fi
 fi
 
@@ -115,35 +118,21 @@ if [ -z "${SKIP_TEMPORAL:-}" ]; then
   done
 fi
 
-# ── River (Go + PostgreSQL, in-process worker) ────────────────────────────
-# River needs PostgreSQL, which none of the other systems require. If it's not
-# available, skip with a clear note rather than failing — the driver is ready,
-# just waiting on the runtime (install: brew install postgresql@16).
-if [ -z "${SKIP_RIVER:-}" ]; then
-  if [ -z "${DATABASE_URL:-}" ] && ! command -v psql >/dev/null 2>&1; then
-    echo "✗ PostgreSQL not found / DATABASE_URL unset. Install: brew install postgresql@16"
-    echo "  then: createdb riverbench && export DATABASE_URL=postgres://localhost:5432/riverbench?sslmode=disable"
-    echo "  skipping River comparison (driver ready, pending runtime)."
-    SKIP_RIVER=1
-  fi
-fi
-if [ -z "${SKIP_RIVER:-}" ]; then
-  RIVER_DIR="$ROOT/bench/compare/echo_river"
-  if [ ! -f "$RIVER_DIR/echo_river" ]; then
-    echo "▶ building river driver…"
-    (cd "$RIVER_DIR" && go build -o echo_river . 2>&1 | tail -3)
-  fi
-  if [ -f "$RIVER_DIR/echo_river" ]; then
-    for n in $TASKS; do
-      echo "════ river: ${n} ${WORKLOAD} ════"
-      "$RIVER_DIR/echo_river" --tasks "$n" --concurrency "$CONC" \
-          --sample-size "$SAMPLE" --workload "$WORKLOAD" --time-budget "$BUDGET" || true
-      echo
-    done
-  else
-    echo "✗ river driver did not build; skipping."
-  fi
+# ── Ray (Python distributed-compute runtime, local cluster) ───────────────
+# Ray spins up its own local cluster (head + workers) inside the driver process
+# via ray.init(num_cpus=4). No external dependency beyond the `ray` + `numpy`
+# packages. Apples-to-pears with a task queue (see README.md) — included with
+# an explicit category caveat, not as a direct verdict.
+if "$PY" -c "import ray" 2>/dev/null; then
+  for n in $TASKS; do
+    echo "════ ray: ${n} ${WORKLOAD} ════"
+    "$PY" echo_ray.py --tasks "$n" --concurrency "$CONC" \
+        --sample-size "$SAMPLE" --workload "$WORKLOAD" --time-budget "$BUDGET" || true
+    echo
+  done
+else
+  echo "✗ ray not installed in the venv. Run: uv pip install ray numpy"
+  echo "  skipping Ray comparison."
 fi
 
 echo "✓ comparison done"
-
