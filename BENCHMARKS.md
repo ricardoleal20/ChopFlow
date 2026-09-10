@@ -34,12 +34,43 @@ concurrency, then polls until every task reaches a terminal state.
 
 ## Results
 
-| Tasks  | Concurrency | Throughput (drain) | p50 latency | p95 latency | p99 latency |
-|--------|-------------|--------------------|-------------|-------------|-------------|
-| 1,000  | 16          | 540 tasks/s        | 2,067 ms    | 2,323 ms    | 2,344 ms    |
-| 10,000 | 32          | 3,462 tasks/s      | 7,481 ms    | 10,560 ms   | 10,786 ms   |
+End-to-end through the HTTP API + one worker (`cpu:4`), `echo` no-op workload.
+Drain throughput = `N / drain_time`; latency is end-to-end wall time per task
+(enqueue → terminal), **including queue wait**. All runs: 0 failed, 0
+dead-lettered.
 
-All tasks completed; 0 failed, 0 dead-lettered.
+| Tasks      | Throughput (drain) | p50 latency | p95 latency | p99 latency |
+|------------|--------------------|-------------|-------------|-------------|
+| 1,000      | 4,573 tasks/s      | 561 ms      | 585 ms      | 587 ms      |
+| 10,000     | 12,811 tasks/s     | 507 ms      | 1,015 ms    | 1,016 ms    |
+| 100,000    | 15,153 tasks/s     | 3,408 ms    | 5,736 ms    | 6,217 ms    |
+| 1,000,000  | 14,813 tasks/s     | 30,396 ms   | 55,118 ms   | 57,263 ms   |
+
+Peak drain throughput is **15,153 tasks/s** at 100K, sustained at 14,813 tasks/s
+through 1M tasks — 0 failures across 1.21M tasks total. Latency at 1M is
+dominated by queue wait behind a single 4-slot worker, not execution time.
+
+### Head-to-head comparison
+
+Same machine, same `echo` workload, same 4-slot worker shape, sweep 1K→1M.
+`DNF` = did not finish within the time budget — reported honestly, never
+extrapolated or omitted. Drain throughput in tasks/s:
+
+| System   | 1K    | 10K   | 100K   | 1M      |
+|----------|-------|-------|--------|---------|
+| ChopFlow | 4,573 | 12,811 | 15,153 | 14,813  |
+| BullMQ   | 7,407 | 9,191 | 10,140 | 10,262  |
+| Ray      | 3,307 | 6,863 | 8,239  | DNF     |
+| Celery   | 1,166 | 1,644 | 1,749  | DNF     |
+| Temporal | 42    | 43    | DNF    | DNF     |
+
+ChopFlow wins at 100K and 1M — **44% faster than BullMQ at 1M** (14,813 vs
+10,262 tasks/s). BullMQ leads the 1K/10K echo race on lower per-task dispatch
+overhead (Redis Streams); ChopFlow pulls ahead at scale, where its in-memory
+broker avoids per-task Redis round-trips.
+
+The comparison harness and exact configs live in [`bench/compare/`](bench/compare/);
+run it with `bash bench/compare/run_compare.sh`.
 
 ### What these numbers mean
 
@@ -66,10 +97,12 @@ All tasks completed; 0 failed, 0 dead-lettered.
    (see roadmap).
 3. **`echo` handler.** The handler does no real work, so throughput is
    dominated by broker dispatch + ack round-trips, not task execution. A
-   CPU-bound handler would show very different numbers.
-4. **No comparison yet.** A `ChopFlow vs BullMQ vs Celery` comparison on the
-   same machine is the highest-value next benchmark and is tracked as a
-   follow-up.
+   CPU-bound handler (the `resize` workload in the comparison) shows very
+   different numbers — see the workload axis on the benchmarks page.
+4. **Category tax, not a flaw.** Temporal is a durable workflow engine that
+   persists every step, and Ray is a distributed-compute framework whose
+   throughput includes object-store + cross-actor scheduler cost. Their numbers
+   are context, not a verdict on ChopFlow.
 
 ## Scaling the benchmark
 
@@ -91,5 +124,4 @@ uv run --with httpx python3 bench/bench.py --broker http://localhost:8080 --task
 - SQLite-backed throughput vs in-memory (cost of durability).
 - Multi-worker scaling: throughput vs worker count (1, 4, 16, 64).
 - Failure/retry overhead: throughput under a flaky handler.
-- A head-to-head against BullMQ and Celery on this machine.
-- Sustained throughput over 1M tasks.
+- Sustained throughput over 10M tasks.
