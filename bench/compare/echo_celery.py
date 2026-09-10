@@ -59,6 +59,27 @@ def echo(payload):
     return payload
 
 
+@app.task(name="resize")
+def resize(payload):
+    """Real work: generate a gradient image and resize it (Pillow).
+
+    Mirrors ChopFlow's demos `resize_image` handler so the workload is
+    comparable across systems — isolates how each queue's dispatch overhead
+    behaves when the task itself takes ~milliseconds of real CPU.
+    """
+    from PIL import Image
+    w = int(payload.get("width", 256))
+    h = int(payload.get("height", 256))
+    w, h = max(1, w), max(1, h)
+    img = Image.new("RGB", (w, h))
+    px = img.load()
+    for x in range(w):
+        for y in range(h):
+            px[x, y] = (int(x / w * 255), int(y / h * 255), 128)
+    img.resize((max(1, w // 2), max(1, h // 2)), Image.NEAREST)
+    return {"status": "ok", "dims": [w, h]}
+
+
 # --- helpers (mirror bench/bench.py) -------------------------------------
 def pick_sample(indices: list[int], sample_size: int) -> set[int]:
     n = len(indices)
@@ -83,6 +104,9 @@ def main() -> int:
                    help="submit-side concurrency (producer threads), NOT worker concurrency")
     p.add_argument("--sample-size", type=int, default=int(os.environ.get("CELERY_BENCH_SAMPLE", "500")))
     p.add_argument("--sample-interval", type=float, default=0.5)
+    p.add_argument("--workload", choices=["echo", "resize"], default="echo")
+    p.add_argument("--width", type=int, default=256)
+    p.add_argument("--height", type=int, default=256)
     p.add_argument("--poll-interval", type=float, default=0.5)
     p.add_argument("--time-budget", type=float, default=float(os.environ.get("CELERY_BENCH_BUDGET", "0")),
                    help="overall timeout in seconds (0 = unlimited)")
@@ -108,7 +132,10 @@ def main() -> int:
     submitted_at: dict[int, float] = {}
 
     def submit_one(i: int) -> int:
-        sig = echo.s({"i": i})
+        if args.workload == "resize":
+            sig = resize.s({"width": args.width, "height": args.height, "i": i})
+        else:
+            sig = echo.s({"i": i})
         r = sig.apply_async()
         return i, r
 
@@ -254,7 +281,7 @@ def main() -> int:
         print("latency p50/p95/p99: (no timing samples captured)")
     print(f"failures:           {failures}")
     print("─" * 52)
-    print(f"RESULT system=celery tasks={n} conc={conc} throughput={e2e:.0f} "
+    print(f"RESULT system=celery tasks={n} conc={conc} workload={args.workload} throughput={e2e:.0f} "
           f"submit_s={submit_elapsed:.2f} drain_s={drain_elapsed:.2f} "
           f"p50_ms={pct(latencies_ms,0.50):.2f} "
           f"p95_ms={pct(latencies_ms,0.95):.2f} "

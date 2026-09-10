@@ -88,6 +88,10 @@ def main() -> int:
     p.add_argument("--tasks", type=int, default=int(os.environ.get("CHOPFLOW_BENCH_TASKS", "1000")))
     p.add_argument("--concurrency", type=int, default=int(os.environ.get("CHOPFLOW_BENCH_CONC", "16")))
     p.add_argument("--name", default="echo")
+    p.add_argument("--workload", choices=["echo", "resize"], default="echo",
+                   help="echo = no-op (dispatch overhead); resize = real image-resize work")
+    p.add_argument("--width", type=int, default=256)
+    p.add_argument("--height", type=int, default=256)
     p.add_argument("--poll-interval", type=float, default=0.5)
     p.add_argument("--sample-interval", type=float, default=0.5,
                    help="cadence (s) at which sampled tasks are polled for completion (decoupled from stats)")
@@ -154,8 +158,13 @@ def main() -> int:
     poller = threading.Thread(target=sample_poller, args=(poller_client,), daemon=True)
     poller.start()
     submit_start = time.perf_counter()
+    task_name = "resize_image" if args.workload == "resize" else args.name
+    def payload_for(i: int) -> dict:
+        if args.workload == "resize":
+            return {"width": args.width, "height": args.height, "i": i}
+        return {"i": i}
     with ThreadPoolExecutor(max_workers=conc) as pool, httpx.Client(timeout=30, limits=limits) as client:
-        futs = {pool.submit(enqueue_one, client, base, args.name, {"i": i}): i for i in range(n)}
+        futs = {pool.submit(enqueue_one, client, base, task_name, payload_for(i)): i for i in range(n)}
         for f in as_completed(futs):
             i = futs[f]
             tid = f.result()
@@ -251,7 +260,7 @@ def main() -> int:
 
     # Machine-readable line for easy scraping (shared format across systems).
     # `throughput` is the e2e headline; `drain_s` is the post-submit wait only.
-    print(f"RESULT system=chopflow tasks={n} conc={conc} throughput={e2e_throughput:.0f} "
+    print(f"RESULT system=chopflow tasks={n} conc={conc} workload={args.workload} throughput={e2e_throughput:.0f} "
           f"submit_s={submit_elapsed:.2f} drain_s={drain_elapsed:.2f} "
           f"p50_ms={pct(latencies_ms,0.50):.2f} "
           f"p95_ms={pct(latencies_ms,0.95):.2f} "
