@@ -70,7 +70,7 @@ inferred from harness-side polling, which is coarse.
 
 - Record a `completed_time` (and/or `started_time`) on `Task` in
   `core/src/task.rs`, persisted in the SQLite schema and the in-memory store.
-- Surface it in the HTTP API and gRPC proto (`broker/proto/chopflow.proto`).
+- Surface it in the HTTP API and gRPC proto (`proto/proto/chopflow.proto`).
 - Update `BENCHMARKS.md` once the harness can read `duration_ms`.
 
 ### Good first issue because
@@ -87,7 +87,7 @@ and update the proto. High value: unblocks accurate latency benchmarks.
 ### Summary
 
 The Python client is on the roadmap and the gRPC contract it targets is
-already stable in `broker/proto/chopflow.proto`. This is the largest of the
+already stable in `proto/proto/chopflow.proto`. This is the largest of the
 "good first" set but a great contribution for someone who wants to own a
 client SDK.
 

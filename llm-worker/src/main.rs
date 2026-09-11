@@ -43,10 +43,10 @@ use tracing::{error, info, warn};
 // The generated gRPC methods return `Result<_, tonic::Status>` and the oneof
 // enums are large, which trips `result_large_err` / `large_enum_variant`. The
 // types come from tonic/prost, so we allow these two lints on the module.
-#[allow(clippy::result_large_err, clippy::large_enum_variant)]
-pub mod chopflow {
-    tonic::include_proto!("chopflow");
-}
+//
+// The generated code is re-exported from the shared `chopflow-proto` crate so
+// this crate stays crates.io-publishable (no `build.rs` pointing outside it).
+pub use chopflow_proto::chopflow;
 
 use chopflow::{
     chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, FetchTasksRequest,

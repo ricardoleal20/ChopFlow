@@ -1,0 +1,18 @@
+[package]
+name = "chopflow-proto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Generated gRPC protobuf types for ChopFlow (shared by broker, worker, CLI, llm-worker)"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+chopflow_core = { path = "../core", version = "0.1.1" }
+tonic.workspace = true
+prost.workspace = true
+prost-types = "0.12"
+serde_json.workspace = true
+
+[build-dependencies]
+tonic-build = "0.10"

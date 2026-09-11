@@ -56,12 +56,12 @@ jobs:
             exit 1
           fi
 
-  # 2. Publish the six publishable Rust crates to crates.io in dependency
-  #    order. Path-dependency versions (e.g. chopflow_core = { path, version })
-  #    are resolved against crates.io, so a crate cannot be published before
-  #    its dependencies. Each crate is published with a retry loop because
-  #    crates.io indexing of a just-published dependency can lag by a few
-  #    seconds.
+  # 2. Publish the Rust crates to crates.io in dependency order. The publish is
+  #    idempotent: a crate whose version already exists on crates.io is skipped
+  #    (HTTP 400 "already exists" → treated as success), so a re-run of a
+  #    partially-failed release resumes from where it left off instead of
+  #    cascading. Path-dep versions are resolved against crates.io, so a crate
+  #    cannot be published before its dependencies.
   publish-rust:
     name: Publish Rust crates to crates.io
     runs-on: ubuntu-latest
@@ -86,19 +86,50 @@ jobs:
           fi
 
       # Publish order follows the dependency graph (leaf first):
-      #   core -> broker -> worker -> cli -> mcp -> llm-worker
+      #   core -> proto -> broker -> worker -> cli -> mcp -> llm-worker
       # `demos` is publish = false and is intentionally skipped.
       - name: Publish crates in dependency order
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          VERSION="${{ needs.verify-version.outputs.version }}"
+
+          # Check whether $1@VERSION already exists on crates.io.
+          already_published() {
+            local crate="$1"
+            # crates.io API: GET /api/v1/crates/{name} → 200 with max_version,
+            # or 404 if absent. A User-Agent is required.
+            local body
+            body=$(curl -fsSL -A "chopflow-release/1.0" \
+                    "https://crates.io/api/v1/crates/${crate}" 2>/dev/null || true)
+            if echo "$body" | grep -q "\"max_version\":\"${VERSION}\""; then
+              return 0
+            fi
+            # Also handle the case where this exact version is present even if a
+            # newer max exists (yanked/newer pre-release). We accept "already
+            # exists" from cargo publish's exit as well (below).
+            return 1
+          }
 
           publish_with_retry() {
             local crate="$1"
+            if already_published "$crate"; then
+              echo "$crate ${VERSION} already on crates.io — skipping"
+              return 0
+            fi
             local attempts=0
             local max=5
             # crates.io indexing of a freshly published dependency can take a
             # few seconds; retry with backoff until the registry sees it.
-            until cargo publish -p "$crate"; do
+            while true; do
+              # Capture stderr+stdout: a 400 "already exists" means a prior run
+              # published it, which we treat as success.
+              if cargo publish -p "$crate" 2>&1 | tee /tmp/pub.log; then
+                break
+              fi
+              if grep -qi "already exists\|already been published" /tmp/pub.log; then
+                echo "$crate ${VERSION} already exists on crates.io — skipping"
+                break
+              fi
               attempts=$((attempts + 1))
               if [ "$attempts" -ge "$max" ]; then
                 echo "::error::Failed to publish $crate after $max attempts"
@@ -114,6 +145,7 @@ jobs:
 
           for crate in \
               chopflow_core \
+              chopflow-proto \
               chopflow_broker \
               chopflow_worker \
               chopflow_cli \
@@ -150,6 +182,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: clients/python/dist/
+          skip-existing: true # idempotent: skip if this version is already on PyPI
 
   # 4. Open the GitHub Release with auto-generated notes. No binary artifacts
   #    are attached — everything is installed from the package indexes.
@@ -169,7 +202,7 @@ jobs:
 
             **Rust** (crates.io):
             ```sh
-            cargo add chopflow_core chopflow_broker chopflow_worker chopflow_cli chopflow-mcp chopflow-llm-worker
+            cargo add chopflow_core chopflow-proto chopflow_broker chopflow_worker chopflow_cli chopflow-mcp chopflow-llm-worker
             ```
 
             **Python** (PyPI):

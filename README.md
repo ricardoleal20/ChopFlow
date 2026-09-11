@@ -236,7 +236,7 @@ plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
   [`llm-worker/README.md`](llm-worker/README.md).
 - **Client libraries**: Python and Java clients speak gRPC to the broker — see
   [`clients/python`](clients/python) and [`clients/java`](clients/java). The
-  proto contract is in `broker/proto/chopflow.proto`
+  proto contract is in `proto/proto/chopflow.proto`
 
 ## Architecture
 
@@ -562,7 +562,7 @@ output = result.get(timeout=3600)
 
 These client libraries have landed in [`clients/python`](clients/python) and
 [`clients/java`](clients/java); the gRPC contract they speak is defined in
-`broker/proto/chopflow.proto`. Both are ready to use — see each client's README
+`proto/proto/chopflow.proto`. Both are ready to use — see each client's README
 for installation and examples.
 
 ## Documentation

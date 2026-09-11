@@ -23,35 +23,38 @@ WORKDIR /build
 # and cache dependencies across source-only changes.
 COPY Cargo.toml Cargo.lock ./
 COPY core/Cargo.toml        core/Cargo.toml
+COPY proto/Cargo.toml       proto/Cargo.toml
+COPY proto/build.rs         proto/build.rs
+COPY proto/proto            proto/proto
 COPY broker/Cargo.toml      broker/Cargo.toml
 COPY worker/Cargo.toml      worker/Cargo.toml
 COPY cli/Cargo.toml         cli/Cargo.toml
 COPY demos/Cargo.toml       demos/Cargo.toml
-COPY broker/build.rs        broker/build.rs
-COPY broker/proto           broker/proto
 COPY broker/ui/dist         broker/ui/dist
 
 # Create stub libs so `cargo build --release` of the workspace doesn't fail
 # fetching member sources that don't exist yet during the dependency pre-build.
-RUN mkdir -p core/src broker/src worker/src cli/src demos/src demos/src/bin \
+RUN mkdir -p core/src proto/src broker/src worker/src cli/src demos/src demos/src/bin \
     && echo "pub fn lib() {}" > core/src/lib.rs \
+    && echo "" > proto/src/lib.rs \
     && echo "fn main() {}" > broker/src/main.rs \
     && echo "fn main() {}" > worker/src/main.rs \
     && echo "fn main() {}" > cli/src/main.rs \
     && echo "fn main() {}" > demos/src/main.rs \
     && echo "fn main() {}" > demos/src/bin/seed.rs \
-    && cargo build --release || true
+    && cargo build --release -p chopflow_broker -p chopflow_worker -p chopflow_cli || true
 
 # Now copy the real sources and build the release binaries.
 COPY core     core
+COPY proto    proto
 COPY broker   broker
 COPY worker   worker
 COPY cli      cli
 COPY demos    demos
 
-RUN touch core/src/lib.rs broker/src/main.rs worker/src/main.rs \
+RUN touch core/src/lib.rs proto/src/lib.rs broker/src/main.rs worker/src/main.rs \
         cli/src/main.rs demos/src/main.rs demos/src/bin/seed.rs \
-    && cargo build --release
+    && cargo build --release -p chopflow_broker -p chopflow_worker -p chopflow_cli
 
 # --- Runtime stage ---------------------------------------------------------
 FROM debian:bookworm-slim AS runtime

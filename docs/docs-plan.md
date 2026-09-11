@@ -26,7 +26,7 @@ authoritative files per topic:
 | Scheduling | `core/src/schedule.rs` |
 | Storage backends | `core/src/storage.rs` |
 | Resources & tags | `core/src/resources.rs` |
-| Broker gRPC service | `broker/src/lib.rs`, `broker/proto/chopflow.proto` |
+| Broker gRPC service | `broker/src/lib.rs`, `proto/proto/chopflow.proto` |
 | Broker HTTP API + embedded UI | `broker/src/http.rs`, `broker/src/main.rs` |
 | Worker | `worker/src/main.rs` |
 | CLI | `cli/src/main.rs` |
@@ -160,7 +160,7 @@ request/response example block. Methods: `GET /api/stats`, `GET /api/tasks`
 - **Python/Java pages:** show the intended ergonomics (the `@task` /
   `AsyncResult` example), then a clearly-marked `warn` callout: "This client
   is on the roadmap. The gRPC contract it targets is stable in
-  `broker/proto/chopflow.proto`." Link to CONTRIBUTING §8.
+  `proto/proto/chopflow.proto`." Link to CONTRIBUTING §8.
 - **"More clients soon" page:** single `info` callout, no content. This is
   the reserved space.
 
