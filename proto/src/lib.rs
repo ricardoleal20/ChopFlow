@@ -20,7 +20,7 @@ pub mod chopflow {
     tonic::include_proto!("chopflow");
 }
 
-use chopflow:: {
+use chopflow::{
     ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask,
     TaskStatus as ProtoTaskStatus, Worker as ProtoWorker,
 };
