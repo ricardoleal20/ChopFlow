@@ -3,7 +3,7 @@
 A Java worker + producer SDK for [ChopFlow](../../README.md), the distributed task
 queue in Rust. The broker and all execution logic live in Rust; this SDK lets you
 **define and run task handlers in Java** and **enqueue tasks from Java**, speaking
-gRPC to the broker over the contract in [`broker/proto/chopflow.proto`](../../broker/proto/chopflow.proto).
+gRPC to the broker over the contract in [`proto/proto/chopflow.proto`](../../proto/proto/chopflow.proto).
 
 > **Build status:** Verified — `mvn clean install` passes (JDK 21 + Maven 3.9.9) and
 > the example round-trips end-to-end against the Rust broker (Java producer enqueues
@@ -102,9 +102,9 @@ same gRPC contract and `default` tag.)
 
 ## How codegen works
 
-- `broker/proto/chopflow.proto` is the single source of truth. The
+- `proto/proto/chopflow.proto` is the single source of truth. The
   `protobuf-maven-plugin` compiles it (with `java_package =
-  dev.ricardoleal20.chopflow.grpc`) straight from `../../broker/proto`.
+  dev.ricardoleal20.chopflow.grpc`) straight from `../../proto/proto`.
 - The well-known protos (`google/protobuf/timestamp.proto`, `empty.proto`) are
   vendored under `src/main/proto-import/` as an **import-only** path, so `protoc`
   can resolve them without generating duplicate classes — those come from

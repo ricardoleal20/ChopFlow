@@ -3,7 +3,7 @@
 A Python worker + producer SDK for [ChopFlow](../../README.md), the distributed task
 queue in Rust. The broker and all execution logic live in Rust; this SDK lets you
 **define and run task handlers in Python** and **enqueue tasks from Python**, speaking
-gRPC to the broker over the contract in [`broker/proto/chopflow.proto`](../../broker/proto/chopflow.proto).
+gRPC to the broker over the contract in [`proto/proto/chopflow.proto`](../../proto/proto/chopflow.proto).
 
 > **Build status:** Verified — `pytest` passes (Python 3.12 + grpcio 1.83) and the
 > examples round-trip end-to-end against the Rust broker (Python producer enqueues an
@@ -30,7 +30,7 @@ toolchain is required** to install or use the SDK. Regenerate them only when the
 changes:
 
 ```bash
-python generate.py        # reads ../../broker/proto/chopflow.proto
+python generate.py        # reads ../../proto/proto/chopflow.proto
 ```
 
 ## Usage

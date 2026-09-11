@@ -1093,7 +1093,7 @@ pub use task::Task;</code></pre>
       <!-- ===== CLIENT LIBRARIES ===== -->
       <article class="doc-page" id="page-client-rust" data-page="client-rust">
         <h1>Rust Client</h1>
-        <p class="doc-lede">Rust is the first-class client language. Speak gRPC to the broker with the tonic client generated from <code>broker/proto/chopflow.proto</code>, or embed <code>chopflow-core</code> in-process for tests.</p>
+        <p class="doc-lede">Rust is the first-class client language. Speak gRPC to the broker with the tonic client generated from <code>proto/proto/chopflow.proto</code>, or embed <code>chopflow-core</code> in-process for tests.</p>
 
         <h2 id="rust-grpc">gRPC client<a class="anchor" href="#rust-grpc">#</a></h2>
         <p>The proto compiles to a <code>ChopFlowBrokerClient</code> under the <code>chopflow</code> module. This is the same client the worker and CLI use internally:</p>
@@ -1139,13 +1139,13 @@ task.status = <span class="tok-ty">TaskStatus</span>::Queued;
 storage.<span class="tok-fn">insert</span>(task.<span class="tok-fn">clone</span>()).<span class="tok-kw">await</span>?;</code></pre>
         </div>
 
-        <div class="callout callout-info"><p class="callout-title">Where the client lives</p><p>There is no separate <code>chopflow-client</code> crate today. The gRPC client is generated from the proto by whichever crate needs it (<code>worker</code>, <code>cli</code>, <code>demos</code>). Reuse <code>broker/proto/chopflow.proto</code> to generate it in your own crate.</p></div>
+        <div class="callout callout-info"><p class="callout-title">Where the client lives</p><p>There is no separate <code>chopflow-client</code> crate today. The gRPC client is generated from the proto by whichever crate needs it (<code>worker</code>, <code>cli</code>, <code>demos</code>). Reuse <code>proto/proto/chopflow.proto</code> to generate it in your own crate.</p></div>
       </article>
       <article class="doc-page" id="page-client-python" data-page="client-python">
         <h1>Python Client</h1>
         <p class="doc-lede">The Python client brings Celery-like ergonomics — a <code>@task</code> decorator, <code>.delay()</code>, and an <code>AsyncResult</code> handle — speaking gRPC to the broker.</p>
 
-        <div class="callout callout-success"><p class="callout-title">Shipped</p><p>This client has landed in <a href="https://github.com/ricardoleal20/ChopFlow/tree/main/clients/python" style="color:var(--primary);text-decoration:underline"><code>clients/python</code></a>. The gRPC contract it speaks is defined in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/broker/proto/chopflow.proto" style="color:var(--primary);text-decoration:underline"><code>broker/proto/chopflow.proto</code></a>; see <a href="#grpc" style="color:var(--primary);text-decoration:underline">gRPC Reference</a> for the methods it calls.</p></div>
+        <div class="callout callout-success"><p class="callout-title">Shipped</p><p>This client has landed in <a href="https://github.com/ricardoleal20/ChopFlow/tree/main/clients/python" style="color:var(--primary);text-decoration:underline"><code>clients/python</code></a>. The gRPC contract it speaks is defined in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/proto/proto/chopflow.proto" style="color:var(--primary);text-decoration:underline"><code>proto/proto/chopflow.proto</code></a>; see <a href="#grpc" style="color:var(--primary);text-decoration:underline">gRPC Reference</a> for the methods it calls.</p></div>
 
         <h2 id="python-intended">Ergonomics<a class="anchor" href="#python-intended">#</a></h2>
         <p>The API surface, mirroring the Celery idiom Python developers already know:</p>
@@ -1173,7 +1173,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         <h1>Java Client</h1>
         <p class="doc-lede">The Java client offers a typed task interface over the same gRPC contract — register handlers, submit tasks, and await results.</p>
 
-        <div class="callout callout-success"><p class="callout-title">Shipped</p><p>This client has landed in <a href="https://github.com/ricardoleal20/ChopFlow/tree/main/clients/java" style="color:var(--primary);text-decoration:underline"><code>clients/java</code></a>. The gRPC contract it speaks is defined in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/broker/proto/chopflow.proto" style="color:var(--primary);text-decoration:underline"><code>broker/proto/chopflow.proto</code></a>.</p></div>
+        <div class="callout callout-success"><p class="callout-title">Shipped</p><p>This client has landed in <a href="https://github.com/ricardoleal20/ChopFlow/tree/main/clients/java" style="color:var(--primary);text-decoration:underline"><code>clients/java</code></a>. The gRPC contract it speaks is defined in <a href="https://github.com/ricardoleal20/ChopFlow/blob/main/proto/proto/chopflow.proto" style="color:var(--primary);text-decoration:underline"><code>proto/proto/chopflow.proto</code></a>.</p></div>
 
         <h2 id="java-intended">Ergonomics<a class="anchor" href="#java-intended">#</a></h2>
         <p>The API surface — a typed <code>@ChopTask</code> annotation and a future-backed result handle, speaking gRPC via the generated stub:</p>
@@ -1381,7 +1381,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         <h1>gRPC Reference</h1>
         <p class="doc-lede">The broker serves a gRPC API on the configured <code>--port</code> (default <code>8000</code>) via tonic. This is the wire protocol workers and clients speak; the HTTP API is a thin facade over the same <code>BrokerState</code>.</p>
 
-        <p>The service is defined in <code>broker/proto/chopflow.proto</code> (<code>package chopflow</code>). Generate a client in any language with gRPC tooling.</p>
+        <p>The service is defined in <code>proto/proto/chopflow.proto</code> (<code>package chopflow</code>). Generate a client in any language with gRPC tooling.</p>
 
         <h2 id="grpc-methods">Service methods<a class="anchor" href="#grpc-methods">#</a></h2>
         <div class="table-wrap">

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate Python gRPC stubs from the ChopFlow proto.
 
-Run after changing `broker/proto/chopflow.proto`:
+Run after changing `proto/proto/chopflow.proto`:
 
     python generate.py
 
@@ -20,7 +20,7 @@ from grpc_tools import protoc
 def main() -> int:
     here = Path(__file__).resolve().parent
     repo_root = here.parent.parent
-    proto_dir = repo_root / "broker" / "proto"
+    proto_dir = repo_root / "proto" / "proto"
     proto = proto_dir / "chopflow.proto"
     out_dir = here / "src" / "chopflow" / "_generated"
     out_dir.mkdir(parents=True, exist_ok=True)

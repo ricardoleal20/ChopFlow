@@ -8,8 +8,8 @@
   <!--
     ChopFlow Java client / worker SDK.
 
-    Speaks gRPC to the Rust broker (broker/proto/chopflow.proto). The proto is
-    compiled from its single source of truth in broker/proto; well-known Google
+    Speaks gRPC to the Rust broker (proto/proto/chopflow.proto). The proto is
+    compiled from its single source of truth in the chopflow-proto crate; well-known Google
     protos (timestamp, empty) are vendored under src/main/proto-import as an
     import-only path so protoc can resolve them without generating duplicate
     classes (those come from com.google.protobuf:protobuf-java).
@@ -118,8 +118,8 @@
           <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
           <pluginId>grpc-java</pluginId>
           <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
-          <!-- Single source of truth: the proto lives in the Rust broker crate. -->
-          <protoSourceRoot>${project.basedir}/../../broker/proto</protoSourceRoot>
+          <!-- Single source of truth: the proto lives in the chopflow-proto crate. -->
+          <protoSourceRoot>${project.basedir}/../../proto/proto</protoSourceRoot>
           <!-- Import-only path for well-known protos (not generated). -->
           <additionalProtoPathElements>
             <additionalProtoPathElement>${project.basedir}/src/main/proto-import</additionalProtoPathElement>
