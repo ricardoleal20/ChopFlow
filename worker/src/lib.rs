@@ -28,14 +28,11 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use tracing::{error, info};
 
-// Generate code from protobuf definitions.
-// The generated gRPC methods return `Result<_, tonic::Status>` and the oneof
-// enums are large, which trips `result_large_err` / `large_enum_variant`. The
-// types come from tonic/prost, so we allow these two lints on the module.
-#[allow(clippy::result_large_err, clippy::large_enum_variant)]
-pub mod chopflow {
-    tonic::include_proto!("chopflow");
-}
+// Re-export the generated gRPC types from the shared `chopflow-proto` crate.
+// The proto is compiled once there (not per consumer), which keeps this crate
+// crates.io-publishable: `cargo publish` verifies the tarball in isolation and
+// would reject a `build.rs` pointing at `../broker/proto/...`.
+pub use chopflow_proto::chopflow;
 
 use chopflow::{
     chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, FetchTasksRequest,

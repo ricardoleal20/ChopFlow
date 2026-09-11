@@ -24,14 +24,12 @@ use tonic::{transport::Server, Request, Response, Status};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-// Generate code from protobuf definitions.
-// The generated gRPC methods return `Result<_, tonic::Status>` and the oneof
-// enums are large, which trips `result_large_err` / `large_enum_variant`. The
-// types come from tonic/prost, so we allow these two lints on the module.
-#[allow(clippy::result_large_err, clippy::large_enum_variant)]
-pub mod chopflow {
-    tonic::include_proto!("chopflow");
-}
+// Re-export the generated gRPC types from the shared `chopflow-proto` crate.
+// The proto is compiled once there (not per consumer), and keeping it in its
+// own crate makes every dependent crates.io-publishable: `cargo publish`
+// verifies the tarball in isolation, so a `build.rs` pointing at
+// `../broker/proto/...` (outside the crate) would fail.
+pub use chopflow_proto::chopflow;
 
 /// HTTP / JSON API + embedded dashboard UI.
 pub mod http;
@@ -43,10 +41,9 @@ use chopflow::{
     GetQueueStatsRequest, GetQueueStatsResponse, GetTaskStatusRequest, GetTaskStatusResponse,
     ListSchedulesRequest, ListSchedulesResponse, ListTasksRequest, ListTasksResponse,
     ListWorkersResponse, OverlapPolicy as ProtoOverlapPolicy, RegisterWorkerRequest,
-    RegisterWorkerResponse, ResourceAvailability as ProtoResourceAvailability,
-    Schedule as ProtoSchedule, ScheduleKind as ProtoScheduleKind, Task as ProtoTask,
-    TaskStatus as ProtoTaskStatus, TaskTemplate as ProtoTaskTemplate, Worker as ProtoWorker,
-    WorkerHeartbeatRequest, WorkerHeartbeatResponse,
+    RegisterWorkerResponse, Schedule as ProtoSchedule, ScheduleKind as ProtoScheduleKind,
+    Task as ProtoTask, TaskStatus as ProtoTaskStatus, TaskTemplate as ProtoTaskTemplate,
+    Worker as ProtoWorker, WorkerHeartbeatRequest, WorkerHeartbeatResponse,
 };
 
 use chopflow::chop_flow_broker_server::{ChopFlowBroker, ChopFlowBrokerServer};
@@ -111,69 +108,9 @@ pub fn build_storage(backend: &StorageBackend) -> std::result::Result<Arc<dyn St
     }
 }
 
-// Conversions between core and proto types
-impl From<Task> for ProtoTask {
-    fn from(task: Task) -> Self {
-        ProtoTask {
-            id: task.id.to_string(),
-            name: task.name,
-            payload: serde_json::to_string(&task.payload).unwrap_or_default(),
-            tags: task.tags,
-            enqueue_time: Some(prost_types::Timestamp {
-                seconds: task.enqueue_time.timestamp(),
-                nanos: task.enqueue_time.timestamp_subsec_nanos() as i32,
-            }),
-            eta: task.eta.map(|eta| prost_types::Timestamp {
-                seconds: eta.timestamp(),
-                nanos: eta.timestamp_subsec_nanos() as i32,
-            }),
-            retry_count: task.retry_count,
-            max_retries: task.max_retries,
-            status: task.status as i32,
-            resources: task.resources,
-            result: task.result.unwrap_or_default(),
-            schedule_id: task.schedule_id.map(|u| u.to_string()).unwrap_or_default(),
-            priority: task.priority,
-        }
-    }
-}
-
-impl From<ProtoTaskStatus> for TaskStatus {
-    fn from(status: ProtoTaskStatus) -> Self {
-        match status {
-            ProtoTaskStatus::Created => TaskStatus::Created,
-            ProtoTaskStatus::Queued => TaskStatus::Queued,
-            ProtoTaskStatus::Running => TaskStatus::Running,
-            ProtoTaskStatus::Completed => TaskStatus::Completed,
-            ProtoTaskStatus::Failed => TaskStatus::Failed,
-            ProtoTaskStatus::Deadlettered => TaskStatus::DeadLettered,
-            ProtoTaskStatus::Cancelled => TaskStatus::Cancelled,
-        }
-    }
-}
-
-impl From<Worker> for ProtoWorker {
-    fn from(worker: Worker) -> Self {
-        ProtoWorker {
-            id: worker.id.to_string(),
-            address: worker.address,
-            tags: worker.tags,
-            resources: Some(ProtoResourceAvailability {
-                available: worker.resources.available.clone(),
-                total: worker.resources.total.clone(),
-            }),
-            assigned_tasks: worker
-                .assigned_tasks
-                .iter()
-                .map(|id| id.to_string())
-                .collect(),
-            last_heartbeat: Some(prost_types::Timestamp {
-                seconds: worker.last_heartbeat.timestamp(),
-                nanos: worker.last_heartbeat.timestamp_subsec_nanos() as i32,
-            }),
-        }
-    }
-}
+// Conversions between core and proto types live in the `chopflow-proto` crate
+// (the generated proto types are defined there, so the `From` impls must be
+// there to satisfy Rust's orphan rule).
 
 /// Convert a proto `TaskTemplate` into the core type. The proto payload is a
 /// JSON string; we parse it into a `serde_json::Value` here.
