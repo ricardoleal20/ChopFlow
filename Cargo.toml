@@ -1,9 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["core", "proto", "broker", "worker", "cli", "demos", "mcp", "llm-worker"]
+members = [
+    "core", "proto", "broker", "worker", "cli", "demos", "mcp", "llm-worker",
+    "chopflow",
+]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Ricardo Leal"]
 description = "ChopFlow — a durable distributed task queue built in Rust"
