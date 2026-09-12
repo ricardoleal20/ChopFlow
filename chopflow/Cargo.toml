@@ -3,31 +3,27 @@ name = "chopflow"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "ChopFlow — a durable distributed task queue built in Rust (umbrella binary crate)"
+description = "ChopFlow — a durable distributed task queue built in Rust (unified binary crate)"
 readme = "README.md"
 repository.workspace = true
 license.workspace = true
 
-# One `cargo install chopflow` installs all three binaries:
-#   chopflow-broker — the broker (gRPC + HTTP/dashboard server)
-#   chopflow-cli    — the task/schedule CLI client
-#   chopflow-mcp    — the MCP server (AI tools over the broker HTTP API)
-# Each is a thin wrapper over the matching library crate's `run()`.
+# One `cargo install chopflow` installs a single unified `chopflow` command:
+#   chopflow broker start   — the broker (gRPC + HTTP/dashboard server)
+#   chopflow mcp            — the MCP server (AI tools over the broker HTTP API)
+#   chopflow enqueue        — enqueue a task
+#   chopflow status         — task status / queue stats
+#   chopflow schedule ...   — manage schedules
+# Each subcommand delegates to the matching library crate's `run()`.
 
 [dependencies]
-chopflow_broker = { path = "../broker", version = "0.1.2" }
-chopflow_cli = { path = "../cli", version = "0.1.2" }
-chopflow-mcp = { path = "../mcp", version = "0.1.2" }
+chopflow_broker = { path = "../broker", version = "0.1.3" }
+chopflow_cli = { path = "../cli", version = "0.1.3" }
+chopflow-mcp = { path = "../mcp", version = "0.1.3" }
 tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
 
 [[bin]]
-name = "chopflow-broker"
-path = "src/bin/broker.rs"
-
-[[bin]]
-name = "chopflow-cli"
-path = "src/bin/cli.rs"
-
-[[bin]]
-name = "chopflow-mcp"
-path = "src/bin/mcp.rs"
+name = "chopflow"
+path = "src/main.rs"

@@ -914,17 +914,15 @@ pub async fn serve_with_listener(
     Ok(addr)
 }
 
-/// Broker entry point. Parse CLI config, build storage, reconcile in-flight
-/// tasks and schedules, then serve gRPC (workers/CLI) and HTTP/JSON + dashboard
-/// (browser) over a single shared [`BrokerState`] until either errors.
+/// Broker entry point. Build storage, reconcile in-flight tasks and schedules,
+/// then serve gRPC (workers/CLI) and HTTP/JSON + dashboard (browser) over a
+/// single shared [`BrokerState`] until either errors.
 ///
-/// The `chopflow-broker` binary's `main.rs` is a thin wrapper around this; the
-/// `chopflow` umbrella crate's `chopflow-broker` binary calls it too, so both
-/// stay in lockstep.
-pub async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
+/// Accepts an already-parsed [`Cli`] so the `chopflow` umbrella binary can
+/// dispatch into it from its own top-level subcommands; the standalone
+/// `chopflow-broker` binary just passes `Cli::parse()` through.
+pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
-
-    let cli = Cli::parse();
 
     let Commands::Start {
         config,

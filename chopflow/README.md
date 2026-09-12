@@ -2,14 +2,16 @@
 
 > A durable distributed task queue built in Rust.
 
-This is the **all-in-one umbrella crate**. One install gives you the three
-ChopFlow binaries:
+This is the **unified binary crate**. One install gives you a single `chopflow`
+command covering the broker, the CLI, and the MCP server:
 
-| Binary           | What it is                                                    |
-| ---------------- | ------------------------------------------------------------- |
-| `chopflow-broker`| The broker — gRPC + HTTP/JSON API and the embedded dashboard. |
-| `chopflow-cli`   | The CLI client — enqueue tasks, check status, manage schedules. |
-| `chopflow-mcp`   | The MCP server — exposes the broker as AI-friendly tools.     |
+| Subcommand              | What it is                                                     |
+| ----------------------- | -------------------------------------------------------------- |
+| `chopflow broker start` | The broker — gRPC + HTTP/JSON API and the embedded dashboard.  |
+| `chopflow mcp`          | The MCP server — exposes the broker as AI-friendly tools.      |
+| `chopflow enqueue`      | Enqueue a task from a JSON file.                               |
+| `chopflow status`       | Task status, list tasks, or queue stats.                       |
+| `chopflow schedule`     | Manage schedules (create / list / delete).                     |
 
 ## Install
 
@@ -27,13 +29,13 @@ cargo install chopflow_worker
 
 ```sh
 # 1. Start the broker (gRPC on :8000, HTTP/dashboard on :8080, SQLite by default)
-chopflow-broker start
+chopflow broker start
 
 # 2. Enqueue a task
-chopflow-cli enqueue -f task.json --name echo
+chopflow enqueue -f task.json --name echo
 
 # 3. Point an AI assistant at the broker over MCP
-chopflow-mcp --broker http://127.0.0.1:8080
+chopflow mcp --broker http://127.0.0.1:8080
 ```
 
 ## Homebrew
@@ -45,9 +47,10 @@ brew install chopflow
 
 ## What's inside
 
-Each binary is a thin wrapper over the matching library crate's `run()` entry
-point — `chopflow_broker`, `chopflow_cli`, `chopflow_mcp` — so behavior is
-identical to installing those crates individually. The umbrella just bundles
-them so a single `cargo install` (or `brew install`) gets you everything.
+The `chopflow` binary is a thin clap dispatcher over the library crates'
+`run()` entry points — `chopflow_broker::run`, `chopflow_cli::run`,
+`chopflow_mcp::run` — so each subcommand behaves identically to the matching
+standalone binary. The unified command just bundles them so a single
+`cargo install` (or `brew install`) gets you everything.
 
 License: Apache-2.0.

@@ -202,13 +202,18 @@ jobs:
           body: |
             ## Install
 
-            **Rust — all-in-one binaries** (crates.io): the `chopflow` umbrella
-            crate installs the broker, CLI, and MCP server in one command:
+            **Rust — unified command** (crates.io): the `chopflow` crate installs
+            a single `chopflow` binary covering the broker, CLI, and MCP server:
             ```sh
             cargo install chopflow
             ```
-            This gives you the `chopflow-broker`, `chopflow-cli`, and
-            `chopflow-mcp` binaries. (Workers stay separate: `cargo install chopflow_worker`.)
+            ```text
+            chopflow broker start     # broker (gRPC + HTTP/dashboard)
+            chopflow mcp              # MCP server (AI tools, stdio)
+            chopflow enqueue -f …     # enqueue a task
+            chopflow schedule …       # manage schedules
+            ```
+            (Workers stay separate: `cargo install chopflow_worker`.)
 
             **Rust — individual library crates**:
             ```sh
@@ -311,9 +316,9 @@ jobs:
             end
 
             test do
-              assert_match "chopflow-broker", shell_output("#{bin}/chopflow-broker --help")
-              assert_match "chopflow-cli", shell_output("#{bin}/chopflow-cli --help")
-              assert_match "chopflow-mcp", shell_output("#{bin}/chopflow-mcp --help")
+              assert_match "unified command", shell_output("#{bin}/chopflow --help")
+              assert_match "broker", shell_output("#{bin}/chopflow broker --help")
+              assert_match "MCP server", shell_output("#{bin}/chopflow mcp --help")
             end
           end
           EOF

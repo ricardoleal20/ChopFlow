@@ -148,11 +148,18 @@ policies, and run the whole dashboard as a native macOS app via Tauri.
 
 ### Install
 
-The `chopflow` umbrella crate gives you the broker, CLI, and MCP server in one
-install — three binaries: `chopflow-broker`, `chopflow-cli`, `chopflow-mcp`.
+The `chopflow` crate gives you a single unified command — broker, CLI, and MCP
+server in one install:
 
 ```bash
 cargo install chopflow
+```
+
+```text
+chopflow broker start     # broker (gRPC + HTTP/dashboard)
+chopflow mcp              # MCP server (AI tools, stdio)
+chopflow enqueue -f …     # enqueue a task
+chopflow schedule …       # manage schedules
 ```
 
 Or with Homebrew:
@@ -185,7 +192,7 @@ cargo build --release
 Start the broker (gRPC on `:8000`, dashboard + HTTP API on `:8080`):
 
 ```bash
-./target/release/chopflow_broker start --port 8000 --http-port 8080 --open
+./target/release/chopflow broker start --port 8000 --http-port 8080 --open
 ```
 
 In a second terminal, start a worker:
@@ -199,8 +206,8 @@ In a third, enqueue a task:
 
 ```bash
 echo '{"message":"hello"}' > /tmp/task.json
-./target/release/chopflow_cli --broker http://localhost:8000 \
-    enqueue --task /tmp/task.json --name echo --tags gpu,ml
+./target/release/chopflow enqueue --broker http://localhost:8000 \
+    --task /tmp/task.json --name echo --tags gpu,ml
 ```
 
 Open <http://localhost:8080> to watch it flow through the dashboard.
@@ -248,7 +255,8 @@ plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
   owns shared `BrokerState`, runs the schedule ticker and timeout monitor
 - **Worker** (`worker`): pulls work from the broker by tag + resource match,
   acks results, sends heartbeats
-- **CLI** (`cli`): `chopflow_cli` — enqueue, status, schedule management
+- **CLI** (`cli`): the `chopflow enqueue` / `status` / `schedule` verbs — enqueue,
+  status, schedule management (library also builds a standalone `chopflow_cli`)
 - **Demos** (`demos`): example handlers, seed tooling, one-command demo run
 - **MCP server** (`mcp`): optional Model Context Protocol server (stdio) that
   exposes the broker through all three MCP primitives — tools (actions),
@@ -309,7 +317,7 @@ available as a native **macOS app** via Tauri.
 
 ```bash
 # gRPC on :8000 (workers/CLI), dashboard + HTTP API on :8080
-./target/release/chopflow_broker start --host 127.0.0.1 --port 8000 --http-port 8080
+./target/release/chopflow broker start --host 127.0.0.1 --port 8000 --http-port 8080
 ```
 
 Open `http://localhost:8080` in a browser to:
@@ -365,7 +373,7 @@ browser would use — nothing is forked or re-implemented.
 ```bash
 pnpm --dir broker/ui install          # first time only
 # Start the broker first (gRPC :8000, HTTP :8080):
-./target/release/chopflow_broker start --port 8000 --http-port 8080
+./target/release/chopflow broker start --port 8000 --http-port 8080
 
 cd app && ../broker/ui/node_modules/.bin/tauri dev    # launch the desktop app
 # or build a signed .app bundle:
@@ -404,16 +412,16 @@ re-enabled.
 
 ```bash
 # A recurring cron schedule
-./target/release/chopflow_cli schedule create \
+./target/release/chopflow schedule create \
     --name nightly-build --task build --cron "0 9 * * *" \
     --tags ci --resources cpu:4 --overlap skip
 
 # A one-shot 5 minutes out
-./target/release/chopflow_cli schedule create \
+./target/release/chopflow schedule create \
     --name one-off-report --task report --eta 2026-09-03T14:30:00Z --overlap allow
 
-./target/release/chopflow_cli schedule list
-./target/release/chopflow_cli schedule delete <schedule-id>
+./target/release/chopflow schedule list
+./target/release/chopflow schedule delete <schedule-id>
 ```
 
 **HTTP API**:
