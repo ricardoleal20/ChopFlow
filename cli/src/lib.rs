@@ -421,3 +421,155 @@ pub fn status_name(status: i32) -> &'static str {
         _ => "UNKNOWN",
     }
 }
+
+// ---- CLI definition + entry point ----------------------------------------
+//
+// The clap structs live in the library (not `main.rs`) so the `chopflow`
+// umbrella crate's `chopflow-cli` binary can call `chopflow_cli::run()`
+// directly, and so the command surface can be unit-tested.
+
+use clap::{Parser, Subcommand};
+
+/// ChopFlow CLI - Task Queue Client
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+pub struct Cli {
+    /// Broker address
+    #[arg(long, short, default_value = "http://localhost:8000")]
+    pub broker: String,
+
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Enqueue a task
+    Enqueue {
+        /// Path to task JSON file
+        #[arg(long, short = 'f')]
+        task: PathBuf,
+
+        /// Task name
+        #[arg(long, short)]
+        name: Option<String>,
+
+        /// Tags (comma-separated)
+        #[arg(long, short = 'g')]
+        tags: Option<String>,
+
+        /// ETA (earliest time of arrival) in ISO 8601 format
+        #[arg(long)]
+        eta: Option<String>,
+
+        /// Dispatch priority (higher = claimed first). Default 0.
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
+    },
+
+    /// Get task status
+    Status {
+        /// Task ID
+        #[arg(long, short)]
+        id: Option<String>,
+
+        /// Show all tasks
+        #[arg(long, short)]
+        all: bool,
+    },
+
+    /// Manage schedules
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleCmd,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ScheduleCmd {
+    /// Create a schedule
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        cron: Option<String>,
+        #[arg(long)]
+        eta: Option<String>,
+        #[arg(long, default_value = "{}")]
+        payload: String,
+        #[arg(long, default_value = "")]
+        tags: String,
+        #[arg(long, default_value = "")]
+        resources: String,
+        #[arg(long, default_value_t = 3)]
+        max_retries: u32,
+        #[arg(long, default_value = "skip")]
+        overlap: String,
+        /// Dispatch priority for materialized tasks (higher = first). Default 0.
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
+    },
+    /// List schedules
+    List,
+    /// Delete a schedule
+    Delete { id: String },
+}
+
+/// CLI entry point. Initialize tracing, parse arguments, and dispatch to the
+/// per-subcommand handler. The `chopflow-cli` binary's `main.rs` is a thin
+/// wrapper around this; the `chopflow` umbrella crate calls it too.
+pub async fn run() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Enqueue {
+            task,
+            name,
+            tags,
+            eta,
+            priority,
+        } => {
+            enqueue_task(cli.broker, task, name, tags, eta, priority).await?;
+        }
+        Commands::Status { id, all } => {
+            get_status(cli.broker, id, all).await?;
+        }
+        Commands::Schedule { action } => match action {
+            ScheduleCmd::Create {
+                name,
+                task,
+                cron,
+                eta,
+                payload,
+                tags,
+                resources,
+                max_retries,
+                overlap,
+                priority,
+            } => {
+                schedule_create(
+                    cli.broker,
+                    name,
+                    task,
+                    cron,
+                    eta,
+                    payload,
+                    tags,
+                    resources,
+                    max_retries,
+                    overlap,
+                    priority,
+                )
+                .await?;
+            }
+            ScheduleCmd::List => schedule_list(cli.broker).await?,
+            ScheduleCmd::Delete { id } => schedule_delete(cli.broker, id).await?,
+        },
+    }
+
+    Ok(())
+}

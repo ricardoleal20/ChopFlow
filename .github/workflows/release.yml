@@ -86,8 +86,9 @@ jobs:
           fi
 
       # Publish order follows the dependency graph (leaf first):
-      #   core -> proto -> broker -> worker -> cli -> mcp -> llm-worker
-      # `demos` is publish = false and is intentionally skipped.
+      #   core -> proto -> broker -> worker -> cli -> mcp -> llm-worker -> chopflow
+      # `chopflow` (the umbrella binary crate) is published last — it depends on
+      # broker, cli, and mcp. `demos` is publish = false and is skipped.
       - name: Publish crates in dependency order
         run: |
           set -uo pipefail
@@ -150,7 +151,8 @@ jobs:
               chopflow_worker \
               chopflow_cli \
               chopflow-mcp \
-              chopflow-llm-worker; do
+              chopflow-llm-worker \
+              chopflow; do
             publish_with_retry "$crate"
           done
 
@@ -200,9 +202,23 @@ jobs:
           body: |
             ## Install
 
-            **Rust** (crates.io):
+            **Rust — all-in-one binaries** (crates.io): the `chopflow` umbrella
+            crate installs the broker, CLI, and MCP server in one command:
+            ```sh
+            cargo install chopflow
+            ```
+            This gives you the `chopflow-broker`, `chopflow-cli`, and
+            `chopflow-mcp` binaries. (Workers stay separate: `cargo install chopflow_worker`.)
+
+            **Rust — individual library crates**:
             ```sh
             cargo add chopflow_core chopflow-proto chopflow_broker chopflow_worker chopflow_cli chopflow-mcp chopflow-llm-worker
+            ```
+
+            **Homebrew**:
+            ```sh
+            brew tap ricardoleal20/chopflow
+            brew install chopflow
             ```
 
             **Python** (PyPI):
@@ -238,3 +254,77 @@ jobs:
         run: |
           gh workflow run deploy-pages.yml --ref main
           echo "Dispatched deploy-pages.yml; see https://github.com/${{ github.repository }}/actions/workflows/deploy-pages.yml"
+
+  # 6. Bump the Homebrew formula in the tap repo (ricardoleal20/homebrew-chopflow).
+  #    The formula's sha256 can only be computed from the published crates.io
+  #    tarball, so this runs after publish-rust. It downloads the tarball,
+  #    computes the sha256, renders Formula/chopflow.rb, and pushes it to the
+  #    tap repo. Requires a PAT with `repo` scope on the tap repo stored as the
+  #    HOMEBREW_TAP_TOKEN secret. Skipped gracefully if the secret is absent
+  #    (e.g. before the tap repo exists).
+  bump-homebrew:
+    name: Bump Homebrew formula
+    runs-on: ubuntu-latest
+    needs: [publish-rust, github-release]
+    steps:
+      - name: Render and push formula to tap repo
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAP_REPO="ricardoleal20/homebrew-chopflow"
+          echo "Bumping Homebrew formula for chopflow $VERSION"
+
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN secret is not set — skipping Homebrew formula bump. Create the tap repo ($TAP_REPO) and add the secret to enable brew install."
+            exit 0
+          fi
+
+          # Download the published source tarball and compute its sha256.
+          TARBALL_URL="https://crates.io/api/v1/crates/chopflow/${VERSION}/download"
+          echo "Fetching $TARBALL_URL"
+          curl -fsSL -A "chopflow-release/1.0" -o chopflow.crate "$TARBALL_URL"
+          SHA256=$(sha256sum chopflow.crate | awk '{print $1}')
+          echo "sha256=$SHA256"
+
+          # Clone the tap repo (Formula/ convention).
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          cd tap
+          mkdir -p Formula
+
+          # Render the formula. The source build uses `cargo install --locked
+          # --path .` (via std_cargo_args) against the extracted tarball; path
+          # deps were rewritten to registry deps at cargo publish time.
+          cat > Formula/chopflow.rb <<EOF
+          class Chopflow < Formula
+            desc "Durable distributed task queue built in Rust"
+            homepage "https://github.com/ricardoleal20/ChopFlow"
+            url "${TARBALL_URL}"
+            sha256 "${SHA256}"
+            license "Apache-2.0"
+            version "${VERSION}"
+
+            depends_on "rust" => :build
+
+            def install
+              system "cargo", "install", *std_cargo_args
+            end
+
+            test do
+              assert_match "chopflow-broker", shell_output("#{bin}/chopflow-broker --help")
+              assert_match "chopflow-cli", shell_output("#{bin}/chopflow-cli --help")
+              assert_match "chopflow-mcp", shell_output("#{bin}/chopflow-mcp --help")
+            end
+          end
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/chopflow.rb
+          if git diff --cached --quiet; then
+            echo "Formula unchanged — nothing to commit"
+          else
+            git commit -m "chopflow ${VERSION}"
+            git push
+            echo "Pushed formula for chopflow ${VERSION} to ${TAP_REPO}"
+          fi
