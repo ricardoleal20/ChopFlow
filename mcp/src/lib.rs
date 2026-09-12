@@ -22,18 +22,17 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-/// Entry point. Parse config, build the server, serve over stdio.
-///
-/// Exposed so the `chopflow` umbrella binary can call it directly; the
-/// `chopflow-mcp` crate's own `main.rs` is a thin wrapper around this.
-pub async fn run() -> anyhow::Result<()> {
+/// Entry point. Build the server and serve over stdio. Accepts an already-parsed
+/// [`Cli`] so the `chopflow` umbrella binary can route its `chopflow mcp`
+/// subcommand into this; the standalone `chopflow-mcp` binary just passes
+/// `Cli::parse()` through.
+pub async fn run(cli: Cli) -> anyhow::Result<()> {
     // Logs go to stderr — stdout is reserved for the MCP JSON-RPC protocol.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .init();
 
-    let cli = Cli::parse();
     let base = cli
         .broker
         .or_else(|| std::env::var("CHOPFLOW_HTTP_URL").ok())

@@ -514,16 +514,18 @@ pub enum ScheduleCmd {
     /// List schedules
     List,
     /// Delete a schedule
-    Delete { id: String },
+    Delete {
+        id: String,
+    },
 }
 
-/// CLI entry point. Initialize tracing, parse arguments, and dispatch to the
-/// per-subcommand handler. The `chopflow-cli` binary's `main.rs` is a thin
-/// wrapper around this; the `chopflow` umbrella crate calls it too.
-pub async fn run() -> Result<()> {
+/// CLI entry point. Initialize tracing and dispatch to the per-subcommand
+/// handler. Accepts an already-parsed [`Cli`] so the `chopflow` umbrella
+/// binary can route its flat CLI verbs (`chopflow enqueue`, `chopflow status`,
+/// `chopflow schedule`) into this same dispatch; the standalone `chopflow-cli`
+/// binary just passes `Cli::parse()` through.
+pub async fn run(cli: Cli) -> Result<()> {
     tracing_subscriber::fmt::init();
-
-    let cli = Cli::parse();
 
     match cli.command {
         Commands::Enqueue {

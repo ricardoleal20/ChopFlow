@@ -39,6 +39,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is already defined in `broker/proto/chopflow.proto`.
 - This is an **experimental** preview. APIs may change between minor versions.
 
+## [0.1.3] - 2026-09-12
+
+### Added
+- **Unified `chopflow` command.** The umbrella crate now ships a single binary
+  with subcommands instead of three separate binaries:
+  `chopflow broker start`, `chopflow mcp`, `chopflow enqueue`, `chopflow status`,
+  `chopflow schedule …`. One `cargo install chopflow` (or `brew install chopflow`)
+  gives you the broker, CLI, and MCP server behind one command. The standalone
+  `chopflow-broker` / `chopflow-cli` / `chopflow-mcp` binaries still build from
+  their own crates, but the umbrella install is the unified entry point.
+
+### Fixed
+- **`cargo install chopflow` no longer needs system `protoc`.** `chopflow-proto`'s
+  build script now vendors `protoc` via `protoc-bin-vendored` and points
+  `tonic-build` at it, so the build succeeds on machines without `protobuf`
+  installed. (CI preinstalled `protoc`, so this failed only for end users — the
+  v0.1.2 install failure.)
+
+### Changed
+- `broker`, `cli`, and `mcp` library `run()` entry points now accept the
+  already-parsed `Cli` struct (was: parsed `std::env::args` internally), so the
+  unified binary can route subcommands into them. The standalone binaries pass
+  `Cli::parse()` through. Public enum variant fields are now accessible.
+- Bumped workspace and all inter-crate dependency versions to `0.1.3`.
+- Homebrew formula test block exercises `chopflow --help` / `chopflow broker
+  --help` / `chopflow mcp --help` (was: the three separate binaries).
+
 ## [0.1.2] - 2026-09-12
 
 ### Added
