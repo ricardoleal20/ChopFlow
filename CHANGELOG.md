@@ -38,3 +38,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python and Java client libraries are on the roadmap. The gRPC contract they target
   is already defined in `broker/proto/chopflow.proto`.
 - This is an **experimental** preview. APIs may change between minor versions.
+
+## [0.1.2] - 2026-09-12
+
+### Added
+- **`chopflow` umbrella crate** — one `cargo install chopflow` (or `brew install
+  chopflow`) now yields all three binaries: `chopflow-broker`, `chopflow-cli`,
+  `chopflow-mcp`. Each is a thin wrapper over the matching library crate's new
+  `pub async fn run()` entry point. Workers and the LLM worker stay separate.
+- **Homebrew tap** (`ricardoleal20/homebrew-chopflow`) with a source-build
+  formula, auto-bumped by the release workflow (`bump-homebrew` job computes the
+  real `sha256` from the published crates.io tarball and pushes `Formula/chopflow.rb`).
+- **`mcp` crate lib/main split** — `pub async fn run()` exposed; `main.rs` is now
+  a thin wrapper (was main-only).
+- **`broker` / `cli` `run()` entry points** — orchestration moved from `main.rs`
+  into the library so the umbrella can call it; `main.rs` reduced to a one-liner.
+
+### Changed
+- Bumped workspace and all inter-crate dependency versions to `0.1.2` (Rust +
+  Python client).
+- `release.yml` publishes the `chopflow` umbrella last in the crates.io order;
+  the GitHub Release install snippet now features the umbrella package + Homebrew.
+
+### Notes
+- `cargo install chopflow`, `brew install chopflow`, and `pip install chopflow`
+  are all live as of this release.

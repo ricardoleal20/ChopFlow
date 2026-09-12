@@ -146,6 +146,34 @@ policies, and run the whole dashboard as a native macOS app via Tauri.
 - Rust (2021 edition) and Cargo
 - (optional) `pnpm` for dashboard dev, Docker for the container path
 
+### Install
+
+The `chopflow` umbrella crate gives you the broker, CLI, and MCP server in one
+install — three binaries: `chopflow-broker`, `chopflow-cli`, `chopflow-mcp`.
+
+```bash
+cargo install chopflow
+```
+
+Or with Homebrew:
+
+```bash
+brew tap ricardoleal20/chopflow
+brew install chopflow
+```
+
+Workers ship separately (they run your handler code):
+
+```bash
+cargo install chopflow_worker
+```
+
+Python client / worker SDK:
+
+```bash
+pip install chopflow
+```
+
 ### From source
 
 ```bash
