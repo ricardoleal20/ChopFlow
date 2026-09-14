@@ -222,7 +222,6 @@ jobs:
 
             **Homebrew**:
             ```sh
-            brew tap ricardoleal20/chopflow
             brew install chopflow
             ```
 

@@ -41,7 +41,6 @@ chopflow mcp --broker http://127.0.0.1:8080
 ## Homebrew
 
 ```sh
-brew tap ricardoleal20/chopflow
 brew install chopflow
 ```
 

@@ -543,8 +543,8 @@
               <button class="install-tab" type="button" role="tab" aria-selected="false" data-target="install-cargo">cargo</button>
             </div>
             <div class="install-pill">
-              <pre class="install-code" aria-label="Install command"><code id="install-cmd">brew tap ricardoleal20/chopflow && brew install chopflow</code></pre>
-              <button class="install-copy" type="button" aria-label="Copy install command" data-copy="brew tap ricardoleal20/chopflow && brew install chopflow">
+              <pre class="install-code" aria-label="Install command"><code id="install-cmd">brew install chopflow</code></pre>
+              <button class="install-copy" type="button" aria-label="Copy install command" data-copy="brew install chopflow">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 18h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 14H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <span class="copy-feedback" aria-hidden="true">Copied!</span>
               </button>
@@ -554,7 +554,7 @@
           <script>
             (() => {
               const commands = {
-                'install-brew': 'brew tap ricardoleal20/chopflow && brew install chopflow',
+                'install-brew': 'brew install chopflow',
                 'install-cargo': 'cargo install chopflow'
               };
               const tabs = document.querySelectorAll('.install-tabs .install-tab');
