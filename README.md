@@ -165,7 +165,6 @@ chopflow schedule …       # manage schedules
 Or with Homebrew:
 
 ```bash
-brew tap ricardoleal20/chopflow
 brew install chopflow
 ```
 

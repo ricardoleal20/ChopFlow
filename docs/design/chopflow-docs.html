@@ -448,8 +448,7 @@
         <p>Or with Homebrew:</p>
         <div class="code-block">
           <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
-          <pre><code><span class="term-line"><span class="term-prompt">$ </span>brew tap ricardoleal20/chopflow</span>
-<span class="term-line"><span class="term-prompt">$ </span>brew install chopflow</span></code></pre>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>brew install chopflow</span></code></pre>
         </div>
         <div class="callout callout-success"><p class="callout-title">Live on crates.io, PyPI, and Homebrew</p><p>One <code>chopflow</code> binary covers the broker, CLI, and MCP server. Verify with <code>chopflow --help</code>, then continue below. (Workers ship separately: <code>cargo install chopflow_worker</code>.)</p></div>
 
@@ -534,8 +533,7 @@ Polling broker at http://localhost:8000 (interval: 2s)</span></code></pre>
         <p>Or with Homebrew:</p>
         <div class="code-block">
           <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
-          <pre><code><span class="term-line"><span class="term-prompt">$ </span>brew tap ricardoleal20/chopflow</span>
-<span class="term-line"><span class="term-prompt">$ </span>brew install chopflow</span></code></pre>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>brew install chopflow</span></code></pre>
         </div>
         <p>Both install the unified <code>chopflow</code> command. The Python client/worker SDK is on PyPI: <code>pip install chopflow</code>.</p>
 
@@ -1057,6 +1055,109 @@ pub use task::Task;</code></pre>
 <span class="term-line"># broker_base_url defaults to http://localhost:8080</span></code></pre>
         </div>
         <div class="callout callout-info"><p class="callout-title">Demo worker</p><p>The demo worker binary is <code>chopflow_demo_worker</code>, started with the same flags as the production worker (<code>--broker</code>, <code>--tags</code>, <code>--resources</code>).</p></div>
+
+        <h2 id="demos-clients">Drive a demo from each client<a class="anchor" href="#demos-clients">#</a></h2>
+        <p>The demo worker already registers <code>resize_image</code> and <code>batch_compute</code>, so once a broker and the demo worker are running you only need a <strong>producer</strong> to drive them. Because every client speaks the same gRPC contract, that producer can be Rust, Python, or Java — pick whichever client you ship in. The two demos below are enqueued from each current client.</p>
+        <div class="callout callout-info"><p class="callout-title">Prerequisites</p><p>The fastest path is <code>bash demos/run.sh</code> — it starts an in-memory broker and the demo worker. Then run any producer below against the gRPC endpoint at <code>localhost:8000</code>. (Broker alone: <code>chopflow broker start</code>; demo worker alone: <code>cargo run -p chopflow_demos --bin chopflow_demo_worker -- --tags demo --resources cpu:4</code>.)</p></div>
+
+        <h3 id="demo-resize">Demo 1 — resize_image<a class="anchor" href="#demo-resize">#</a></h3>
+        <p>Generates a synthetic gradient PNG of <code>width × height</code> and resizes it to half dimensions (image-rs, nearest-neighbour). Returns <code>input_dims</code>, <code>output_dims</code>, and <code>output_pixels</code>. Payload defaults to 64×64 when omitted.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">rust · producer</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">use</span> chopflow::chop_flow_broker_client::<span class="tok-ty">ChopFlowBrokerClient</span>;
+<span class="tok-kw">use</span> chopflow::<span class="tok-ty">EnqueueTaskRequest</span>;
+<span class="tok-kw">use</span> tonic::<span class="tok-ty">Request</span>;
+<span class="tok-kw">use</span> std::collections::<span class="tok-ty">HashMap</span>;
+
+<span class="tok-kw">let mut</span> client = <span class="tok-ty">ChopFlowBrokerClient</span>::<span class="tok-fn">connect</span>(<span class="tok-str">"http://localhost:8000"</span>).<span class="tok-kw">await</span>?;
+<span class="tok-kw">let</span> resp = client.<span class="tok-fn">enqueue_task</span>(<span class="tok-ty">Request</span>::<span class="tok-fn">new</span>(<span class="tok-ty">EnqueueTaskRequest</span> {
+    name: <span class="tok-str">"resize_image"</span>.<span class="tok-fn">into</span>(),
+    payload: <span class="tok-str">r#"{"width":128,"height":128}"#</span>.<span class="tok-fn">into</span>(),
+    tags: <span class="tok-fn">vec!</span>[<span class="tok-str">"image"</span>.<span class="tok-fn">into</span>()],
+    eta: <span class="tok-kw">None</span>,
+    max_retries: <span class="tok-num">3</span>,
+    resources: <span class="tok-ty">HashMap</span>::<span class="tok-fn">from</span>[(<span class="tok-str">"cpu"</span>.<span class="tok-fn">into</span>(), <span class="tok-num">2</span>)],
+    priority: <span class="tok-num">0</span>,
+})).<span class="tok-kw">await</span>?;
+<span class="tok-kw">let</span> task_id = resp.<span class="tok-fn">into_inner</span>().task_id;</code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">python · producer</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">from</span> chopflow <span class="tok-kw">import</span> ChopFlowClient
+
+<span class="tok-kw">with</span> ChopFlowClient.<span class="tok-fn">connect</span>(<span class="tok-str">"localhost:8000"</span>) <span class="tok-kw">as</span> client:
+    result = (
+        client.<span class="tok-fn">enqueue</span>(<span class="tok-str">"resize_image"</span>)
+        .<span class="tok-fn">payload</span>({<span class="tok-str">"width"</span>: <span class="tok-num">128</span>, <span class="tok-str">"height"</span>: <span class="tok-num">128</span>})
+        .<span class="tok-fn">tags</span>(<span class="tok-str">"image"</span>)
+        .<span class="tok-fn">max_retries</span>(<span class="tok-num">3</span>)
+        .<span class="tok-fn">enqueue</span>()
+    )
+    task = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">60</span>)
+    <span class="tok-fn">print</span>(task.status_name, task.result)
+    <span class="tok-com"># COMPLETED {"status":"ok","input_dims":[128,128],"output_dims":[64,64],"output_pixels":4096}</span></code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">java · producer</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">import</span> java.time.Duration;
+<span class="tok-kw">import</span> java.util.Map;
+<span class="tok-kw">import</span> dev.ricardoleal20.chopflow.client.ChopFlowClient;
+
+<span class="tok-kw">try</span> (<span class="tok-ty">ChopFlowClient</span> client = <span class="tok-ty">ChopFlowClient</span>.<span class="tok-fn">connect</span>(<span class="tok-str">"localhost:8000"</span>)) {
+  <span class="tok-kw">var</span> result = client.<span class="tok-fn">enqueue</span>(<span class="tok-str">"resize_image"</span>)
+      .<span class="tok-fn">payload</span>(<span class="tok-ty">Map</span>.<span class="tok-fn">of</span>(<span class="tok-str">"width"</span>, <span class="tok-num">128</span>, <span class="tok-str">"height"</span>, <span class="tok-num">128</span>))
+      .<span class="tok-fn">tags</span>(<span class="tok-str">"image"</span>)
+      .<span class="tok-fn">maxRetries</span>(<span class="tok-num">3</span>)
+      .<span class="tok-fn">enqueue</span>();
+  <span class="tok-kw">var</span> task = result.<span class="tok-fn">get</span>(<span class="tok-ty">Duration</span>.<span class="tok-fn">ofSeconds</span>(<span class="tok-num">60</span>));
+  <span class="tok-ty">System</span>.out.<span class="tok-fn">println</span>(task.<span class="tok-fn">getStatus</span>());   <span class="tok-com">// COMPLETED</span>
+  <span class="tok-ty">System</span>.out.<span class="tok-fn">println</span>(task.<span class="tok-fn">getResult</span>());   <span class="tok-com">// {"status":"ok","input_dims":[128,128],...}</span>
+}</code></pre>
+        </div>
+
+        <h3 id="demo-batch">Demo 2 — batch_compute<a class="anchor" href="#demo-batch">#</a></h3>
+        <p>CPU-bound <code>n × n</code> f64 matrix multiply (nalgebra), with <code>n</code> clamped to 2–256. Returns <code>matrix_size</code>, <code>elapsed_ms</code>, and a <code>checksum</code>. Enqueue it at <code>priority: 5</code> alongside lower-priority work to watch ordering and resource contention play out on the dashboard.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">rust · producer</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">let</span> resp = client.<span class="tok-fn">enqueue_task</span>(<span class="tok-ty">Request</span>::<span class="tok-fn">new</span>(<span class="tok-ty">EnqueueTaskRequest</span> {
+    name: <span class="tok-str">"batch_compute"</span>.<span class="tok-fn">into</span>(),
+    payload: <span class="tok-str">r#"{"n":128}"#</span>.<span class="tok-fn">into</span>(),
+    tags: <span class="tok-fn">vec!</span>[<span class="tok-str">"demo"</span>.<span class="tok-fn">into</span>()],
+    eta: <span class="tok-kw">None</span>,
+    max_retries: <span class="tok-num">2</span>,
+    resources: <span class="tok-ty">HashMap</span>::<span class="tok-fn">from</span>[(<span class="tok-str">"cpu"</span>.<span class="tok-fn">into</span>(), <span class="tok-num">4</span>)],
+    priority: <span class="tok-num">5</span>,
+})).<span class="tok-kw">await</span>?;</code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">python · producer</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">with</span> ChopFlowClient.<span class="tok-fn">connect</span>(<span class="tok-str">"localhost:8000"</span>) <span class="tok-kw">as</span> client:
+    result = (
+        client.<span class="tok-fn">enqueue</span>(<span class="tok-str">"batch_compute"</span>)
+        .<span class="tok-fn">payload</span>({<span class="tok-str">"n"</span>: <span class="tok-num">128</span>})
+        .<span class="tok-fn">tags</span>(<span class="tok-str">"demo"</span>)
+        .<span class="tok-fn">priority</span>(<span class="tok-num">5</span>)
+        .<span class="tok-fn">max_retries</span>(<span class="tok-num">2</span>)
+        .<span class="tok-fn">enqueue</span>()
+    )
+    task = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">120</span>)
+    <span class="tok-fn">print</span>(task.status_name, task.result)
+    <span class="tok-com"># COMPLETED {"status":"ok","matrix_size":128,"elapsed_ms":18,"checksum":...}</span></code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">java · producer</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">try</span> (<span class="tok-ty">ChopFlowClient</span> client = <span class="tok-ty">ChopFlowClient</span>.<span class="tok-fn">connect</span>(<span class="tok-str">"localhost:8000"</span>)) {
+  <span class="tok-kw">var</span> result = client.<span class="tok-fn">enqueue</span>(<span class="tok-str">"batch_compute"</span>)
+      .<span class="tok-fn">payload</span>(<span class="tok-ty">Map</span>.<span class="tok-fn">of</span>(<span class="tok-str">"n"</span>, <span class="tok-num">128</span>))
+      .<span class="tok-fn">tags</span>(<span class="tok-str">"demo"</span>)
+      .<span class="tok-fn">priority</span>(<span class="tok-num">5</span>)
+      .<span class="tok-fn">maxRetries</span>(<span class="tok-num">2</span>)
+      .<span class="tok-fn">enqueue</span>();
+  <span class="tok-kw">var</span> task = result.<span class="tok-fn">get</span>(<span class="tok-ty">Duration</span>.<span class="tok-fn">ofSeconds</span>(<span class="tok-num">120</span>));
+  <span class="tok-ty">System</span>.out.<span class="tok-fn">println</span>(task.<span class="tok-fn">getResult</span>());   <span class="tok-com">// {"status":"ok","matrix_size":128,...}</span>
+}</code></pre>
+        </div>
+        <div class="callout callout-info"><p class="callout-title">Writing your own handler</p><p>These demos run on the Rust demo worker, but Python and Java workers can define equivalent handlers with the <code>@task</code> / <code>@ChopTask</code> decorators — see <a href="#client-python" style="color:var(--primary);text-decoration:underline">Python Client</a> and <a href="#client-java" style="color:var(--primary);text-decoration:underline">Java Client</a>. Any handler registered under the same task <code>name</code> on a connected worker will pick the task up.</p></div>
       </article>
 
       <article class="doc-page" id="page-comp-llm-worker" data-page="comp-llm-worker">
@@ -1811,7 +1912,11 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
 
     (() => {
       const pages = Array.from(document.querySelectorAll('.doc-page'));
-      const navLeaves = Array.from(document.querySelectorAll('[data-page]'));
+      // Scope to .nav-leaf only — each .doc-page article also carries a
+      // data-page attribute, so the broader [data-page] selector would bind
+      // this click handler to every page article and snap to the top on any
+      // content click (including the click that ends a text selection).
+      const navLeaves = Array.from(document.querySelectorAll('.nav-leaf'));
       const tocList = document.getElementById('toc-list');
       const main = document.getElementById('doc-main');
       const sidebar = document.getElementById('sidebar');
@@ -1857,7 +1962,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         page.classList.add('active');
         navLeaves.forEach(l => l.classList.toggle('active', l.dataset.page === pageId));
         const group = page.closest('.doc-layout');
-        const navItem = document.querySelector('[data-page="' + pageId + '"]');
+        const navItem = document.querySelector('.nav-leaf[data-page="' + pageId + '"]');
         if (navItem) {
           const grp = navItem.closest('.nav-group');
           if (grp) grp.classList.remove('collapsed');
@@ -1894,7 +1999,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
 
       if (window.location.hash) {
         const id = window.location.hash.slice(1);
-        const target = document.querySelector('[data-page="' + id + '"]');
+        const target = document.querySelector('.nav-leaf[data-page="' + id + '"]');
         if (target) navigate(id, false);
       }
 
@@ -1903,7 +2008,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
       // event), so there is no loop.
       window.addEventListener('hashchange', () => {
         const id = window.location.hash.slice(1);
-        if (document.querySelector('[data-page="' + id + '"]')) navigate(id, false);
+        if (document.querySelector('.nav-leaf[data-page="' + id + '"]')) navigate(id, false);
       });
 
       document.querySelectorAll('.copy-btn').forEach(btn => {
