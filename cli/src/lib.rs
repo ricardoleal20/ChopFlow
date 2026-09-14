@@ -514,9 +514,7 @@ pub enum ScheduleCmd {
     /// List schedules
     List,
     /// Delete a schedule
-    Delete {
-        id: String,
-    },
+    Delete { id: String },
 }
 
 /// CLI entry point. Initialize tracing and dispatch to the per-subcommand
