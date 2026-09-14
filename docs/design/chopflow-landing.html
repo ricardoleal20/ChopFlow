@@ -199,6 +199,10 @@
     .install-code { margin: 0; overflow-x: auto; min-width: 0; color: var(--text-2); font: 400 13px/1.75 var(--font-mono); white-space: pre-wrap; word-break: break-word; flex: 1; }
     .install-code code { font: inherit; }
     .install-comment { color: var(--muted); }
+    .install-tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); width: fit-content; }
+    .install-tab { padding: 7px 18px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 600 12px/1 var(--font-mono); letter-spacing: .04em; cursor: pointer; transition: background-color .18s ease, color .18s ease; }
+    .install-tab:hover { color: var(--text-2); }
+    .install-tab.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
     .install-copy { position: relative; width: 34px; height: 34px; display: grid; place-items: center; flex: none; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; transition: background-color .18s ease, border-color .18s ease, color .18s ease; }
     .install-copy:hover { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
     .install-copy svg { width: 17px; height: 17px; }
@@ -534,16 +538,40 @@
 
           <div class="install-band" data-od-id="hero-install-band">
             <p class="install-label">Install</p>
+            <div class="install-tabs" role="tablist" aria-label="Install method">
+              <button class="install-tab is-active" type="button" role="tab" aria-selected="true" data-target="install-brew">brew</button>
+              <button class="install-tab" type="button" role="tab" aria-selected="false" data-target="install-cargo">cargo</button>
+            </div>
             <div class="install-pill">
-              <pre class="install-code" aria-label="Install command"><code>cargo install chopflow
-<span class="install-comment"># brew tap ricardoleal20/chopflow && brew install chopflow</span></code></pre>
-              <button class="install-copy" type="button" aria-label="Copy install command" data-copy="cargo install chopflow">
+              <pre class="install-code" aria-label="Install command"><code id="install-cmd">brew tap ricardoleal20/chopflow && brew install chopflow</code></pre>
+              <button class="install-copy" type="button" aria-label="Copy install command" data-copy="brew tap ricardoleal20/chopflow && brew install chopflow">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 18h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 14H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <span class="copy-feedback" aria-hidden="true">Copied!</span>
               </button>
             </div>
             <p class="install-note">One install — broker, CLI, and MCP server. Workers ship separately.</p>
           </div>
+          <script>
+            (() => {
+              const commands = {
+                'install-brew': 'brew tap ricardoleal20/chopflow && brew install chopflow',
+                'install-cargo': 'cargo install chopflow'
+              };
+              const tabs = document.querySelectorAll('.install-tabs .install-tab');
+              const cmdEl = document.getElementById('install-cmd');
+              const copyBtn = document.querySelector('.install-band .install-copy');
+              tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                  tabs.forEach(t => { t.classList.remove('is-active'); t.setAttribute('aria-selected', 'false'); });
+                  tab.classList.add('is-active');
+                  tab.setAttribute('aria-selected', 'true');
+                  const cmd = commands[tab.dataset.target] || '';
+                  cmdEl.textContent = cmd;
+                  copyBtn.setAttribute('data-copy', cmd);
+                });
+              });
+            })();
+          </script>
         </div>
 
         <div class="console" data-od-id="hero-dashboard-preview">
@@ -695,7 +723,7 @@ chopflow_worker start -b http://localhost:8000 -t default -r cpu:1</code></pre>
     </div></section>
 
     <section class="cta-section" data-od-id="cta-section"><div class="container"><div class="cta-band">
-      <div><h2 data-od-id="cta-heading">Start flowing in minutes.</h2><p class="install-hint">$ chopflow_broker start --http-port 8080 --open</p></div>
+      <div><h2 data-od-id="cta-heading">Start flowing in minutes.</h2><p class="install-hint">$ chopflow broker start --http-port 8080 --open</p></div>
       <a class="button button-primary" href="docs.html#quickstart" data-od-id="cta-get-started">Get started <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m7 4 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
     </div></div></section>
   </main>
