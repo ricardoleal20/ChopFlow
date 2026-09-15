@@ -1,0 +1,30 @@
+# ChopFlow fleet catalog — read-only, served at GET /api/environments.
+#
+# An "environment" is a named, region-tagged broker deployment. The dashboard
+# uses this list to switch its API base between brokers at runtime; the CLI
+# resolves `--env <name>` to the matching `grpc_url`.
+#
+# This file is OPTIONAL. A broker with no catalog still runs and advertises
+# itself (its `--env`/`--region` become the single "current" environment). Add
+# entries here only when you operate more than one broker and want the
+# dashboard to hop between them.
+#
+# Each entry:
+#   name     short id        (matches a broker's --env for the "current" row)
+#   region   free-form tag   (e.g. default, us-east-1, eu-west-1)
+#   grpc_url gRPC endpoint   (workers + CLI connect here)
+#   http_url HTTP endpoint   (dashboard API base becomes ${http_url}/api)
+environments:
+  - name: local
+    region: default
+    grpc_url: http://localhost:8000
+    http_url: http://localhost:8080
+  # Example remote environments — uncomment and edit to match your fleet.
+  # - name: staging
+  #   region: eu-west-1
+  #   grpc_url: http://broker.staging.internal:8000
+  #   http_url: http://broker.staging.internal:8080
+  # - name: prod
+  #   region: us-east-1
+  #   grpc_url: http://broker.prod.internal:8000
+  #   http_url: http://broker.prod.internal:8080

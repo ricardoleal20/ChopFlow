@@ -1,7 +1,8 @@
 //! Unit tests for pure CLI helpers (no broker needed).
 
 use chopflow_cli::{
-    build_schedule, build_schedule_kind, parse_overlap, parse_resource_map, status_name,
+    build_schedule, build_schedule_kind, parse_overlap, parse_resource_map, resolve_broker,
+    status_name,
 };
 
 #[test]
@@ -156,4 +157,59 @@ fn build_schedule_rejects_invalid_payload_json() {
         err,
         chopflow_core::error::ChopFlowError::SerializationError(_)
     ));
+}
+
+// ---- resolve_broker --------------------------------------------------------
+
+fn write_env_yml(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+    let p = dir.join("environments.yml");
+    std::fs::write(&p, body).unwrap();
+    p
+}
+
+#[test]
+fn resolve_broker_returns_default_when_no_env() {
+    // No --env: the explicit --broker wins.
+    let got = resolve_broker("http://localhost:8000", None, "config/missing.yml").unwrap();
+    assert_eq!(got, "http://localhost:8000");
+}
+
+#[test]
+fn resolve_broker_resolves_env_to_grpc_url() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = write_env_yml(
+        tmp.path(),
+        "environments:\n  - name: prod\n    region: us-east-1\n    grpc_url: http://broker.prod:8000\n    http_url: http://broker.prod:8080\n",
+    );
+    let got =
+        resolve_broker("http://localhost:8000", Some("prod"), path.to_str().unwrap()).unwrap();
+    assert_eq!(got, "http://broker.prod:8000");
+}
+
+#[test]
+fn resolve_broker_errors_on_unknown_env() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = write_env_yml(
+        tmp.path(),
+        "environments:\n  - name: prod\n    region: us-east-1\n    grpc_url: http://broker.prod:8000\n    http_url: http://broker.prod:8080\n",
+    );
+    let err =
+        resolve_broker("http://localhost:8000", Some("staging"), path.to_str().unwrap())
+            .unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("staging"), "msg={msg}");
+    assert!(msg.contains("prod"), "msg={msg}");
+}
+
+#[test]
+fn resolve_broker_errors_when_grpc_url_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = write_env_yml(
+        tmp.path(),
+        "environments:\n  - name: prod\n    region: us-east-1\n    http_url: http://broker.prod:8080\n",
+    );
+    let err =
+        resolve_broker("http://localhost:8000", Some("prod"), path.to_str().unwrap())
+            .unwrap_err();
+    assert!(format!("{err}").contains("no grpc_url"));
 }

@@ -397,6 +397,44 @@ pub async fn schedule_delete(broker: String, id: String) -> Result<()> {
     Ok(())
 }
 
+/// Resolve the broker gRPC address. When `env` is `Some(name)`, the address is
+/// looked up by name in the `environments.yml` catalog at `env_config` and its
+/// `grpc_url` returned (overriding `default_broker`). When `env` is `None`,
+/// `default_broker` is returned unchanged. Pure + synchronous so it can be
+/// unit-tested without a broker.
+pub fn resolve_broker(
+    default_broker: &str,
+    env: Option<&str>,
+    env_config: &str,
+) -> Result<String> {
+    let Some(name) = env else {
+        return Ok(default_broker.to_string());
+    };
+
+    let cfg = chopflow_core::config::EnvironmentsConfig::load(env_config)
+        .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?;
+    let entry = cfg.find(name).ok_or_else(|| {
+        chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+            "environment '{}' not found in {} (known: {})",
+            name,
+            env_config,
+            cfg.environments
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    })?;
+    if entry.grpc_url.is_empty() {
+        return Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+            "environment '{}' has no grpc_url in {}",
+            name,
+            env_config
+        )));
+    }
+    Ok(entry.grpc_url.clone())
+}
+
 // Helper function to connect to the broker
 pub async fn connect_to_broker(broker_address: &str) -> Result<ChopFlowBrokerClient<Channel>> {
     match ChopFlowBrokerClient::connect(broker_address.to_string()).await {
@@ -434,9 +472,20 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Broker address
+    /// Broker address (gRPC). Ignored when `--env` is given — the address is
+    /// then resolved from `--env-config` (`environments.yml`).
     #[arg(long, short, default_value = "http://localhost:8000")]
     pub broker: String,
+
+    /// Target a named environment from `environments.yml` (e.g. `prod`,
+    /// `staging`). Resolves the broker's gRPC URL from the catalog, overriding
+    /// `--broker`.
+    #[arg(long)]
+    pub env: Option<String>,
+
+    /// Path to the fleet catalog used to resolve `--env`.
+    #[arg(long, default_value = "config/environments.yml")]
+    pub env_config: String,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -525,6 +574,8 @@ pub enum ScheduleCmd {
 pub async fn run(cli: Cli) -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    let broker = resolve_broker(&cli.broker, cli.env.as_deref(), &cli.env_config)?;
+
     match cli.command {
         Commands::Enqueue {
             task,
@@ -533,10 +584,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             eta,
             priority,
         } => {
-            enqueue_task(cli.broker, task, name, tags, eta, priority).await?;
+            enqueue_task(broker, task, name, tags, eta, priority).await?;
         }
         Commands::Status { id, all } => {
-            get_status(cli.broker, id, all).await?;
+            get_status(broker, id, all).await?;
         }
         Commands::Schedule { action } => match action {
             ScheduleCmd::Create {
@@ -552,7 +603,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 priority,
             } => {
                 schedule_create(
-                    cli.broker,
+                    broker,
                     name,
                     task,
                     cron,
@@ -566,8 +617,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 )
                 .await?;
             }
-            ScheduleCmd::List => schedule_list(cli.broker).await?,
-            ScheduleCmd::Delete { id } => schedule_delete(cli.broker, id).await?,
+            ScheduleCmd::List => schedule_list(broker).await?,
+            ScheduleCmd::Delete { id } => schedule_delete(broker, id).await?,
         },
     }
 

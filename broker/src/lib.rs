@@ -10,6 +10,7 @@ tests in `broker/tests/`. The `main.rs` binary is a thin CLI wrapper.
 */
 
 use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
+use chopflow_core::config::{Environment, EnvironmentsConfig};
 use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::retry::RetryPolicy;
 use chopflow_core::schedule::{next_fire, OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
@@ -87,6 +88,22 @@ pub enum Commands {
         /// Open the dashboard UI in the default browser on startup
         #[arg(long, default_value_t = false)]
         open: bool,
+
+        /// Environment name this broker identifies as (e.g. `local`, `prod`,
+        /// `staging`). Surfaced in `/api/stats` and used to mark the matching
+        /// catalog entry as current in `/api/environments`.
+        #[arg(long, default_value = "local")]
+        env: String,
+
+        /// Region tag for this broker (e.g. `default`, `us-east-1`). Free-form;
+        /// surfaced in `/api/stats` and the environments catalog.
+        #[arg(long, default_value = "default")]
+        region: String,
+
+        /// Path to the fleet catalog (`environments.yml`). A missing file is
+        /// fine — the broker still advertises itself; the catalog is just empty.
+        #[arg(long, default_value = "config/environments.yml")]
+        environments: String,
     },
 }
 
@@ -219,15 +236,40 @@ pub struct BrokerState {
     pub storage: Arc<dyn Storage>,
     /// Ephemeral worker registry + resource allocator.
     pub dispatcher: Arc<tokio::sync::Mutex<InMemoryDispatcher>>,
+    /// This broker's environment identity (e.g. `local`, `prod`).
+    pub env: String,
+    /// This broker's region tag (e.g. `default`, `us-east-1`).
+    pub region: String,
+    /// Read-only fleet catalog served at `GET /api/environments` so the
+    /// dashboard can switch between brokers. Empty when no
+    /// `environments.yml` is configured.
+    pub catalog: Vec<Environment>,
 }
 
 impl BrokerState {
     /// Construct shared state backed by the given storage and a fresh
-    /// in-memory dispatcher.
+    /// in-memory dispatcher, with the default `local`/`default` identity and
+    /// no fleet catalog. Used by tests and any standalone run without an
+    /// `environments.yml`.
     pub fn new(storage: Arc<dyn Storage>) -> Self {
+        Self::with_identity(storage, "local".to_string(), "default".to_string(), Vec::new())
+    }
+
+    /// Construct shared state with an explicit environment identity and fleet
+    /// catalog. `env`/`region` are this broker's identity; `catalog` is the
+    /// read-only list of known environments served to the dashboard.
+    pub fn with_identity(
+        storage: Arc<dyn Storage>,
+        env: String,
+        region: String,
+        catalog: Vec<Environment>,
+    ) -> Self {
         Self {
             storage,
             dispatcher: Arc::new(tokio::sync::Mutex::new(InMemoryDispatcher::new())),
+            env,
+            region,
+            catalog,
         }
     }
 }
@@ -932,11 +974,33 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
         storage,
         db_path,
         open,
+        env,
+        region,
+        environments,
     } = cli.command;
 
     // `config` is accepted for forward-compat (e.g. loading broker.yml) but
     // not yet consumed.
     let _ = config;
+
+    // Load the (optional) fleet catalog. A missing file is fine — the broker
+    // still advertises itself; the catalog is just empty.
+    let catalog = match EnvironmentsConfig::load(&environments) {
+        Ok(c) => {
+            info!(
+                "Loaded {} environment(s) from {} (current: {} · {})",
+                c.environments.len(),
+                environments,
+                env,
+                region
+            );
+            c.environments
+        }
+        Err(e) => {
+            warn!("failed to load environments config from {}: {}", environments, e);
+            Vec::new()
+        }
+    };
 
     let backend = match storage.as_str() {
         "memory" => StorageBackend::Memory,
@@ -959,7 +1023,7 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
 
     // One shared state object backs both the gRPC service and the HTTP layer,
     // so the dashboard sees live updates from workers and vice versa.
-    let state = BrokerState::new(storage);
+    let state = BrokerState::with_identity(storage, env, region, catalog);
     let service = ChopFlowBrokerService::from_state(state.clone());
     service.spawn_timeout_monitor();
 

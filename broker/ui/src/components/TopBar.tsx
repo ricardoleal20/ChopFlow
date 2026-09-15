@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { PlusIcon, SearchIcon, ChevronDownIcon } from "./Icons";
 import type { Stats } from "../lib/api";
 import type { View } from "./Sidebar";
+import { useEnvironments, useSwitchEnvironment } from "../hooks/useChopFlow";
 
 interface Props {
   view: View;
@@ -11,12 +12,14 @@ interface Props {
   stats?: Stats;
 }
 
-// 54px command bar: cluster selector (with dropdown) on the left, breadcrumb,
+// 54px command bar: environment switcher (with dropdown) on the left, breadcrumb,
 // contextual search with ⌘K hint, a segmented live count pill, and the single
 // primary CTA ("New Task").
 export default function TopBar({ view, query, onQuery, onEnqueue, stats }: Props) {
   const [clusterOpen, setClusterOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const envsQ = useEnvironments();
+  const switchEnv = useSwitchEnvironment();
 
   // Close the cluster dropdown on outside click.
   useEffect(() => {
@@ -40,9 +43,20 @@ export default function TopBar({ view, query, onQuery, onEnqueue, stats }: Props
 
   const label = view === "tasks" ? "Tasks" : view === "schedules" ? "Schedules" : "Workers";
 
+  // Current identity: prefer the live stats poll (reflects the broker we're
+  // actually connected to), fall back to the catalog's `current` entry, then to
+  // a local/default placeholder so the chip always renders.
+  const current = envsQ.data?.current;
+  const envName = stats?.env ?? current?.name ?? "local";
+  const regionName = stats?.region ?? current?.region ?? "default";
+  const environments = envsQ.data?.environments ?? [];
+  // The current entry is "live"; everything else is a switch target we don't
+  // poll, so we honestly show "—" for their worker counts.
+  const isCurrent = (name: string) => name === envName;
+
   return (
     <header className="topbar">
-      {/* Cluster selector */}
+      {/* Environment switcher */}
       <div className={`cluster-sel${clusterOpen ? " open" : ""}`}>
         <button
           className="cs-btn"
@@ -52,24 +66,44 @@ export default function TopBar({ view, query, onQuery, onEnqueue, stats }: Props
           }}
         >
           <span className="dot" />
-          <span>local · default</span>
+          <span>
+            {envName} · {regionName}
+          </span>
           <ChevronDownIcon className="chev" />
         </button>
         <div className="cs-menu">
-          <div className="cs-opt">
-            <span className="dot live" />
-            <b>local · default</b>
-            <small>{stats?.active_workers ?? 0} workers</small>
-          </div>
-          <div className="cs-opt">
-            <span className="dot idle" />
-            <b>prod · us-east</b>
-            <small>—</small>
-          </div>
+          {environments.length === 0 ? (
+            <div className="cs-opt">
+              <span className="dot live" />
+              <b>
+                {envName} · {regionName}
+              </b>
+              <small>{stats?.active_workers ?? 0} workers</small>
+            </div>
+          ) : (
+            environments.map((e) => (
+              <div
+                key={e.name}
+                className="cs-opt"
+                style={{ cursor: "pointer" }}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  setClusterOpen(false);
+                  switchEnv(e);
+                }}
+              >
+                <span className={`dot ${isCurrent(e.name) ? "live" : "idle"}`} />
+                <b>
+                  {e.name} · {e.region}
+                </b>
+                <small>{isCurrent(e.name) ? `${stats?.active_workers ?? 0} workers` : "—"}</small>
+              </div>
+            ))
+          )}
           <div className="cs-sep" />
-          <div className="cs-opt" style={{ color: "var(--accent)", fontWeight: 550 }}>
+          <div className="cs-opt" style={{ color: "var(--muted-2)", fontWeight: 400 }}>
             <PlusIcon style={{ width: 14, height: 14 }} />
-            Add cluster
+            Configure in <span className="mono">config/environments.yml</span>
           </div>
         </div>
       </div>

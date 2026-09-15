@@ -21,6 +21,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 tonic.workspace = true
 prost-types = "0.12.0"
+serde_yaml = "0.9"
 
 [dev-dependencies]
 chopflow_broker = { path = "../broker", version = "0.1.3" }
