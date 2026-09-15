@@ -9,8 +9,8 @@ This crate is a library so that the service can be exercised by integration
 tests in `broker/tests/`. The `main.rs` binary is a thin CLI wrapper.
 */
 
-use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
 use chopflow_core::config::{Environment, EnvironmentsConfig};
+use chopflow_core::dispatcher::{Dispatcher, InMemoryDispatcher, Worker};
 use chopflow_core::resources::ResourceAvailability;
 use chopflow_core::retry::RetryPolicy;
 use chopflow_core::schedule::{next_fire, OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
@@ -252,7 +252,12 @@ impl BrokerState {
     /// no fleet catalog. Used by tests and any standalone run without an
     /// `environments.yml`.
     pub fn new(storage: Arc<dyn Storage>) -> Self {
-        Self::with_identity(storage, "local".to_string(), "default".to_string(), Vec::new())
+        Self::with_identity(
+            storage,
+            "local".to_string(),
+            "default".to_string(),
+            Vec::new(),
+        )
     }
 
     /// Construct shared state with an explicit environment identity and fleet
@@ -997,7 +1002,10 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
             c.environments
         }
         Err(e) => {
-            warn!("failed to load environments config from {}: {}", environments, e);
+            warn!(
+                "failed to load environments config from {}: {}",
+                environments, e
+            );
             Vec::new()
         }
     };

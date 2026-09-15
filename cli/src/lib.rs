@@ -402,11 +402,7 @@ pub async fn schedule_delete(broker: String, id: String) -> Result<()> {
 /// `grpc_url` returned (overriding `default_broker`). When `env` is `None`,
 /// `default_broker` is returned unchanged. Pure + synchronous so it can be
 /// unit-tested without a broker.
-pub fn resolve_broker(
-    default_broker: &str,
-    env: Option<&str>,
-    env_config: &str,
-) -> Result<String> {
+pub fn resolve_broker(default_broker: &str, env: Option<&str>, env_config: &str) -> Result<String> {
     let Some(name) = env else {
         return Ok(default_broker.to_string());
     };

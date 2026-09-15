@@ -34,9 +34,7 @@ export default function App() {
   const tasks = tasksQ.data?.tasks ?? [];
   const schedules = schedQ.data ?? [];
   const workers = workersQ.data ?? [];
-  const envLabel = stats
-    ? `${stats.env} · ${stats.region}`
-    : "local · default";
+  const envLabel = stats ? `${stats.env} · ${stats.region}` : "local · default";
 
   return (
     <div className="app">

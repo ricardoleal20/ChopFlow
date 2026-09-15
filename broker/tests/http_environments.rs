@@ -132,13 +132,8 @@ async fn cors_allows_cross_origin_preflight() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
-        resp.headers()
-            .get("access-control-allow-origin")
-            .unwrap(),
+        resp.headers().get("access-control-allow-origin").unwrap(),
         "http://localhost:8080"
     );
-    assert!(resp
-        .headers()
-        .get("access-control-allow-methods")
-        .is_some());
+    assert!(resp.headers().get("access-control-allow-methods").is_some());
 }

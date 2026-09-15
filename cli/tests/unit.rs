@@ -181,8 +181,12 @@ fn resolve_broker_resolves_env_to_grpc_url() {
         tmp.path(),
         "environments:\n  - name: prod\n    region: us-east-1\n    grpc_url: http://broker.prod:8000\n    http_url: http://broker.prod:8080\n",
     );
-    let got =
-        resolve_broker("http://localhost:8000", Some("prod"), path.to_str().unwrap()).unwrap();
+    let got = resolve_broker(
+        "http://localhost:8000",
+        Some("prod"),
+        path.to_str().unwrap(),
+    )
+    .unwrap();
     assert_eq!(got, "http://broker.prod:8000");
 }
 
@@ -193,9 +197,12 @@ fn resolve_broker_errors_on_unknown_env() {
         tmp.path(),
         "environments:\n  - name: prod\n    region: us-east-1\n    grpc_url: http://broker.prod:8000\n    http_url: http://broker.prod:8080\n",
     );
-    let err =
-        resolve_broker("http://localhost:8000", Some("staging"), path.to_str().unwrap())
-            .unwrap_err();
+    let err = resolve_broker(
+        "http://localhost:8000",
+        Some("staging"),
+        path.to_str().unwrap(),
+    )
+    .unwrap_err();
     let msg = format!("{err}");
     assert!(msg.contains("staging"), "msg={msg}");
     assert!(msg.contains("prod"), "msg={msg}");
@@ -208,8 +215,11 @@ fn resolve_broker_errors_when_grpc_url_missing() {
         tmp.path(),
         "environments:\n  - name: prod\n    region: us-east-1\n    http_url: http://broker.prod:8080\n",
     );
-    let err =
-        resolve_broker("http://localhost:8000", Some("prod"), path.to_str().unwrap())
-            .unwrap_err();
+    let err = resolve_broker(
+        "http://localhost:8000",
+        Some("prod"),
+        path.to_str().unwrap(),
+    )
+    .unwrap_err();
     assert!(format!("{err}").contains("no grpc_url"));
 }
