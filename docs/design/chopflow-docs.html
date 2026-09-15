@@ -366,6 +366,7 @@
           <li><a class="nav-leaf" href="#api-tasks" data-page="api-tasks">Tasks</a></li>
           <li><a class="nav-leaf" href="#api-schedules" data-page="api-schedules">Schedules</a></li>
           <li><a class="nav-leaf" href="#api-workers" data-page="api-workers">Workers</a></li>
+          <li><a class="nav-leaf" href="#api-environments" data-page="api-environments">Environments</a></li>
         </ul>
       </div>
       <div class="nav-group">
@@ -382,6 +383,12 @@
         <ul class="nav-group-list">
           <li><a class="nav-leaf" href="#storage-sqlite" data-page="storage-sqlite">SQLite</a></li>
           <li><a class="nav-leaf" href="#storage-memory" data-page="storage-memory">In-Memory</a></li>
+        </ul>
+      </div>
+      <div class="nav-group" data-group="operations">
+        <button class="nav-group-header" type="button">Operations <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#environments" data-page="environments">Environments</a></li>
         </ul>
       </div>
       <div class="nav-group">
@@ -1331,6 +1338,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
               <tr><td><span class="method-badge method-post">POST</span></td><td><code>/api/schedules</code></td><td>Create a recurring schedule with a cron expression or interval.</td></tr>
               <tr><td><span class="method-badge method-patch">PATCH</span></td><td><code>/api/schedules/:id</code></td><td>Update an existing schedule (pause, resume, modify).</td></tr>
               <tr><td><span class="method-badge method-delete">DELETE</span></td><td><code>/api/schedules/:id</code></td><td>Delete a schedule by ID.</td></tr>
+              <tr><td><span class="method-badge method-get">GET</span></td><td><code>/api/environments</code></td><td>Read-only fleet catalog + the broker's own identity (for the dashboard switcher).</td></tr>
               <tr><td><span class="method-badge method-get">GET</span></td><td><code>/healthz</code></td><td>Liveness/readiness probe (returns 200 OK).</td></tr>
             </tbody>
           </table>
@@ -1341,7 +1349,7 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         <p class="doc-lede">Cluster-wide statistics — a single call the dashboard polls every 2 seconds.</p>
 
         <h2 id="stats-endpoint"><span class="method-badge method-get">GET</span> /api/stats<a class="anchor" href="#stats-endpoint">#</a></h2>
-        <p>Returns aggregate counts derived from storage and the live worker registry. No query parameters.</p>
+        <p>Returns aggregate counts derived from storage and the live worker registry, plus the broker's own environment identity. No query parameters.</p>
         <div class="code-block">
           <div class="code-block-head"><span class="code-block-file">response · 200</span><button class="copy-btn" type="button">Copy</button></div>
           <pre><code>{
@@ -1351,7 +1359,9 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
   "tasks_failed": 7,
   "active_workers": 3,
   "total_tasks": 203,
-  "schedules": 2
+  "schedules": 2,
+  "env": "prod",
+  "region": "us-east-1"
 }</code></pre>
         </div>
         <div class="table-wrap">
@@ -1365,6 +1375,8 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
               <tr><td><code>active_workers</code></td><td>Registered workers whose heartbeat is alive.</td></tr>
               <tr><td><code>total_tasks</code></td><td>All tasks in storage, any status.</td></tr>
               <tr><td><code>schedules</code></td><td>Count of <strong>enabled</strong> schedules.</td></tr>
+              <tr><td><code>env</code></td><td>This broker's environment name (from <code>--env</code>), e.g. <code>prod</code>. See <a href="#environments" style="color:var(--primary);text-decoration:underline">Environments</a>.</td></tr>
+              <tr><td><code>region</code></td><td>This broker's region tag (from <code>--region</code>), e.g. <code>us-east-1</code>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1488,6 +1500,49 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
 
         <h2 id="workers-health"><span class="method-badge method-get">GET</span> /healthz<a class="anchor" href="#workers-health">#</a></h2>
         <p>Liveness/readiness probe. Returns <code>200 OK</code> with body <code>ok</code>. Use it for load-balancer health checks and container orchestrators — it does not report broker internals.</p>
+      </article>
+
+      <article class="doc-page" id="page-api-environments" data-page="api-environments">
+        <h1>API — Environments</h1>
+        <p class="doc-lede">Read-only fleet catalog and the broker's own identity. The dashboard polls this to render its environment switcher. See <a href="#environments" style="color:var(--primary);text-decoration:underline">Environments</a> for the concepts and configuration.</p>
+
+        <h2 id="environments-endpoint"><span class="method-badge method-get">GET</span> /api/environments<a class="anchor" href="#environments-endpoint">#</a></h2>
+        <p>Returns the broker's own identity (<code>current</code>) and the full fleet catalog (<code>environments</code>) loaded from <code>environments.yml</code>. The <code>current</code> entry always carries an empty <code>http_url</code>: the serving broker is same-origin to its own dashboard, so selecting <code>current</code> must not retarget the API. No query parameters.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 200</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "current": {
+    "name": "prod",
+    "region": "us-east-1",
+    "grpc_url": "http://broker.prod:8000",
+    "http_url": ""
+  },
+  "environments": [
+    {
+      "name": "local",
+      "region": "default",
+      "grpc_url": "http://localhost:8000",
+      "http_url": "http://localhost:8080"
+    },
+    {
+      "name": "prod",
+      "region": "us-east-1",
+      "grpc_url": "http://broker.prod:8000",
+      "http_url": "http://broker.prod:8080"
+    }
+  ]
+}</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>current</code></td><td>The broker's own identity, derived from <code>--env</code>/<code>--region</code>. <code>http_url</code> is always empty (same-origin signal to the dashboard).</td></tr>
+              <tr><td><code>environments</code></td><td>The full catalog from <code>environments.yml</code>. Empty when no catalog is configured (standalone broker).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout-info"><p class="callout-title">Read-only</p><p>This endpoint serves the catalog as-is; it does not mutate fleet configuration. Environments are declared in <code>config/environments.yml</code> and reloaded on broker start.</p></div>
       </article>
 
       <!-- ===== gRPC REFERENCE ===== -->
@@ -1819,6 +1874,74 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
         <div class="callout callout-warn"><p class="callout-title">Ephemeral</p><p>Nothing persists. Stop the broker and every task, worker, and schedule is gone. This is the backend <code>demos/run.sh</code> uses so demo runs start clean.</p></div>
 
         <p>Because both backends implement the same trait, you can also construct an <code>InMemoryStorage</code> directly in a Rust test to exercise dispatch, retry, and scheduling logic with no I/O — see <a href="#client-rust" style="color:var(--primary);text-decoration:underline">Rust Client → In-process</a>.</p>
+      </article>
+
+      <!-- ===== ENVIRONMENTS ===== -->
+      <article class="doc-page" id="page-environments" data-page="environments">
+        <h1>Environments</h1>
+        <p class="doc-lede">An environment is a named, region-tagged broker deployment. Declare a small fleet catalog and the dashboard can hop between brokers at runtime; the CLI resolves <code>--env &lt;name&gt;</code> to the right gRPC address. Workers are unchanged — they stay single-homed to one broker.</p>
+
+        <p>ChopFlow is a single-binary system: one broker process owns its storage and its workers. The environments feature does <strong>not</strong> federate brokers or share state between them. It is a lightweight operations layer — an identity tag per broker plus a read-only catalog — so a human operating several brokers (local, staging, prod) can point the same dashboard and CLI at each one without editing URLs by hand.</p>
+
+        <h2 id="env-identity">Broker identity<a class="anchor" href="#env-identity">#</a></h2>
+        <p>Every broker advertises an <code>env</code> and <code>region</code>, set with flags on <code>broker start</code>. These appear on <code>/api/stats</code> and as the <code>current</code> entry of <code>/api/environments</code>, so the dashboard always shows which broker it is talking to.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Flag</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--env</code></td><td><code>local</code></td><td>Environment name this broker identifies as. Matches a catalog entry's <code>name</code> for the "current" row.</td></tr>
+              <tr><td><code>--region</code></td><td><code>default</code></td><td>Free-form region tag (e.g. <code>us-east-1</code>, <code>eu-west-1</code>).</td></tr>
+              <tr><td><code>--environments</code></td><td><code>config/environments.yml</code></td><td>Path to the fleet catalog. Optional — a missing file is not an error.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow broker start \
+    --env prod --region us-east-1 --http-port 8080 --open</span></code></pre>
+        </div>
+
+        <h2 id="env-catalog">The fleet catalog<a class="anchor" href="#env-catalog">#</a></h2>
+        <p>The catalog is a single YAML file listing every known environment. It is <strong>optional</strong>: a broker with no catalog still runs and advertises itself — its <code>--env</code>/<code>--region</code> become the lone "current" entry. Add entries only when you operate more than one broker and want the dashboard to switch between them.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">config/environments.yml</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>environments:
+  - name: local
+    region: default
+    grpc_url: http://localhost:8000
+    http_url: http://localhost:8080
+  - name: prod
+    region: us-east-1
+    grpc_url: http://broker.prod.internal:8000
+    http_url: http://broker.prod.internal:8080</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>name</code></td><td>Short id. Matches a broker's <code>--env</code> to mark the "current" row.</td></tr>
+              <tr><td><code>region</code></td><td>Free-form tag for display and grouping.</td></tr>
+              <tr><td><code>grpc_url</code></td><td>gRPC endpoint. Workers and the CLI connect here.</td></tr>
+              <tr><td><code>http_url</code></td><td>HTTP endpoint. The dashboard retargets its API base to <code>${http_url}/api</code> when you pick this environment.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The catalog is served read-only at <code>GET /api/environments</code> (see <a href="#api-environments" style="color:var(--primary);text-decoration:underline">API — Environments</a>). It is reloaded on broker start; there is no hot reload.</p>
+
+        <h2 id="env-dashboard">Dashboard switcher<a class="anchor" href="#env-dashboard">#</a></h2>
+        <p>The TopBar cluster selector lists every catalog entry. Picking one retargets the dashboard's reactive API base to that broker's <code>http_url</code> and invalidates all queries, so the whole UI re-fetches from the newly selected broker. The <code>current</code> entry always has an empty <code>http_url</code> — the serving broker is same-origin to its own dashboard, so selecting "current" never retargets to a possibly-wrong host. A broker whose <code>--env</code> is not in any catalog still synthesizes a <code>current</code> entry so the selector has something to display.</p>
+        <div class="callout callout-info"><p class="callout-title">Cross-origin</p><p>Switching to a remote broker is a cross-origin request. The broker answers with permissive CORS headers (it mirrors the request <code>Origin</code>), so a dashboard served by broker A can fetch broker B's API without extra proxying.</p></div>
+
+        <h2 id="env-cli">CLI <code>--env</code><a class="anchor" href="#env-cli">#</a></h2>
+        <p>The CLI verbs (<code>enqueue</code>, <code>status</code>, <code>schedule</code>) accept <code>--env &lt;name&gt;</code>, which resolves the broker gRPC URL from the catalog and overrides <code>--broker</code>. Pair it with <code>--env-config</code> to point at a non-default catalog. Unknown names and entries missing <code>grpc_url</code> error out with a helpful message listing the known environments.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow status --env prod --all</span>
+<span class="term-line"><span class="term-prompt">$ </span>./target/release/chopflow enqueue -f task.json --env prod</span></code></pre>
+        </div>
+
+        <h2 id="env-workers">Workers stay single-homed<a class="anchor" href="#env-workers">#</a></h2>
+        <p>Environments add no worker-side concept. A worker still connects to exactly one broker gRPC endpoint and is unaware of the catalog. To move a worker between environments, point it at a different <code>--broker</code> address — there is no federation, no cross-broker task migration, and no shared storage. This keeps the dispatch path exactly as described in <a href="#architecture" style="color:var(--primary);text-decoration:underline">Architecture</a>.</p>
       </article>
 
       <!-- ===== ARCHITECTURE ===== -->
