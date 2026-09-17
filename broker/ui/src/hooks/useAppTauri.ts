@@ -14,6 +14,7 @@ import {
   appAddRemote,
   appCompleteFirstRun,
   appGetState,
+  appRemoveRemote,
   appSetLastUsed,
   appStartLocal,
   appStopLocal,
@@ -117,6 +118,13 @@ export function useAppTauri() {
     setState(st);
   }, []);
 
+  /// Remove a remote (welcome chips / settings).
+  const removeRemote = useCallback(async (name: string) => {
+    await appRemoveRemote(name);
+    const st = await appGetState();
+    setState(st);
+  }, []);
+
   /// Switch the active connection. "local" boots the local broker if needed.
   const switchTo = useCallback(
     async (name: string) => {
@@ -156,6 +164,7 @@ export function useAppTauri() {
       startLocal: noop,
       stopLocal: noop,
       addRemote: noop,
+      removeRemote: noop,
       switchTo: noop,
       completeFirstRun: noop,
     };
@@ -173,6 +182,7 @@ export function useAppTauri() {
     startLocal,
     stopLocal,
     addRemote,
+    removeRemote,
     switchTo,
     completeFirstRun,
   };
