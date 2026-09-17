@@ -28,24 +28,30 @@ type Props = {
 const BOOT_ORDER: BootStep[] = ["starting-broker", "checking-connections", "loading-dashboard"];
 const LOADING = "Loading dashboard…";
 
+// The canonical ChopFlow mark (assets/icons/chopflow.svg) — a geometric
+// German Shepherd in ink / white / flow-blue. Rendered white-only so it reads
+// on the indigo brand tiles and always matches the app icon.
+const ShepherdPaths = () => (
+  <g strokeLinejoin="miter" strokeLinecap="square">
+    <path
+      fill="#F8FAFC"
+      d="M617 234 L513 390 L461 506 L329 685 L310 762 L355 686 L491 542 L517 577 L548 522 L537 472 L609 285 L641 434 L612 492 L674 443 Z"
+    />
+    <path fill="#F8FAFC" d="M780 278 L696 402 L723 420 L768 334 L768 386 L751 436 L780 459 Z" />
+    <path
+      fill="#F8FAFC"
+      d="M695 430 L623 579 L517 655 L493 763 L614 893 L648 980 L670 825 L603 743 L767 617 L757 595 L680 568 L749 539 L739 509 L781 535 L799 599 L923 669 L907 690 L943 732 L976 685 L834 584 L816 521 Z"
+    />
+    <path
+      fill="#F8FAFC"
+      d="M918 757 L882 782 L854 788 L838 788 L740 760 L715 771 L745 776 L842 805 L856 805 L888 797 Z"
+    />
+  </g>
+);
+
 const BrandMark = ({ size }: { size: number }) => (
-  <svg viewBox="0 0 48 48" fill="none" width={size} height={size} aria-hidden="true">
-    <path
-      d="M10.8 17.4 13.4 5.8 18.9 14.8 C20.5 13.5 27.5 13.5 29.1 14.8 L34.6 5.8 37.2 17.4 C38 21.6 37.3 25.9 35.7 29.7 C33.9 34 30.4 37.7 26.4 39.7 C25.6 40.2 24.8 40.5 24 40.5 C23.2 40.5 22.4 40.2 21.6 39.7 C17.6 37.7 14.1 34 12.3 29.7 C10.7 25.9 10 21.6 10.8 17.4 Z"
-      fill="#fff"
-      stroke="#fff"
-      strokeWidth="2"
-      strokeLinejoin="round"
-    />
-    <circle cx="19.7" cy="25.4" r="1.9" fill="#101623" />
-    <circle cx="28.3" cy="25.4" r="1.9" fill="#101623" />
-    <path
-      d="M21.5 30.6h5L24 34.4z"
-      fill="#101623"
-      stroke="#101623"
-      strokeWidth="2"
-      strokeLinejoin="round"
-    />
+  <svg viewBox="260 190 760 880" width={size} height={size} fill="none" aria-hidden="true">
+    <ShepherdPaths />
   </svg>
 );
 
@@ -121,6 +127,10 @@ export default function Welcome({
   };
 
   const remotes = state?.remotes ?? [];
+
+  // Continue needs at least ONE live path forward: the local broker running
+  // (or adopted) OR at least one remote — not both, not neither.
+  const canProceed = Boolean(localDeploy) || remotes.length > 0;
 
   return (
     <div className="welcome-shell w-tile">
@@ -294,9 +304,19 @@ export default function Welcome({
               </div>
 
               <div className="w-under">
-                <button type="button" className="w-continue" onClick={() => void onProceed()}>
+                <button
+                  type="button"
+                  className="w-continue"
+                  disabled={!canProceed}
+                  onClick={() => void onProceed()}
+                >
                   Continue <span className="w-arr">→</span>
                 </button>
+                {!canProceed ? (
+                  <p className="w-continue-hint">
+                    Start the local broker or add a remote to continue.
+                  </p>
+                ) : null}
               </div>
             </section>
           ) : null}

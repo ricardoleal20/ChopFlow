@@ -661,16 +661,25 @@ html:not(.dark) .welcome-shell {
   font-family: inherit;
   transition: color 140ms var(--ease-out);
 }
-.w-continue:hover {
+.w-continue:hover:not(:disabled) {
   color: var(--text);
+}
+.w-continue:disabled {
+  color: var(--subtle);
+  cursor: default;
 }
 .w-continue .w-arr {
   display: inline-block;
   margin-left: 4px;
   transition: transform 220ms var(--ease-out);
 }
-.w-continue:hover .w-arr {
+.w-continue:hover:not(:disabled) .w-arr {
   transform: translateX(3px);
+}
+.w-continue-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--subtle);
 }
 
 .w-build-line {
