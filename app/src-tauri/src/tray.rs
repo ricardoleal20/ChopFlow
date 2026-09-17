@@ -19,11 +19,17 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&open, &start, &stop, &mcp, &quit])?;
 
+    // Neutral menu-bar icon: the ChopFlow mark as a black-alpha silhouette,
+    // flagged as a macOS template image so it auto-tints (light/dark menu bar).
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))
+        .map_err(|e| tauri::Error::AssetNotFound(e.to_string()))?;
+
     let _tray = TrayIconBuilder::with_id("chopflow-tray")
+        .icon(tray_icon)
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("ChopFlow")
-        .icon(app.default_window_icon().expect("app icon").clone())
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main_window(app),
             "start-local" => spawn_supervisor_action(app, |supervisor, data_dir| async move {
