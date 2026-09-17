@@ -43,6 +43,19 @@ impl SharedState {
                 .unwrap_or_else(|| format!("http://127.0.0.1:{LOCAL_HTTP_PORT}"))
         }
     }
+
+    /// Bearer token of the active connection, if the remote requires one.
+    async fn active_token(&self) -> Option<String> {
+        let last = self.store.lock().unwrap().effective_last_used();
+        if last == "local" {
+            return None; // managed local broker is never API-token protected
+        }
+        self.store
+            .lock()
+            .unwrap()
+            .remote(&last)
+            .and_then(|r| r.token.clone())
+    }
 }
 
 /// Everything the frontend needs in one call.
@@ -114,13 +127,23 @@ pub fn app_add_remote(
     state: State<'_, SharedState>,
     name: String,
     http_url: String,
+    token: Option<String>,
 ) -> Result<(), String> {
     let name = name.trim().to_string();
     let http_url = http_url.trim().trim_end_matches('/').to_string();
     if name.is_empty() || http_url.is_empty() {
         return Err("name and http_url are required".into());
     }
-    state.with_store(|s| s.upsert_remote(Remote { name, http_url }));
+    let token = token
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+    state.with_store(|s| {
+        s.upsert_remote(Remote {
+            name,
+            http_url,
+            token,
+        })
+    });
     state.persist()
 }
 
@@ -146,7 +169,8 @@ pub async fn app_set_last_used(
     let supervisor = state.supervisor.clone();
     if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
         let base = state.active_base(&supervisor).await;
-        supervisor.start_mcp(&base).await?;
+        let token = state.active_token().await;
+        supervisor.start_mcp(&base, token.as_deref()).await?;
     }
     Ok(connection)
 }
@@ -185,7 +209,8 @@ pub async fn app_set_mcp(
         let base = state.active_base(&supervisor).await;
         // The MCP child points at the active connection; a local base needs
         // the local broker up first.
-        Some(supervisor.start_mcp(&base).await?)
+        let token = state.active_token().await;
+        Some(supervisor.start_mcp(&base, token.as_deref()).await?)
     } else {
         supervisor.stop_mcp().await;
         None

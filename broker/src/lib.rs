@@ -111,6 +111,13 @@ pub enum Commands {
         /// a force-quit. Used by the ChopFlow macOS app's managed broker.
         #[arg(long)]
         parent_pid: Option<u32>,
+
+        /// Require a Bearer token on the HTTP `/api/*` endpoints. Optional
+        /// value: `--api-token <TOKEN>` uses that token; bare `--api-token`
+        /// auto-generates one and prints it at startup. `CHOPFLOW_API_TOKEN`
+        /// env is honored when the flag is absent. No flag = no auth.
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        api_token: Option<String>,
     },
 }
 
@@ -251,6 +258,10 @@ pub struct BrokerState {
     /// dashboard can switch between brokers. Empty when no
     /// `environments.yml` is configured.
     pub catalog: Vec<Environment>,
+    /// Optional API token. When set, every `/api/*` request must carry
+    /// `Authorization: Bearer <token>`; `/healthz` stays open so adopt-probes
+    /// and load balancers keep working. `None` = no auth (default).
+    pub api_token: Option<String>,
 }
 
 impl BrokerState {
@@ -282,7 +293,14 @@ impl BrokerState {
             env,
             region,
             catalog,
+            api_token: None,
         }
+    }
+
+    /// Attach an API token (Bearer) to this broker's HTTP API.
+    pub fn with_api_token(mut self, api_token: Option<String>) -> Self {
+        self.api_token = api_token;
+        self
     }
 }
 
@@ -990,6 +1008,7 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
         region,
         environments,
         parent_pid,
+        api_token,
     } = cli.command;
 
     // `config` is accepted for forward-compat (e.g. loading broker.yml) but
@@ -1018,6 +1037,27 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
         }
     };
 
+    // Resolve the optional API token: explicit value, bare `--api-token`
+    // (auto-generate), or CHOPFLOW_API_TOKEN. `None` = HTTP API stays open.
+    let api_token: Option<String> = match api_token {
+        Some(value) if !value.is_empty() => Some(value),
+        Some(_) => Some(generate_api_token()),
+        None => std::env::var("CHOPFLOW_API_TOKEN")
+            .ok()
+            .filter(|s| !s.is_empty()),
+    };
+    if let Some(ref token) = api_token {
+        if token.starts_with("chopflow-") {
+            // Auto-generated below: tell the operator, they must capture it to
+            // configure the dashboard/client.
+            info!("HTTP API token (auto-generated): {token}  ->  add it to the dashboard's Connection settings for this broker");
+        } else {
+            info!("HTTP API auth enabled with a provided token");
+        }
+    } else {
+        info!("HTTP API auth disabled (no --api-token)");
+    }
+
     let backend = match storage.as_str() {
         "memory" => StorageBackend::Memory,
         "sqlite" => {
@@ -1039,7 +1079,7 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
 
     // One shared state object backs both the gRPC service and the HTTP layer,
     // so the dashboard sees live updates from workers and vice versa.
-    let state = BrokerState::with_identity(storage, env, region, catalog);
+    let state = BrokerState::with_identity(storage, env, region, catalog).with_api_token(api_token);
     let service = ChopFlowBrokerService::from_state(state.clone());
     service.spawn_timeout_monitor();
 
@@ -1104,6 +1144,12 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
     // If gRPC returns, don't leave the HTTP task dangling.
     http_task.abort();
     Ok(())
+}
+
+/// Random API token for `--api-token` (bare flag). The `chopflow-` prefix
+/// doubles as the "auto-generated" marker for the startup log.
+fn generate_api_token() -> String {
+    format!("chopflow-{}", Uuid::new_v4().simple())
 }
 
 /// Open `url` in the platform's default browser. Cross-platform: macOS `open`,

@@ -72,6 +72,10 @@ enum Command {
         /// instead of stdio. Endpoint: http://<addr>/mcp.
         #[arg(long)]
         http: Option<String>,
+
+        /// Bearer token for brokers started with --api-token.
+        #[arg(long)]
+        api_token: Option<String>,
     },
 
     /// Enqueue a task from a JSON file.
@@ -172,6 +176,11 @@ enum BrokerCmd {
         /// broker self-terminates (used by the desktop app).
         #[arg(long)]
         parent_pid: Option<u32>,
+
+        /// Require a Bearer token on the HTTP API. Optional value: pass one
+        /// or leave bare to auto-generate (printed at startup).
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        api_token: Option<String>,
     },
 }
 
@@ -194,6 +203,7 @@ async fn main() -> anyhow::Result<()> {
                     region,
                     environments,
                     parent_pid,
+                    api_token,
                 },
         } => {
             let broker_cli = chopflow_broker::Cli {
@@ -209,6 +219,7 @@ async fn main() -> anyhow::Result<()> {
                     region,
                     environments,
                     parent_pid,
+                    api_token,
                 },
             };
             chopflow_broker::run(broker_cli)
@@ -216,8 +227,17 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
 
-        Command::Mcp { broker, http } => {
-            chopflow_mcp::run(chopflow_mcp::Cli { broker, http }).await?;
+        Command::Mcp {
+            broker,
+            http,
+            api_token,
+        } => {
+            chopflow_mcp::run(chopflow_mcp::Cli {
+                broker,
+                http,
+                api_token,
+            })
+            .await?;
         }
 
         Command::Enqueue {

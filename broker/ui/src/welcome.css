@@ -559,11 +559,17 @@ html:not(.dark) .welcome-shell {
   box-shadow: 0 0 0 3px var(--focus-ring-soft);
 }
 .w-in-name {
-  width: 158px;
+  width: 150px;
   flex: none;
 }
 .w-in-url {
   flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.w-in-token {
+  width: 120px;
+  flex: none;
   font-family: var(--font-mono);
   font-size: 12.5px;
 }

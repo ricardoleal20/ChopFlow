@@ -49,7 +49,11 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    let service = ChopFlowMcp { client, base };
+    let service = ChopFlowMcp {
+        client,
+        base,
+        token: cli.api_token.filter(|t| !t.is_empty()),
+    };
 
     match cli.http {
         Some(bind) => {
@@ -108,13 +112,20 @@ pub struct Cli {
     /// this flag the server speaks stdio (spawned by an MCP client).
     #[arg(long)]
     pub http: Option<String>,
+
+    /// Bearer token for brokers started with `--api-token`. Sent as
+    /// `Authorization: Bearer <token>` on every broker call.
+    #[arg(long)]
+    pub api_token: Option<String>,
 }
 
-/// The MCP server. Holds a reusable HTTP client and the broker base URL.
+/// The MCP server. Holds a reusable HTTP client, the broker base URL, and the
+/// optional Bearer token for brokers started with `--api-token`.
 #[derive(Clone)]
 pub struct ChopFlowMcp {
     client: reqwest::Client,
     base: String,
+    token: Option<String>,
 }
 
 impl ChopFlowMcp {
@@ -125,6 +136,7 @@ impl ChopFlowMcp {
         Self {
             client,
             base: base.into().trim_end_matches('/').to_string(),
+            token: None,
         }
     }
 }
@@ -140,6 +152,9 @@ impl ChopFlowMcp {
     ) -> Result<String, String> {
         let url = format!("{}{}", self.base, path);
         let mut req = self.client.request(method.clone(), &url);
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
         if let Some(b) = body {
             req = req.json(&b);
         }

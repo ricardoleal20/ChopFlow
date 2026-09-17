@@ -37,10 +37,10 @@ export function useAppTauri() {
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState<string>("local");
 
-  // Point the query layer at a connection's api base and refetch everything.
+  // Point the query layer at a connection's api base (+ token) and refetch.
   const pointAt = useCallback(
-    (base: string | null) => {
-      setApiBase(base);
+    (base: string | null, token?: string | null) => {
+      setApiBase(base, token ?? null);
       qc.invalidateQueries();
       qc.removeQueries();
     },
@@ -63,10 +63,10 @@ export function useAppTauri() {
           if (cancelled) return;
           setLocal(loc);
           const base = localHttpBase(loc);
-          if (base) pointAt(base);
+          if (base) pointAt(base, null); // managed local broker: no token
         } else {
           const remote = st.remotes.find((r) => r.name === st.last_used);
-          if (remote) pointAt(remote.http_url);
+          if (remote) pointAt(remote.http_url, remote.token || null);
         }
 
         setStep("checking-connections");
@@ -111,9 +111,9 @@ export function useAppTauri() {
     return loc;
   }, []);
 
-  /// Add a remote from the welcome/settings UI.
-  const addRemote = useCallback(async (name: string, httpUrl: string) => {
-    await appAddRemote(name, httpUrl);
+  /// Add a remote from the welcome/settings UI (optional Bearer token).
+  const addRemote = useCallback(async (name: string, httpUrl: string, token?: string | null) => {
+    await appAddRemote(name, httpUrl, token);
     const st = await appGetState();
     setState(st);
   }, []);
@@ -135,9 +135,11 @@ export function useAppTauri() {
         name === "local"
           ? localHttpBase(local ?? (await appStartLocal()))
           : state!.remotes.find((r) => r.name === name)!.http_url;
+      const token =
+        name === "local" ? null : (state!.remotes.find((r) => r.name === name)!.token ?? null);
       await appSetLastUsed(name);
       setActive(name);
-      pointAt(base);
+      pointAt(base, token);
     },
     [state, local, pointAt],
   );

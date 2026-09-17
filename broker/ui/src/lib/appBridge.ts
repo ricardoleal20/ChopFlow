@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-export type Remote = { name: string; http_url: string };
+export type Remote = { name: string; http_url: string; token?: string | null };
 
 export type LocalStatus =
   | { kind: "running"; http_port: number; grpc_port: number; pid?: number }
@@ -46,8 +46,12 @@ export async function appStopLocal(): Promise<LocalStatus> {
   return invoke("app_stop_local");
 }
 
-export async function appAddRemote(name: string, httpUrl: string): Promise<void> {
-  return invoke("app_add_remote", { name, httpUrl });
+export async function appAddRemote(
+  name: string,
+  httpUrl: string,
+  token?: string | null,
+): Promise<void> {
+  return invoke("app_add_remote", { name, httpUrl, token: token || null });
 }
 
 export async function appRemoveRemote(name: string): Promise<boolean> {

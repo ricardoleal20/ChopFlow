@@ -307,18 +307,27 @@ impl Supervisor {
         LocalBrokerStatus::Stopped
     }
 
-    /// Start (or restart) the MCP HTTP gateway against `broker_http_base`.
-    pub async fn start_mcp(&self, broker_http_base: &str) -> Result<String, String> {
+    /// Start (or restart) the MCP HTTP gateway against `broker_http_base`,
+    /// forwarding the connection's Bearer token when the broker requires one.
+    pub async fn start_mcp(
+        &self,
+        broker_http_base: &str,
+        api_token: Option<&str>,
+    ) -> Result<String, String> {
         self.stop_mcp().await;
         let binary = Self::resolve_binary()?;
-        let mut child = Command::new(&binary)
-            .args([
-                "mcp",
-                "--http",
-                &format!("127.0.0.1:{MCP_HTTP_PORT}"),
-                "--broker",
-                broker_http_base,
-            ])
+        let mut cmd = Command::new(&binary);
+        cmd.args([
+            "mcp",
+            "--http",
+            &format!("127.0.0.1:{MCP_HTTP_PORT}"),
+            "--broker",
+            broker_http_base,
+        ]);
+        if let Some(token) = api_token {
+            cmd.args(["--api-token", token]);
+        }
+        let mut child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)

@@ -12,10 +12,16 @@ use serde::{Deserialize, Serialize};
 const STORE_FILE: &str = "connections.json";
 
 /// A user-declared remote broker.
+///
+/// `token` is the optional Bearer token the remote broker requires when it was
+/// started with `--api-token`. It is stored only in the app's local store
+/// (mode-0600 app-data), never in the fleet catalog.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Remote {
     pub name: String,
     pub http_url: String,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 /// Persisted app state. `last_used` is `"local"` or a remote name; missing
@@ -110,6 +116,7 @@ mod tests {
         store.upsert_remote(Remote {
             name: "prod".into(),
             http_url: "http://broker.prod:8080".into(),
+            token: None,
         });
         store.last_used = Some("prod".into());
         store.first_run_done = true;
@@ -128,10 +135,12 @@ mod tests {
         store.upsert_remote(Remote {
             name: "staging".into(),
             http_url: "http://a:8080".into(),
+            token: None,
         });
         store.upsert_remote(Remote {
             name: "staging".into(),
             http_url: "http://b:9090".into(),
+            token: None,
         });
         assert_eq!(store.remotes.len(), 1);
         assert_eq!(store.remotes[0].http_url, "http://b:9090");
@@ -143,6 +152,7 @@ mod tests {
         store.upsert_remote(Remote {
             name: "prod".into(),
             http_url: "http://p:8080".into(),
+            token: None,
         });
         store.last_used = Some("prod".into());
         assert!(store.remove_remote("prod"));

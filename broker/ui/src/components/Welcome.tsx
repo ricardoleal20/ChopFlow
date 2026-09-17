@@ -21,7 +21,7 @@ type Props = {
   onStartLocal: () => void;
   onStopLocal?: () => void; // reserved (tray/settings manage it); unused in v1
   onRemoveRemote?: (name: string) => Promise<void>;
-  onAddRemote: (name: string, url: string) => Promise<void>;
+  onAddRemote: (name: string, url: string, token?: string | null) => Promise<void>;
   onProceed: () => void; // finish first run / dismiss
 };
 
@@ -83,6 +83,7 @@ export default function Welcome({
   const [starting, setStarting] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
   const [adding, setAdding] = useState(false);
   const [hint, setHint] = useState("");
 
@@ -118,9 +119,10 @@ export default function Welcome({
       return setHint("A remote with this name already exists.");
     setAdding(true);
     try {
-      await onAddRemote(n, u);
+      await onAddRemote(n, u, token.trim() || null);
       setName("");
       setUrl("");
+      setToken("");
     } finally {
       setAdding(false);
     }
@@ -254,6 +256,14 @@ export default function Welcome({
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
                       aria-label="Remote URL"
+                    />
+                    <input
+                      className="w-in w-in-token"
+                      type="password"
+                      placeholder="Token (optional)"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      aria-label="API token (optional)"
                     />
                     <button
                       type="submit"

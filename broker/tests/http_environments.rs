@@ -24,9 +24,19 @@ fn catalog() -> Vec<Environment> {
 }
 
 fn app_with(env: &str, region: &str, catalog: Vec<Environment>) -> axum::Router {
+    app_with_token(env, region, catalog, None)
+}
+
+fn app_with_token(
+    env: &str,
+    region: &str,
+    catalog: Vec<Environment>,
+    token: Option<&str>,
+) -> axum::Router {
     let storage: std::sync::Arc<dyn Storage> =
         std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
-    let state = BrokerState::with_identity(storage, env.into(), region.into(), catalog);
+    let state = BrokerState::with_identity(storage, env.into(), region.into(), catalog)
+        .with_api_token(token.map(|t| t.to_string()));
     router(state)
 }
 
@@ -136,4 +146,102 @@ async fn cors_allows_cross_origin_preflight() {
         "http://localhost:8080"
     );
     assert!(resp.headers().get("access-control-allow-methods").is_some());
+}
+
+// ---- API token auth --------------------------------------------------------
+
+#[tokio::test]
+async fn no_token_means_open_api_and_auth_required_false() {
+    let app = app_with("local", "default", catalog());
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let v = body_json(resp).await;
+    assert_eq!(v["auth_required"], false);
+}
+
+#[tokio::test]
+async fn token_broker_rejects_missing_and_wrong_tokens() {
+    let app = app_with_token("local", "default", catalog(), Some("sekret"));
+
+    // No header -> 401.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Wrong token -> 401.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/stats")
+                .header("authorization", "Bearer wrong")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn token_broker_accepts_correct_bearer() {
+    let app = app_with_token("local", "default", catalog(), Some("sekret"));
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/stats")
+                .header("authorization", "Bearer sekret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    assert_eq!(v["auth_required"], true);
+}
+
+#[tokio::test]
+async fn healthz_stays_open_with_token() {
+    // Adopt-probes and load balancers must work without a token.
+    let app = app_with_token("local", "default", catalog(), Some("sekret"));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
 }

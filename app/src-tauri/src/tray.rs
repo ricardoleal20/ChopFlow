@@ -102,7 +102,16 @@ fn toggle_mcp(app: &AppHandle) {
                 Some(url) => url,
                 None => supervisor.local_http_base().await, // "local" or dangling remote
             };
-            supervisor.start_mcp(&base).await.map(Some)
+            let token = state
+                .store
+                .lock()
+                .unwrap()
+                .remote(&last)
+                .and_then(|r| r.token.clone());
+            supervisor
+                .start_mcp(&base, token.as_deref())
+                .await
+                .map(Some)
         };
         let new_enabled = matches!(result, Ok(Some(_)));
         {
