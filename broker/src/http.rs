@@ -22,7 +22,7 @@ use crate::BrokerState;
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode, Uri},
-    middleware::{self, Next},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
