@@ -7,17 +7,20 @@ import WorkersView from "./components/WorkersView";
 import TaskDrawer from "./components/TaskDrawer";
 import ScheduleDrawer from "./components/ScheduleDrawer";
 import { EnqueueDialog } from "./components/EnqueueDialog";
+import Welcome from "./components/Welcome";
 import { useTheme } from "./hooks/useTheme";
 import { useStats, useTasks, useSchedules, useWorkers } from "./hooks/useChopFlow";
+import { useAppTauri } from "./hooks/useAppTauri";
 import type { Task, TaskStatus, Schedule } from "./lib/api";
 
-// App shell — a faithful port of the OpenDesign reference layout: a fixed navy
-// sidebar (248px) + a main column with a 54px command bar and a scrollable
-// content area. The selected view (Tasks / Schedules / Workers) swaps the
-// content; a task or schedule detail drawer slides over from the right on row
-// click.
+// App shell. Two modes share one layout:
+//   - Browser: the plain dashboard, exactly as the OpenDesign reference.
+//   - Tauri (desktop): bootstraps the app's control plane; while the local
+//     broker starts / connections are probed it shows the Welcome gate, and on
+//     a first run the Welcome is the configuration surface.
 export default function App() {
   const { theme, toggle } = useTheme();
+  const shell = useAppTauri();
   const [view, setView] = useState<View>("tasks");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TaskStatus | "all">("all");
@@ -35,6 +38,23 @@ export default function App() {
   const schedules = schedQ.data ?? [];
   const workers = workersQ.data ?? [];
   const envLabel = stats ? `${stats.env} · ${stats.region}` : "local · default";
+
+  // In the desktop app, gate on the Welcome until boot completes and first
+  // run is configured.
+  if (shell.tauri && (!shell.ready || shell.firstRun)) {
+    return (
+      <Welcome
+        state={shell.state}
+        bootStep={shell.step}
+        local={shell.local}
+        error={shell.bootError}
+        onStartLocal={() => void shell.startLocal()}
+        onStopLocal={() => void shell.stopLocal()}
+        onAddRemote={(name, url) => shell.addRemote(name, url)}
+        onProceed={() => void shell.completeFirstRun()}
+      />
+    );
+  }
 
   return (
     <div className="app">
@@ -59,6 +79,7 @@ export default function App() {
           onQuery={setQuery}
           onEnqueue={() => setEnqueueOpen(true)}
           stats={stats}
+          shellActive={shell.tauri ? shell.active : undefined}
         />
 
         <main className="content">
