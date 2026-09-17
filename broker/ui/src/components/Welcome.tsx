@@ -96,9 +96,13 @@ export default function Welcome({
   const stepState = (i: number): "done" | "active" | "pending" =>
     i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
 
-  const localDeploy = local && (local.kind === "running" || local.kind === "adopted");
-  const slotState = starting ? "starting" : localDeploy ? local.kind : "idle";
-  const localUrl = localDeploy ? `http://127.0.0.1:${local.http_port}` : null;
+  const localKind = local?.kind ?? null;
+  const localDeploy = localKind === "running" || localKind === "adopted";
+  const slotState = starting ? "starting" : localKind ? localKind : "idle";
+  const localUrl =
+    local && (local.kind === "running" || local.kind === "adopted")
+      ? `http://127.0.0.1:${local.http_port}`
+      : null;
 
   const startLocal = () => {
     if (starting || localDeploy) return;
@@ -223,7 +227,7 @@ export default function Welcome({
                     <span className="w-spinner" aria-hidden="true" />
                     <span>
                       {localDeploy
-                        ? local!.kind === "adopted"
+                        ? localKind === "adopted"
                           ? "External broker connected"
                           : "Local broker running"
                         : starting
@@ -234,7 +238,7 @@ export default function Welcome({
                   <p className="w-broker-status" aria-live="polite">
                     <span className="w-dot-live" aria-hidden="true" />
                     <span className="w-ok">
-                      {local!.kind === "adopted" ? "external broker" : "local running"}
+                      {localKind === "adopted" ? "external broker" : "local running"}
                     </span>
                     <span className="w-sep">·</span>
                     <code>{localUrl}</code>
