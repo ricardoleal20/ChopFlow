@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type CreateScheduleBody, type EnqueueBody, type TaskStatus } from "../lib/api";
+import {
+  api,
+  setApiBase,
+  type CreateScheduleBody,
+  type EnqueueBody,
+  type Environment,
+  type TaskStatus,
+} from "../lib/api";
 
 // Live polling cadence: stats + workers update every 2s, the task ledger
 // every 2s as well. Fast enough to feel live, gentle on the broker.
@@ -10,6 +17,7 @@ export const qk = {
   tasks: (status?: TaskStatus) => ["tasks", status ?? "all"] as const,
   workers: ["workers"] as const,
   schedules: ["schedules"] as const,
+  environments: ["environments"] as const,
 };
 
 export function useStats() {
@@ -34,6 +42,34 @@ export function useWorkers() {
     queryFn: api.workers,
     refetchInterval: REFETCH_MS,
   });
+}
+
+// ---- Environments -----------------------------------------------------------
+// The fleet catalog is read-only and rarely changes, so it polls gently (30s)
+// rather than every 2s. After a switch, every active query is invalidated so
+// stats / tasks / workers / schedules all refetch against the new broker.
+
+export function useEnvironments() {
+  return useQuery({
+    queryKey: qk.environments,
+    queryFn: api.environments,
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/**
+ * Retarget the dashboard at a different broker. Swaps the API base to the
+ * environment's `http_url` (or back to same-origin `/api` for the current
+ * entry) and invalidates every query so all views refetch live.
+ */
+export function useSwitchEnvironment() {
+  const qc = useQueryClient();
+  return (env: Environment) => {
+    setApiBase(env.http_url);
+    qc.invalidateQueries();
+  };
 }
 
 export function useEnqueue() {

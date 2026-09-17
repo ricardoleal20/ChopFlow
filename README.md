@@ -624,9 +624,17 @@ Contributions are welcome. A quick guide:
    For non-trivial work, open an issue first so we can align on scope before
    you code.
 3. **Branch from `main`** using `ricardo/{topic}-{what-it-solves}`.
-4. **Keep the tree clean** — `cargo fmt`, `cargo clippy -- -D warnings`,
-   `cargo test` should all pass.
-5. **Open a PR** with the four-section description (`Summary`, `Changes`,
+4. **Enable the local CI hook** (once, after cloning):
+   ```bash
+   bash scripts/setup-hooks.sh
+   ```
+   This wires a `pre-push` hook that runs the same checks CI does
+   (`scripts/ci-local.sh` — `cargo fmt`/`clippy`/`test`, `pnpm lint`/`format:check`/`build`,
+   `ruff`, `pytest`, `mvn verify`) so a formatting or lint slip never turns a
+   PR red. Bypass once with `SKIP_CI_HOOK=1 git push`.
+5. **Keep the tree clean** — `cargo fmt`, `cargo clippy -- -D warnings`,
+   `cargo test` should all pass (the hook enforces this on push).
+6. **Open a PR** with the four-section description (`Summary`, `Changes`,
    `Test plan`, `Refs`) and assign yourself. All changes require review from
    the codeowner (see [`.github/CODEOWNERS`](.github/CODEOWNERS)).
 

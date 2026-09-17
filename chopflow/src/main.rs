@@ -25,9 +25,19 @@ use clap::{Args, Parser, Subcommand};
 /// distinct from `chopflow mcp`'s `--broker`, which is the HTTP base URL.
 #[derive(Args)]
 struct CliOpts {
-    /// Broker gRPC address.
+    /// Broker gRPC address. Ignored when `--env` is given — the address is then
+    /// resolved from `--env-config` (`environments.yml`).
     #[arg(long, short, default_value = "http://localhost:8000")]
     broker: String,
+
+    /// Target a named environment from `environments.yml` (e.g. `prod`). Resolves
+    /// the broker gRPC URL from the catalog, overriding `--broker`.
+    #[arg(long)]
+    env: Option<String>,
+
+    /// Path to the fleet catalog used to resolve `--env`.
+    #[arg(long, default_value = "config/environments.yml")]
+    env_config: String,
 }
 
 #[derive(Parser)]
@@ -139,6 +149,18 @@ enum BrokerCmd {
         /// Open the dashboard UI in the default browser on startup.
         #[arg(long, default_value_t = false)]
         open: bool,
+
+        /// Environment name this broker identifies as (e.g. `local`, `prod`).
+        #[arg(long, default_value = "local")]
+        env: String,
+
+        /// Region tag for this broker (e.g. `default`, `us-east-1`).
+        #[arg(long, default_value = "default")]
+        region: String,
+
+        /// Path to the fleet catalog (`environments.yml`). Optional.
+        #[arg(long, default_value = "config/environments.yml")]
+        environments: String,
     },
 }
 
@@ -157,6 +179,9 @@ async fn main() -> anyhow::Result<()> {
                     storage,
                     db_path,
                     open,
+                    env,
+                    region,
+                    environments,
                 },
         } => {
             let broker_cli = chopflow_broker::Cli {
@@ -168,6 +193,9 @@ async fn main() -> anyhow::Result<()> {
                     storage,
                     db_path,
                     open,
+                    env,
+                    region,
+                    environments,
                 },
             };
             chopflow_broker::run(broker_cli)
@@ -189,6 +217,8 @@ async fn main() -> anyhow::Result<()> {
         } => {
             let cli_cli = chopflow_cli::Cli {
                 broker: opts.broker,
+                env: opts.env,
+                env_config: opts.env_config,
                 command: chopflow_cli::Commands::Enqueue {
                     task,
                     name,
@@ -205,6 +235,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Status { opts, id, all } => {
             let cli_cli = chopflow_cli::Cli {
                 broker: opts.broker,
+                env: opts.env,
+                env_config: opts.env_config,
                 command: chopflow_cli::Commands::Status { id, all },
             };
             chopflow_cli::run(cli_cli)
@@ -215,6 +247,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Schedule { opts, action } => {
             let cli_cli = chopflow_cli::Cli {
                 broker: opts.broker,
+                env: opts.env,
+                env_config: opts.env_config,
                 command: chopflow_cli::Commands::Schedule { action },
             };
             chopflow_cli::run(cli_cli)

@@ -12,6 +12,7 @@ This library provides the fundamental components for building distributed task q
 - Retry policies with configurable backoff strategies
 */
 
+pub mod config;
 pub mod dispatcher;
 pub mod error;
 pub mod queue;

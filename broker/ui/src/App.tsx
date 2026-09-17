@@ -34,6 +34,7 @@ export default function App() {
   const tasks = tasksQ.data?.tasks ?? [];
   const schedules = schedQ.data ?? [];
   const workers = workersQ.data ?? [];
+  const envLabel = stats ? `${stats.env} · ${stats.region}` : "local · default";
 
   return (
     <div className="app">
@@ -87,6 +88,7 @@ export default function App() {
               isLoading={workersQ.isLoading}
               error={workersQ.error}
               query={query}
+              envLabel={envLabel}
             />
           )}
         </main>

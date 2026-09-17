@@ -13,6 +13,7 @@ visible to gRPC workers (and vice versa) because both read the same storage.
 - `POST /api/tasks`            — enqueue a task
 - `POST /api/tasks/:id/cancel` — cancel a non-terminal task
 - `GET  /api/workers`          — registered workers + liveness
+- `GET  /api/environments`     — this broker's identity + the read-only fleet catalog
 
 Everything else under `/` serves the embedded SPA from `ui/dist`.
 */
@@ -25,6 +26,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chopflow_core::config::Environment;
 use chopflow_core::schedule::{next_fire, OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
 use chopflow_core::storage::TaskFilter;
 use chopflow_core::task::{Task, TaskStatus};
@@ -33,6 +35,7 @@ use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 /// Embedded build output of the Vite app in `broker/ui/dist`.
@@ -117,6 +120,10 @@ struct StatsDto {
     active_workers: usize,
     total_tasks: usize,
     schedules: usize,
+    /// This broker's environment identity (e.g. `local`, `prod`).
+    env: String,
+    /// This broker's region tag (e.g. `default`, `us-east-1`).
+    region: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -203,6 +210,20 @@ struct ErrorResponse {
 
 /// API error response with an HTTP status code.
 type ApiError = (StatusCode, Json<ErrorResponse>);
+
+// ---------------------------------------------------------------------------
+// Environment / fleet catalog DTOs
+// ---------------------------------------------------------------------------
+
+/// `GET /api/environments` response: the broker's own identity (`current`,
+/// derived from `--env`/`--region` matched against the catalog, falling back to
+/// a same-origin entry) plus the full read-only catalog so the dashboard can
+/// switch between brokers.
+#[derive(Debug, Serialize)]
+struct EnvironmentsResponse {
+    current: Environment,
+    environments: Vec<Environment>,
+}
 
 // ---------------------------------------------------------------------------
 // Schedule DTOs
@@ -325,12 +346,18 @@ pub fn router(state: BrokerState) -> Router {
             get(get_schedule)
                 .patch(patch_schedule)
                 .delete(delete_schedule),
-        );
+        )
+        .route("/environments", get(environments));
 
+    // CORS: the dashboard is served by one broker but can switch to point at
+    // another broker's HTTP API at runtime. That cross-origin fetch needs
+    // permissive headers. There is no auth yet (explicit trade-off); tightening
+    // this to an origin allow-list belongs with a future auth layer.
     Router::new()
         .nest("/api", api)
         .route("/healthz", get(|| async { "ok" }))
         .fallback(static_handler)
+        .layer(CorsLayer::very_permissive())
         .with_state(Arc::new(state))
 }
 
@@ -371,6 +398,33 @@ fn asset_response(path: &str, asset: rust_embed::EmbeddedFile) -> Response {
 
 type SharedState = State<Arc<BrokerState>>;
 
+async fn environments(State(state): SharedState) -> Json<EnvironmentsResponse> {
+    // The "current" entry is the catalog row whose name matches this broker's
+    // --env, falling back to a synthesized entry from --env/--region when the
+    // catalog doesn't list it. Either way, the current broker is *same-origin*
+    // to the dashboard it serves — the dashboard may be reached via a host/port
+    // the catalog can't know (localhost vs 127.0.0.1 vs a proxy) — so we always
+    // clear `http_url` on the current entry. An empty `http_url` is the
+    // dashboard's signal to use same-origin `/api` rather than retargeting.
+    let mut current = state
+        .catalog
+        .iter()
+        .find(|e| e.name == state.env)
+        .cloned()
+        .unwrap_or_else(|| Environment {
+            name: state.env.clone(),
+            region: state.region.clone(),
+            grpc_url: String::new(),
+            http_url: String::new(),
+        });
+    current.http_url = String::new();
+
+    Json(EnvironmentsResponse {
+        current,
+        environments: state.catalog.clone(),
+    })
+}
+
 async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
     let counts = state.storage.count_by_status().await.map_err(internal)?;
 
@@ -410,6 +464,8 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
         active_workers,
         total_tasks,
         schedules,
+        env: state.env.clone(),
+        region: state.region.clone(),
     }))
 }
 

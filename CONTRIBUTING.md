@@ -53,6 +53,20 @@ touch broker/src/http.rs   # force rust-embed to re-read ui/dist
 cargo build
 ```
 
+### Local CI hook (recommended)
+
+A `pre-push` git hook mirrors `.github/workflows/ci.yml` locally — it runs
+`cargo fmt`/`clippy`/`test`, `pnpm lint`/`format:check`/`build`, `ruff`,
+`pytest`, and `mvn verify` via `scripts/ci-local.sh`, so a formatting or lint
+slip is caught before it turns a PR red. Enable it once after cloning:
+
+```bash
+bash scripts/setup-hooks.sh     # sets core.hooksPath = .githooks
+```
+
+Bypass once with `SKIP_CI_HOOK=1 git push`. Run the checks on demand with
+`bash scripts/ci-local.sh` (or `--fast` for just fmt · lint · format).
+
 ---
 
 ## 3. Branching

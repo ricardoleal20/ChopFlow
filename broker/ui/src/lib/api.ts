@@ -33,6 +33,10 @@ export interface Stats {
   active_workers: number;
   total_tasks: number;
   schedules: number;
+  /** This broker's environment identity (e.g. `local`, `prod`). */
+  env: string;
+  /** This broker's region tag (e.g. `default`, `us-east-1`). */
+  region: string;
 }
 
 export interface Worker {
@@ -91,14 +95,55 @@ export interface CreateScheduleBody {
   overlap_policy: OverlapPolicy;
 }
 
+// ---- Environments -----------------------------------------------------------
+// Mirrors chopflow_core::config::Environment + the GET /api/environments DTO.
+// The catalog is read-only; the dashboard uses it to switch its API base
+// between brokers at runtime.
+
+export interface Environment {
+  name: string;
+  region: string;
+  grpc_url: string;
+  http_url: string;
+}
+
+export interface EnvironmentsResponse {
+  current: Environment;
+  environments: Environment[];
+}
+
 // API base: relative "/api" when served by the broker (web) or via the Vite
 // dev proxy; an absolute URL (e.g. http://127.0.0.1:8080/api) when bundled as
 // a Tauri desktop app talking to a locally-running broker. Override via
 // VITE_API_BASE at build time (see broker/ui/.env.tauri).
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || "/api";
+//
+// Mutable at runtime so the environment switcher can retarget the dashboard at
+// another broker's HTTP API without a reload: setApiBase() swaps the base and
+// the caller invalidates all react-query caches so every view refetches
+// against the new broker.
+let apiBase = normalizeBase((import.meta.env.VITE_API_BASE as string | undefined) || "/api");
+
+/** Strip trailing slashes so `${base}${path}` never produces `//`. */
+function normalizeBase(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+/** Current API base (re-read on every fetch so a switch takes effect at once). */
+export function getApiBase(): string {
+  return apiBase;
+}
+
+/**
+ * Retarget the dashboard at a broker. Pass `null` (or an empty `http_url`) to
+ * point back at the serving broker (same-origin `/api`); otherwise pass the
+ * environment's `http_url` and the base becomes `${http_url}/api`.
+ */
+export function setApiBase(httpUrl: string | null): void {
+  apiBase = httpUrl && httpUrl.trim() ? `${normalizeBase(httpUrl)}/api` : "/api";
+}
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${getApiBase()}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -140,4 +185,5 @@ export const api = {
     }),
   deleteSchedule: (id: string) =>
     json<{ success: boolean }>(`/schedules/${id}`, { method: "DELETE" }),
+  environments: () => json<EnvironmentsResponse>("/environments"),
 };

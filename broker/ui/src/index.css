@@ -875,6 +875,43 @@ textarea {
   font-weight: 600;
 }
 
+/* Worker docs links — one per supported language, always visible. */
+.worker-docs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px 14px;
+  font-size: 12px;
+}
+.worker-docs .wd-label {
+  color: var(--muted-2);
+  font-weight: 500;
+}
+.worker-docs .wd-link,
+.wd-empty a {
+  color: var(--accent);
+  text-decoration: none;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  transition:
+    border-color 0.12s,
+    color 0.12s;
+}
+.worker-docs .wd-link:hover,
+.wd-empty a:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.wd-empty {
+  margin-top: 10px !important;
+}
+.wd-empty a {
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
 /* filter chips */
 .chips {
   display: flex;

@@ -6,13 +6,22 @@ interface Props {
   isLoading: boolean;
   error?: Error | null;
   query: string;
+  envLabel: string;
 }
+
+// One link per supported worker language, pointing at the implementation +
+// docs on GitHub so operators can stand up a worker in the stack they ship.
+const WORKER_DOCS: { lang: string; href: string }[] = [
+  { lang: "Rust", href: "https://github.com/ricardoleal20/ChopFlow/tree/main/worker" },
+  { lang: "Python", href: "https://github.com/ricardoleal20/ChopFlow/tree/main/clients/python" },
+  { lang: "Java", href: "https://github.com/ricardoleal20/ChopFlow/tree/main/clients/java" },
+];
 
 // Workers view: a header with liveness meta + a responsive grid of worker
 // cards. Each card shows identity, declared tags, and live resource meters
 // (used/total) with gradient fills — CPU in primary, GPU in warn, saturated in
 // danger. Mirrors the OpenDesign reference density.
-export default function WorkersView({ workers, isLoading, error, query }: Props) {
+export default function WorkersView({ workers, isLoading, error, query, envLabel }: Props) {
   const q = query.trim().toLowerCase();
   const seen = workers.filter((w) => {
     if (!q) return true;
@@ -31,7 +40,7 @@ export default function WorkersView({ workers, isLoading, error, query }: Props)
         <div>
           <h1>Workers</h1>
           <p>
-            Polling processes registered to <b>local · default</b>
+            Polling processes registered to <b>{envLabel}</b>
           </p>
         </div>
         <div className="vh-meta">
@@ -40,6 +49,21 @@ export default function WorkersView({ workers, isLoading, error, query }: Props)
           </div>
           <div>heartbeat 2s ago</div>
         </div>
+      </div>
+
+      <div className="worker-docs">
+        <span className="wd-label">Implement a worker →</span>
+        {WORKER_DOCS.map((d) => (
+          <a
+            key={d.lang}
+            className="wd-link"
+            href={d.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {d.lang}
+          </a>
+        ))}
       </div>
 
       <div className="workers-grid">
@@ -70,6 +94,18 @@ export default function WorkersView({ workers, isLoading, error, query }: Props)
               <span className="mono" style={{ color: "var(--fg-2)" }}>
                 chopflow_worker start -b http://localhost:8000
               </span>
+            </p>
+            <p className="wd-empty">
+              New to workers? Implement one in{" "}
+              {WORKER_DOCS.map((d, i) => (
+                <span key={d.lang}>
+                  <a href={d.href} target="_blank" rel="noopener noreferrer">
+                    {d.lang}
+                  </a>
+                  {i < WORKER_DOCS.length - 1 ? " · " : ""}
+                </span>
+              ))}
+              .
             </p>
           </div>
         ) : (

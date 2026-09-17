@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# pre-push — run the local CI mirror before code reaches the remote.
+#
+# Mirrors .github/workflows/ci.yml via scripts/ci-local.sh so formatting,
+# lint, and test regressions are caught locally instead of turning a PR red.
+#
+# Bypass once (emergencies only):  SKIP_CI_HOOK=1 git push
+#
+# Installed via:  bash scripts/setup-hooks.sh
+# (sets core.hooksPath = .githooks, so this file is version-controlled)
+
+# pre-push receives the updated refs on stdin; we don't need them.
+while read -r _oldrev _newrev _refname; do :; done
+
+if [[ "${SKIP_CI_HOOK:-0}" == "1" ]]; then
+  echo "pre-push: SKIP_CI_HOOK=1 set — skipping CI-local checks." >&2
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+# Not in a repo (or hooksPath misconfigured) — don't block.
+[[ -n "$REPO_ROOT" ]] || exit 0
+
+if [[ ! -x "$REPO_ROOT/scripts/ci-local.sh" ]]; then
+  echo "pre-push: scripts/ci-local.sh not found or not executable — skipping." >&2
+  exit 0
+fi
+
+echo "pre-push: running CI-local checks (scripts/ci-local.sh)…" >&2
+"$REPO_ROOT/scripts/ci-local.sh"
