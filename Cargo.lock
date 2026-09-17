@@ -500,7 +500,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chopflow"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chopflow-mcp",
@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow-llm-worker"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chopflow-proto",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow-mcp"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow-proto"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chopflow_core",
  "prost",
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow_broker"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow_cli"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chopflow-proto",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow_core"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow_demos"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chopflow_core",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "chopflow_worker"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "chopflow-proto",

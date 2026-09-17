@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-16
+
+### Added
+- **Environments.** Brokers gain `--env`/`--region` identity and an optional fleet
+  catalog (`config/environments.yml`) served read-only at `GET /api/environments`.
+  The dashboard cluster selector becomes a real switcher that retargets the API base
+  between brokers at runtime (permissive CORS for cross-broker fetches), and the CLI
+  resolves `--env <name>` to a broker gRPC URL from the catalog. Workers stay
+  single-homed by design; no auth or federation.
+- **Dashboard share meta + icons.** The broker-served dashboard now ships a proper
+  title, description, Open Graph + Twitter card meta, and the ChopFlow brand mark as
+  favicon / apple-touch-icon.
+- **Docs: Environments.** New Operations → Environments concept page and HTTP API →
+  Environments reference page on the docs site; `/api/stats` documents `env`/`region`.
+- **Local CI hook.** Version-controlled `pre-push` git hook (`scripts/setup-hooks.sh`)
+  mirrors the CI workflow locally (`scripts/ci-local.sh`: fmt/clippy/test,
+  lint/format/build, ruff, pytest, mvn verify) so formatting and lint slips are caught
+  before they turn a PR red.
+
+### Notes
+- Bumped workspace and all inter-crate dependency versions to `0.1.4` (Python client
+  to `0.1.4` on PyPI).
+
 ### Added
 - Durable task storage with two backends: SQLite (default) and in-memory (tests/demos).
 - Worker registration with tag subscriptions and resource declaration (CPU, GPU, memory).
