@@ -34,6 +34,7 @@ pub use chopflow_proto::chopflow;
 
 /// HTTP / JSON API + embedded dashboard UI.
 pub mod http;
+pub mod watchdog;
 
 use chopflow::{
     AcknowledgeTaskRequest, AcknowledgeTaskResponse, CancelTaskRequest, CancelTaskResponse,
@@ -104,6 +105,12 @@ pub enum Commands {
         /// fine — the broker still advertises itself; the catalog is just empty.
         #[arg(long, default_value = "config/environments.yml")]
         environments: String,
+
+        /// Watchdog: PID of a parent process (e.g. the desktop app). When the
+        /// parent dies, the broker self-terminates so it is never orphaned by
+        /// a force-quit. Used by the ChopFlow macOS app's managed broker.
+        #[arg(long)]
+        parent_pid: Option<u32>,
     },
 }
 
@@ -982,6 +989,7 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
         env,
         region,
         environments,
+        parent_pid,
     } = cli.command;
 
     // `config` is accepted for forward-compat (e.g. loading broker.yml) but
@@ -1050,6 +1058,18 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
         "ChopFlow HTTP/ on {}  (dashboard: http://{})",
         http_addr, http_addr
     );
+
+    // Optional parent watchdog: when spawned by a supervisor (the desktop
+    // app), self-terminate if the supervisor dies so the broker is never
+    // orphaned by a force-quit.
+    if let Some(pid) = parent_pid {
+        tokio::spawn(async move {
+            watchdog::run_watchdog(pid, Duration::from_secs(1), || {
+                std::process::exit(0);
+            })
+            .await
+        });
+    }
 
     // Spawn the HTTP server alongside gRPC. Both run until either errors.
     let http_router = http::router(state);

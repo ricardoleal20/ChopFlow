@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 chopflow_core = { path = "../core", version = "0.1.4" }
+libc = "0.2"
 chopflow-proto = { path = "../proto", version = "0.1.4" }
 tokio.workspace = true
 clap.workspace = true

@@ -22,12 +22,16 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-/// Entry point. Build the server and serve over stdio. Accepts an already-parsed
-/// [`Cli`] so the `chopflow` umbrella binary can route its `chopflow mcp`
-/// subcommand into this; the standalone `chopflow-mcp` binary just passes
-/// `Cli::parse()` through.
+/// Entry point. Build the server and serve over stdio, or over streamable
+/// HTTP when `--http` is given (a persistent MCP gateway — used by the
+/// ChopFlow desktop app so AI clients can connect by URL instead of
+/// launching a stdio child). Accepts an already-parsed [`Cli`] so the
+/// `chopflow` umbrella binary can route its `chopflow mcp` subcommand into
+/// this; the standalone `chopflow-mcp` binary just passes `Cli::parse()`
+/// through.
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
-    // Logs go to stderr — stdout is reserved for the MCP JSON-RPC protocol.
+    // Logs go to stderr — stdout is reserved for the MCP JSON-RPC protocol
+    // in stdio mode, and stderr is simply the disciplined choice for HTTP.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_ansi(false)
@@ -46,12 +50,49 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         .build()?;
 
     let service = ChopFlowMcp { client, base };
-    let running = service.serve(stdio()).await?;
-    running.waiting().await?;
+
+    match cli.http {
+        Some(bind) => {
+            let router = http_router(service);
+            let listener = tokio::net::TcpListener::bind(&bind).await?;
+            tracing::info!(
+                "ChopFlow MCP server (streamable HTTP) at http://{}/mcp",
+                listener.local_addr()?
+            );
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await?;
+        }
+        None => {
+            let running = service.serve(stdio()).await?;
+            running.waiting().await?;
+        }
+    }
     Ok(())
 }
 
-/// CLI config. Kept minimal — the only knob is the broker HTTP URL.
+/// Build the streamable-HTTP axum router serving the MCP tool set at `/mcp`.
+/// Exposed separately from [`run`] so integration tests can drive the router
+/// directly (initialize handshake, tools/list) without spawning a process.
+pub fn http_router(service: ChopFlowMcp) -> axum::Router {
+    use rmcp::transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpService,
+    };
+
+    // One MCP service instance per HTTP session; the local session manager
+    // keeps per-client state (session ids, progress tokens).
+    let session_manager = LocalSessionManager::default().into();
+    let mcp_service = StreamableHttpService::new(
+        move || Ok(service.clone()),
+        session_manager,
+        Default::default(),
+    );
+    axum::Router::new().nest_service("/mcp", mcp_service)
+}
+
+/// CLI config. Kept minimal — the broker HTTP URL and the optional HTTP bind.
 #[derive(Parser, Debug)]
 #[command(
     name = "chopflow-mcp",
@@ -61,13 +102,31 @@ pub struct Cli {
     /// Broker HTTP base URL (e.g. http://127.0.0.1:8080). Overrides CHOPFLOW_HTTP_URL.
     #[arg(long)]
     pub broker: Option<String>,
+
+    /// Serve MCP over streamable HTTP at this address (e.g. 127.0.0.1:8810)
+    /// instead of stdio. The MCP endpoint is `http://<addr>/mcp`. Without
+    /// this flag the server speaks stdio (spawned by an MCP client).
+    #[arg(long)]
+    pub http: Option<String>,
 }
 
 /// The MCP server. Holds a reusable HTTP client and the broker base URL.
 #[derive(Clone)]
-struct ChopFlowMcp {
+pub struct ChopFlowMcp {
     client: reqwest::Client,
     base: String,
+}
+
+impl ChopFlowMcp {
+    /// Construct a server handle pointing at a broker HTTP base URL. Public
+    /// so integration tests can build the [`http_router`] against a test
+    /// broker without spawning a process.
+    pub fn new(client: reqwest::Client, base: impl Into<String>) -> Self {
+        Self {
+            client,
+            base: base.into().trim_end_matches('/').to_string(),
+        }
+    }
 }
 
 impl ChopFlowMcp {

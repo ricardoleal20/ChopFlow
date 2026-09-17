@@ -16,5 +16,13 @@ clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
-rmcp = { workspace = true }
+# transport-streamable-http-server(-session): streamable-HTTP transport
+# (axum router at /mcp) used by `--http`. stdio remains the default transport
+# when the flag is absent.
+rmcp = { workspace = true, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
 schemars = "0.8"
+axum = "0.7"
+tokio-util = "0.7"
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }

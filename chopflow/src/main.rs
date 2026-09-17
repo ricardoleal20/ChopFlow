@@ -61,11 +61,17 @@ enum Command {
         command: BrokerCmd,
     },
 
-    /// Run the MCP server (exposes the broker as AI-friendly tools over stdio).
+    /// Run the MCP server (exposes the broker as AI-friendly tools over stdio,
+    /// or over streamable HTTP with --http).
     Mcp {
         /// Broker HTTP base URL (e.g. http://127.0.0.1:8080). Overrides CHOPFLOW_HTTP_URL.
         #[arg(long)]
         broker: Option<String>,
+
+        /// Serve MCP over streamable HTTP at this address (e.g. 127.0.0.1:8810)
+        /// instead of stdio. Endpoint: http://<addr>/mcp.
+        #[arg(long)]
+        http: Option<String>,
     },
 
     /// Enqueue a task from a JSON file.
@@ -161,6 +167,11 @@ enum BrokerCmd {
         /// Path to the fleet catalog (`environments.yml`). Optional.
         #[arg(long, default_value = "config/environments.yml")]
         environments: String,
+
+        /// Watchdog: PID of a parent process. When the parent dies, the
+        /// broker self-terminates (used by the desktop app).
+        #[arg(long)]
+        parent_pid: Option<u32>,
     },
 }
 
@@ -182,6 +193,7 @@ async fn main() -> anyhow::Result<()> {
                     env,
                     region,
                     environments,
+                    parent_pid,
                 },
         } => {
             let broker_cli = chopflow_broker::Cli {
@@ -196,6 +208,7 @@ async fn main() -> anyhow::Result<()> {
                     env,
                     region,
                     environments,
+                    parent_pid,
                 },
             };
             chopflow_broker::run(broker_cli)
@@ -203,8 +216,8 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
 
-        Command::Mcp { broker } => {
-            chopflow_mcp::run(chopflow_mcp::Cli { broker }).await?;
+        Command::Mcp { broker, http } => {
+            chopflow_mcp::run(chopflow_mcp::Cli { broker, http }).await?;
         }
 
         Command::Enqueue {
