@@ -2572,7 +2572,7 @@ textarea.cf-input {
   transition: transform var(--dur) var(--ease-out);
 }
 .s-toggle input:checked + span {
-  background: var(--primary);
+  background: var(--success); /* "on" reads as green in Settings */
 }
 .s-toggle input:checked + span::after {
   transform: translateX(14px);
