@@ -23,6 +23,7 @@ use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::app_get_state,
             commands::app_add_remote,
@@ -33,6 +34,7 @@ fn main() {
             commands::app_set_mcp,
             commands::app_complete_first_run,
             commands::app_get_logs,
+            commands::app_export_logs,
             commands::app_set_data_dir,
             commands::app_add_local_token,
             commands::app_remove_local_token,

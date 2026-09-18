@@ -347,6 +347,18 @@ pub async fn app_get_logs(state: State<'_, SharedState>) -> Result<Vec<String>, 
     Ok(state.supervisor.logs().await)
 }
 
+/// Write the current log ring to a user-chosen path (the frontend picks the
+/// path via the native save dialog, then calls this command).
+#[tauri::command]
+pub async fn app_export_logs(
+    state: State<'_, SharedState>,
+    path: String,
+) -> Result<(), String> {
+    let logs = state.supervisor.logs().await;
+    std::fs::write(&path, logs.join("\n"))
+        .map_err(|e| format!("write {path}: {e}"))
+}
+
 /// Add a labelled token the app's local broker accepts. `id` is the
 /// operator-chosen identifier (who / what holds this token); `token` is the
 /// Bearer value, shown to the user exactly once by the caller. Applies

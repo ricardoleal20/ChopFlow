@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   appAddLocalToken,
+  appExportLogs,
   appGetLogs,
   appPreviewWelcome,
   appRemoveLocalToken,
@@ -94,6 +95,8 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [mcpBusy, setMcpBusy] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [logsTouched, setLogsTouched] = useState(false);
+  const [logsCopied, setLogsCopied] = useState(false);
+  const [logsSaved, setLogsSaved] = useState(false);
   const [dirEdit, setDirEdit] = useState(false);
   const [dirPath, setDirPath] = useState("");
   const [dirBusy, setDirBusy] = useState(false);
@@ -210,6 +213,20 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     aria-label="New data folder"
                     autoFocus
                   />
+                  <Btn
+                    variant="ghost"
+                    disabled={dirBusy}
+                    onClick={() => {
+                      if (!shell.tauri) return;
+                      void (async () => {
+                        const { open } = await import("@tauri-apps/plugin-dialog");
+                        const sel = await open({ directory: true, multiple: false });
+                        if (typeof sel === "string") setDirPath(sel);
+                      })();
+                    }}
+                  >
+                    Browse…
+                  </Btn>
                   <Btn type="submit" variant="primary" disabled={!dirPath.trim() || dirBusy}>
                     {dirConfirm ? "Confirm move" : "Move data"}
                   </Btn>
@@ -568,9 +585,48 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                 <span className="s-hint">
                   {logsTouched ? `${logs.length} lines (ring buffer)` : "…"}
                 </span>
-                <Btn variant="ghost" onClick={() => void loadLogs()}>
-                  Refresh
-                </Btn>
+                <div className="s-logactions">
+                  <Btn
+                    variant="ghost"
+                    disabled={!logs.length}
+                    className={logsCopied ? "s-btn-soft-success" : ""}
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(logs.join("\n")).then(() => {
+                        setLogsCopied(true);
+                        window.setTimeout(() => setLogsCopied(false), 1400);
+                      });
+                    }}
+                  >
+                    {logsCopied ? "Copied!" : "Copy"}
+                  </Btn>
+                  <Btn
+                    variant="ghost"
+                    disabled={!logs.length || logsSaved || !shell.tauri}
+                    className={logsSaved ? "s-btn-soft-success" : ""}
+                    onClick={() => {
+                      void (async () => {
+                        const { save } = await import("@tauri-apps/plugin-dialog");
+                        const target = await save({
+                          defaultPath: "chopflow.log",
+                          filters: [{ name: "Log", extensions: ["log"] }],
+                        });
+                        if (!target) return;
+                        try {
+                          await appExportLogs(target);
+                          setLogsSaved(true);
+                          window.setTimeout(() => setLogsSaved(false), 1400);
+                        } catch (err) {
+                          window.alert(String(err));
+                        }
+                      })();
+                    }}
+                  >
+                    {logsSaved ? "Saved!" : "Download .log"}
+                  </Btn>
+                  <Btn variant="ghost" onClick={() => void loadLogs()}>
+                    Refresh
+                  </Btn>
+                </div>
               </div>
               <pre className="s-logs">{(logs.length ? logs : ["(no logs yet)"]).join("\n")}</pre>
             </NeedsApp>

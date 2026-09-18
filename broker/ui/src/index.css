@@ -2578,6 +2578,15 @@ textarea.cf-input {
   transform: translateX(14px);
 }
 .s-loghead {
+  .s-logactions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .s-btn-soft-success {
+    color: var(--success);
+    font-weight: 600;
+  }
   display: flex;
   align-items: center;
   justify-content: space-between;

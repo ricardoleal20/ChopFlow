@@ -92,7 +92,6 @@ export default function App() {
         local={shell.local}
         error={shell.bootError}
         onStartLocal={() => void shell.startLocal()}
-        onStopLocal={() => void shell.stopLocal()}
         onAddRemote={(name, url) => shell.addRemote(name, url)}
         onRemoveRemote={(name) => shell.removeRemote(name)}
         onProceed={() => void shell.completeFirstRun()}

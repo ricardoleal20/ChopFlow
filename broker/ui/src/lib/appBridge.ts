@@ -83,6 +83,11 @@ export async function appGetLogs(): Promise<string[]> {
   return invoke("app_get_logs");
 }
 
+/// Write the current log ring to the given absolute path.
+export async function appExportLogs(path: string): Promise<void> {
+  return invoke("app_export_logs", { path });
+}
+
 /// Move the app's data (connections + broker db) to a new folder. The app
 /// reloads afterwards; the broker restarts against the new database.
 export async function appSetDataDir(path: string): Promise<string> {
