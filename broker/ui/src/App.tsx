@@ -8,6 +8,7 @@ import TaskDrawer from "./components/TaskDrawer";
 import ScheduleDrawer from "./components/ScheduleDrawer";
 import { EnqueueDialog } from "./components/EnqueueDialog";
 import Welcome from "./components/Welcome";
+import SettingsDrawer from "./components/SettingsDrawer";
 import { useTheme } from "./hooks/useTheme";
 import { useStats, useTasks, useSchedules, useWorkers } from "./hooks/useChopFlow";
 import { useAppTauri } from "./hooks/useAppTauri";
@@ -26,6 +27,7 @@ export default function App() {
   const [filter, setFilter] = useState<TaskStatus | "all">("all");
   const [schedFilter, setSchedFilter] = useState<SchedFilter>("all");
   const [enqueueOpen, setEnqueueOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
   const [schedSelected, setSchedSelected] = useState<Schedule | null>(null);
 
@@ -81,6 +83,7 @@ export default function App() {
           onEnqueue={() => setEnqueueOpen(true)}
           stats={stats}
           shellActive={shell.tauri ? shell.active : undefined}
+          onOpenSettings={shell.tauri ? () => setSettingsOpen(true) : undefined}
         />
 
         <main className="content">
@@ -119,6 +122,9 @@ export default function App() {
       <TaskDrawer task={selected} onClose={() => setSelected(null)} />
       <ScheduleDrawer schedule={schedSelected} onClose={() => setSchedSelected(null)} />
       <EnqueueDialog open={enqueueOpen} onClose={() => setEnqueueOpen(false)} />
+      {shell.tauri && settingsOpen ? (
+        <SettingsDrawer shell={shell} onClose={() => setSettingsOpen(false)} />
+      ) : null}
     </div>
   );
 }

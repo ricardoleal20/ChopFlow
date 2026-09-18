@@ -32,6 +32,9 @@ export type AppState = {
   mcp_url: string | null;
   chopflow_binary: string | null;
   chopflow_version: string | null;
+  data_dir: string;
+  db_path: string;
+  local_grpc_port: number;
 };
 
 export async function appGetState(): Promise<AppState> {

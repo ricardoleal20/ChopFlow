@@ -369,6 +369,11 @@ impl Supervisor {
         format!("http://127.0.0.1:{http}")
     }
 
+    /// Current (http, grpc) ports for the managed local broker.
+    pub async fn ports(&self) -> (u16, u16) {
+        *self.ports.lock().await
+    }
+
     pub async fn logs(&self) -> Vec<String> {
         self.logs.lock().await.iter().cloned().collect()
     }

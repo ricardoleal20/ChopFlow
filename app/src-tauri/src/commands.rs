@@ -70,6 +70,12 @@ pub struct AppStateDto {
     pub mcp_url: Option<String>,
     pub chopflow_binary: Option<String>,
     pub chopflow_version: Option<String>,
+    /// Where the app keeps its data (connections.json, chopflow.db, …).
+    pub data_dir: String,
+    /// Full path of the managed local broker's SQLite database.
+    pub db_path: String,
+    /// Port the managed local broker listens on for gRPC (workers/CLI).
+    pub local_grpc_port: u16,
 }
 
 #[tauri::command]
@@ -88,6 +94,7 @@ pub async fn app_get_state(
     });
     let local = supervisor.status().await;
     let local_http_base = supervisor.local_http_base().await;
+    let (_http_port, grpc_port) = supervisor.ports().await;
     let mcp_url = if supervisor.mcp_running() {
         Some(format!(
             "http://127.0.0.1:{}/mcp",
@@ -119,6 +126,9 @@ pub async fn app_get_state(
         mcp_url,
         chopflow_binary,
         chopflow_version,
+        data_dir: state.data_dir.display().to_string(),
+        db_path: state.data_dir.join("chopflow.db").display().to_string(),
+        local_grpc_port: grpc_port,
     })
 }
 
