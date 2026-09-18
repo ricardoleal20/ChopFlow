@@ -461,6 +461,10 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                   void appAddLocalToken(id, value)
                     .then((created) => {
                       setJustCreated(created);
+                      // The form resets: the token is shown only in the
+                      // one-time panel above, never left visible below.
+                      setTokId("");
+                      setTokValue("");
                       return shell.reloadState();
                     })
                     .catch((err: unknown) => window.alert(String(err)))
