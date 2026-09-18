@@ -36,6 +36,12 @@ fn main() {
             commands::app_reset,
         ])
         .setup(|app| {
+            // Regular activation policy: the app is a normal windowed app
+            // with a menu-bar presence. Without this the macOS menu bar may
+            // never show the ChopFlow menus even when the window is focused.
+            #[cfg(target_os = "macos")]
+            let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
             // App-data dir (~/Library/Application Support/io.chopflow.ops).
             let data_dir = app
                 .path()

@@ -8,7 +8,7 @@ import TaskDrawer from "./components/TaskDrawer";
 import ScheduleDrawer from "./components/ScheduleDrawer";
 import { EnqueueDialog } from "./components/EnqueueDialog";
 import Welcome from "./components/Welcome";
-import SettingsDrawer from "./components/SettingsDrawer";
+import SettingsView, { type SettingsTab } from "./components/SettingsView";
 import { useTheme } from "./hooks/useTheme";
 import { useStats, useTasks, useSchedules, useWorkers } from "./hooks/useChopFlow";
 import { useAppTauri } from "./hooks/useAppTauri";
@@ -31,7 +31,10 @@ export default function App() {
   const [filter, setFilter] = useState<TaskStatus | "all">("all");
   const [schedFilter, setSchedFilter] = useState<SchedFilter>("all");
   const [enqueueOpen, setEnqueueOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<{ open: boolean; tab: SettingsTab }>({
+    open: false,
+    tab: "storage",
+  });
   const [selected, setSelected] = useState<Task | null>(null);
   const [schedSelected, setSchedSelected] = useState<Schedule | null>(null);
 
@@ -43,7 +46,7 @@ export default function App() {
     void (async () => {
       const { listen } = await import("@tauri-apps/api/event");
       if (disposed) return;
-      const un1 = await listen("open-settings", () => setSettingsOpen(true));
+      const un1 = await listen("open-settings", () => setSettings({ open: true, tab: "storage" }));
       const un2 = await listen("connection-switched", (e) => {
         void shellRef.current.switchTo(String(e.payload));
       });
@@ -54,6 +57,20 @@ export default function App() {
       off.forEach((f) => f());
     };
   }, [shell.tauri]);
+
+  // Browser entry point: the #settings hash opens the settings screen (the
+  // sidebar entry is desktop-only).
+  useEffect(() => {
+    const sync = () =>
+      setSettings((s) =>
+        s.open === (window.location.hash === "#settings")
+          ? s
+          : { ...s, open: window.location.hash === "#settings" },
+      );
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
 
   const { data: stats } = useStats();
   const tasksQ = useTasks();
@@ -83,6 +100,24 @@ export default function App() {
     );
   }
 
+  // Settings is its own full screen (desktop app or #settings in a browser),
+  // separate from the dashboard shell.
+  if (settings.open) {
+    return (
+      <SettingsView
+        shell={shell}
+        tab={settings.tab}
+        onTab={(t) => setSettings({ open: true, tab: t })}
+        onBack={() => {
+          if (window.location.hash === "#settings") {
+            history.replaceState(null, "", window.location.pathname + window.location.search);
+          }
+          setSettings({ open: false, tab: "storage" });
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -97,6 +132,7 @@ export default function App() {
         scheduleCount={stats?.schedules ?? 0}
         workerCount={workers.filter((w) => w.alive).length}
         activeWorkers={stats?.active_workers ?? 0}
+        onOpenSettings={shell.tauri ? () => setSettings({ open: true, tab: "storage" }) : undefined}
       />
 
       <div className="main">
@@ -107,7 +143,6 @@ export default function App() {
           onEnqueue={() => setEnqueueOpen(true)}
           stats={stats}
           shellActive={shell.tauri ? shell.active : undefined}
-          onOpenSettings={shell.tauri ? () => setSettingsOpen(true) : undefined}
         />
 
         <main className="content">
@@ -146,9 +181,6 @@ export default function App() {
       <TaskDrawer task={selected} onClose={() => setSelected(null)} />
       <ScheduleDrawer schedule={schedSelected} onClose={() => setSchedSelected(null)} />
       <EnqueueDialog open={enqueueOpen} onClose={() => setEnqueueOpen(false)} />
-      {shell.tauri && settingsOpen ? (
-        <SettingsDrawer shell={shell} onClose={() => setSettingsOpen(false)} />
-      ) : null}
     </div>
   );
 }

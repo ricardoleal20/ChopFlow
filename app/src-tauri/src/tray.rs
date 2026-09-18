@@ -66,26 +66,51 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The native "ChopFlow" menu shown in the macOS menu bar when the app is
-/// focused. "Settings…" (⌘,) opens the in-app Settings drawer.
+/// The native macOS menu bar shown when the app is focused. Built from
+/// `Menu::default` (the full standard set: ChopFlow · File · Edit · View ·
+/// Window · Help with the predefined items) with our "Settings…" (⌘,)
+/// injected right under About in the app submenu. Falls back to a minimal
+/// hand-built app menu if the default menu is unavailable.
 fn setup_app_menu(app: &AppHandle) -> tauri::Result<()> {
     let settings =
         MenuItem::with_id(app, "menu-settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
-    let app_menu = Menu::with_items(
-        app,
-        &[
-            &PredefinedMenuItem::about(app, None::<&str>, None::<tauri::menu::AboutMetadata>)?,
-            &PredefinedMenuItem::separator(app)?,
-            &settings,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::hide(app, None::<&str>)?,
-            &PredefinedMenuItem::hide_others(app, None::<&str>)?,
-            &PredefinedMenuItem::show_all(app, None::<&str>)?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, None::<&str>)?,
-        ],
-    )?;
-    app.set_menu(app_menu)?;
+
+    let menu = match Menu::default(app) {
+        Ok(m) => {
+            // The first submenu is the app menu (titled "ChopFlow").
+            if let Some(tauri::menu::MenuItemKind::Submenu(app_sub)) = m.items()?.first() {
+                app_sub.insert(&settings, 1)?;
+            }
+            m
+        }
+        Err(_) => Menu::with_items(
+            app,
+            &[
+                &PredefinedMenuItem::about(
+                    app,
+                    None::<&str>,
+                    None::<tauri::menu::AboutMetadata>,
+                )?,
+                &PredefinedMenuItem::separator(app)?,
+                &settings,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::hide(app, None::<&str>)?,
+                &PredefinedMenuItem::hide_others(app, None::<&str>)?,
+                &PredefinedMenuItem::show_all(app, None::<&str>)?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, None::<&str>)?,
+            ],
+        )?,
+    };
+    app.set_menu(menu)?;
+
+    // App-menu events have their own handler (the tray menu uses
+    // `on_menu_event` on the tray builder).
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == "menu-settings" {
+            open_settings(app);
+        }
+    });
     Ok(())
 }
 

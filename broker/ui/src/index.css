@@ -2140,86 +2140,153 @@ textarea.cf-input {
 }
 
 /* ---------------------------------------------------------------------------
- * Desktop app: settings gear + settings drawer (.s-* scoped).
+ * Desktop app: settings (full-screen view, .sv-* layout + .s-* content) and
+ * the sidebar entry.
  * ------------------------------------------------------------------------- */
-.shell-gear {
+.side-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background var(--dur-s) var(--ease-out),
+    color var(--dur-s) var(--ease-out);
+}
+.side-settings:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.side-settings svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.sv-page {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow-y: auto;
+  background: var(--canvas);
+}
+.sv-top {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--border);
+}
+.sv-topbar {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sv-back {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin-right: 10px;
+  gap: 7px;
   border: none;
   background: none;
-  border-radius: var(--radius-sm);
+  padding: 4px 0;
   color: var(--muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--dur-s) var(--ease-out);
+}
+.sv-back:hover {
+  color: var(--text);
+}
+.sv-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.sv-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+.sv-tabs {
+  display: flex;
+  gap: 2px;
+  margin-top: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.sv-tab {
+  padding: 9px 12px;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-family: inherit;
   cursor: pointer;
   transition:
     color var(--dur-s) var(--ease-out),
-    background var(--dur-s) var(--ease-out);
+    border-color var(--dur-s) var(--ease-out);
 }
-.shell-gear:hover {
+.sv-tab:hover {
   color: var(--text);
-  background: var(--hover);
 }
-
-.s-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(10, 12, 16, 0.45);
-  backdrop-filter: blur(2px);
-}
-.s-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(460px, 92vw);
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  box-shadow: -18px 0 50px -12px rgba(15, 23, 42, 0.3);
-  display: flex;
-  flex-direction: column;
-}
-.s-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--border);
-}
-.s-head h2 {
-  margin: 0;
-  font-size: 15px;
+.sv-tab.active {
+  color: var(--text);
   font-weight: 600;
+  border-bottom-color: var(--accent);
 }
-.s-x {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
+.sv-tab-danger.active {
+  color: var(--danger-fg);
+  border-bottom-color: var(--danger);
+}
+.s-hbar {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+.sv-add-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: none;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
+  padding: 0;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-family: inherit;
   cursor: pointer;
 }
-.s-x:hover {
-  background: var(--hover);
-  color: var(--text);
+.sv-add-link:hover:not(:disabled) {
+  text-decoration: underline;
 }
-.s-body {
-  flex: 1;
-  overflow: auto;
-  padding: 6px 18px 24px;
+.sv-add-link:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
+
 .s-sec {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 14px 0 22px;
 }
-.s-sec:last-of-type {
-  border-bottom: none;
+.s-sec h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
 }
 .s-sec h3 {
   margin: 0 0 10px;

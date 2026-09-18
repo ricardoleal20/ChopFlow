@@ -27,6 +27,17 @@ import { setApiBase } from "../lib/api";
 
 export type BootStep = "starting-broker" | "checking-connections" | "loading-dashboard";
 
+// Minimum time each boot step stays on screen (ms). The real work usually
+// finishes faster than this — the dwell guarantees the Welcome boot rail is
+// actually legible instead of flashing by.
+const STEP_DWELL = {
+  "starting-broker": 1400,
+  "checking-connections": 1100,
+  "loading-dashboard": 900,
+} as const satisfies Record<BootStep, number>;
+
+const dwell = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export function useAppTauri() {
   const tauri = isTauri();
   const qc = useQueryClient();
@@ -59,7 +70,8 @@ export function useAppTauri() {
 
         if (st.last_used === "local" || !st.first_run_done) {
           setStep("starting-broker");
-          const loc = await appStartLocal();
+          // Hold the step visible even when the broker is already up/adopted.
+          const [loc] = await Promise.all([appStartLocal(), dwell(STEP_DWELL["starting-broker"])]);
           if (cancelled) return;
           setLocal(loc);
           const base = localHttpBase(loc);
@@ -70,10 +82,10 @@ export function useAppTauri() {
         }
 
         setStep("checking-connections");
-        await new Promise((r) => setTimeout(r, 250));
+        await dwell(STEP_DWELL["checking-connections"]);
         if (cancelled) return;
         setStep("loading-dashboard");
-        await new Promise((r) => setTimeout(r, 350));
+        await dwell(STEP_DWELL["loading-dashboard"]);
         if (cancelled) return;
         setStep(null);
         setReady(true);
