@@ -1,137 +1,311 @@
-//! macOS menu bar presence (next to Wi-Fi / battery / clock).
+//! macOS menu bar presence + native app menu.
 //!
-//! A ChopFlow status item with quick actions: open the window, start/stop
-//! the local broker, toggle the MCP gateway, quit (which tears down managed
-//! children). The window close button hides the window instead of quitting —
-//! the tray is the app's home once the window is closed (macOS convention).
+//! The menu bar item (next to Wi-Fi / battery / clock) is a grouped control
+//! center: Open · Local broker (Start/Stop) · MCP (Start/Stop + copy endpoint)
+//! · Remote brokers (live connected/offline summary, click to switch) · Quit.
+//! The macOS app menu (the "ChopFlow" menu when the app is focused) gains a
+//! "Settings…" (⌘,) item that opens the in-app Settings drawer.
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::image::Image;
+use tauri::menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Build the menu bar item. Called once from setup.
+use crate::commands::SharedState;
+use crate::supervisor::{Supervisor, MCP_HTTP_PORT};
+
+const TRAY_ID: &str = "chopflow-tray";
+
+fn icon(data: &'static [u8]) -> Image<'static> {
+    Image::from_bytes(data).expect("embedded menu icon is a valid PNG")
+}
+
+fn play_icon() -> Image<'static> {
+    icon(include_bytes!("../icons/menu-play.png"))
+}
+fn stop_icon() -> Image<'static> {
+    icon(include_bytes!("../icons/menu-stop.png"))
+}
+fn power_icon() -> Image<'static> {
+    icon(include_bytes!("../icons/menu-power.png"))
+}
+
+/// Probe a broker's /healthz (blocking, short timeout) for the tray summary.
+fn probe_health(base: &str) -> bool {
+    reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_millis(400))
+        .build()
+        .ok()
+        .and_then(|c| {
+            c.get(format!("{}/healthz", base.trim_end_matches('/')))
+                .send()
+                .ok()
+        })
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
+/// Active connection HTTP base + optional token (async, from the store).
+async fn active_endpoint(state: &SharedState, sup: &Supervisor) -> (String, Option<String>) {
+    let last = state.store.lock().unwrap().effective_last_used();
+    let remote = state.store.lock().unwrap().remote(&last).cloned();
+    if last == "local" || remote.is_none() {
+        return (sup.local_http_base().await, None);
+    }
+    let r = remote.expect("checked above");
+    (r.http_url.trim_end_matches('/').to_string(), r.token)
+}
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open ChopFlow", true, None::<&str>)?;
-    let start = MenuItem::with_id(app, "start-local", "Start local broker", true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "stop-local", "Stop local broker", true, None::<&str>)?;
-    let mcp = MenuItem::with_id(app, "toggle-mcp", "Toggle MCP gateway", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit ChopFlow", true, None::<&str>)?;
+    setup_app_menu(app)?;
+    build_tray(app)?;
+    Ok(())
+}
 
-    let menu = Menu::with_items(app, &[&open, &start, &stop, &mcp, &quit])?;
+/// The native "ChopFlow" menu shown in the macOS menu bar when the app is
+/// focused. "Settings…" (⌘,) opens the in-app Settings drawer.
+fn setup_app_menu(app: &AppHandle) -> tauri::Result<()> {
+    let settings =
+        MenuItem::with_id(app, "menu-settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+    let app_menu = Menu::with_items(
+        app,
+        &[
+            &PredefinedMenuItem::about(app, None::<&str>, None::<tauri::menu::AboutMetadata>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None::<&str>)?,
+            &PredefinedMenuItem::hide_others(app, None::<&str>)?,
+            &PredefinedMenuItem::show_all(app, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None::<&str>)?,
+        ],
+    )?;
+    app.set_menu(app_menu)?;
+    Ok(())
+}
 
-    // Neutral menu-bar icon: the ChopFlow mark as a black-alpha silhouette,
-    // flagged as a macOS template image so it auto-tints (light/dark menu bar).
-    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))
-        .map_err(|e| tauri::Error::AssetNotFound(e.to_string()))?;
-
-    let _tray = TrayIconBuilder::with_id("chopflow-tray")
-        .icon(tray_icon)
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let menu = render_menu(app)?;
+    let chop = icon(include_bytes!("../icons/tray-template.png"));
+    TrayIconBuilder::with_id(TRAY_ID)
+        .icon(chop)
         .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("ChopFlow")
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => show_main_window(app),
-            "start-local" => spawn_supervisor_action(app, |supervisor, data_dir| async move {
-                supervisor
-                    .ensure_started(data_dir, std::process::id())
-                    .await
-            }),
-            "stop-local" => spawn_supervisor_action(app, |supervisor, _dir| async move {
-                Ok(supervisor.stop_broker().await)
-            }),
-            "toggle-mcp" => toggle_mcp(app),
-            "quit" => app.exit(0), // RunEvent::Exit tears down children
-            _ => {}
-        })
+        .on_menu_event(handle_tray_event)
         .build(app)?;
     Ok(())
 }
 
-fn show_main_window(app: &AppHandle) {
+/// Rebuild the tray menu from current state (call after any mutation).
+pub fn rebuild(app: &AppHandle) {
+    let menu = match render_menu(app) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("tray rebuild failed: {e}");
+            return;
+        }
+    };
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+pub fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
     }
 }
 
-/// Run a supervisor action off the menu-event thread, then notify the
-/// frontend so the UI reflects tray-initiated changes.
-fn spawn_supervisor_action<T, F, Fut>(app: &AppHandle, action: F)
-where
-    T: serde::Serialize + Clone + 'static,
-    F: FnOnce(std::sync::Arc<crate::supervisor::Supervisor>, std::path::PathBuf) -> Fut
-        + Send
-        + 'static,
-    Fut: std::future::Future<Output = Result<T, String>> + Send,
-{
-    let state = app.state::<crate::commands::SharedState>();
-    let supervisor = state.supervisor.clone();
-    let data_dir = state.data_dir.clone();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        match action(supervisor, data_dir).await {
-            Ok(result) => {
-                let _ = app.emit("local-broker-status", &result);
-            }
-            Err(e) => {
-                let _ = app.emit("supervisor-error", &e);
-            }
-        }
-    });
+pub fn open_settings(app: &AppHandle) {
+    show_main_window(app);
+    let _ = app.emit("open-settings", ());
 }
 
-/// Toggle the MCP gateway from the tray, respecting the store's enabled flag.
-fn toggle_mcp(app: &AppHandle) {
-    let currently_enabled = app
-        .state::<crate::commands::SharedState>()
-        .supervisor
-        .mcp_running();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<crate::commands::SharedState>();
-        let supervisor = state.supervisor.clone();
-        let result = if currently_enabled {
-            supervisor.stop_mcp().await;
-            Ok(None::<String>)
-        } else {
-            // Point the gateway at the active connection. Extract the remote
-            // URL before awaiting — the MutexGuard must not live across it.
-            let last = state.store.lock().unwrap().effective_last_used();
-            let remote_url = state
-                .store
-                .lock()
-                .unwrap()
-                .remote(&last)
-                .map(|r| r.http_url.trim_end_matches('/').to_string());
-            let base = match remote_url {
-                Some(url) => url,
-                None => supervisor.local_http_base().await, // "local" or dangling remote
-            };
-            let token = state
-                .store
-                .lock()
-                .unwrap()
-                .remote(&last)
-                .and_then(|r| r.token.clone());
-            supervisor
-                .start_mcp(&base, token.as_deref())
-                .await
-                .map(Some)
-        };
-        let new_enabled = matches!(result, Ok(Some(_)));
-        {
-            let mut s = state.store.lock().unwrap();
-            s.mcp_enabled = new_enabled;
-            let _ = s.save(&state.data_dir);
+// ---------------------------------------------------------------------------
+// Menu rendering
+// ---------------------------------------------------------------------------
+
+fn render_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let state = app.state::<SharedState>();
+    let sup = state.supervisor.clone();
+    let (remotes, active) = {
+        let s = state.store.lock().unwrap();
+        (s.remotes.clone(), s.effective_last_used())
+    };
+    let mcp_on = sup.mcp_running();
+    let broker_alive = sup.broker_alive();
+
+    let open = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
+
+    let start = IconMenuItem::with_id(
+        app,
+        "local-start",
+        "Start broker",
+        true,
+        Some(play_icon()),
+        None::<&str>,
+    )?;
+    let stop = IconMenuItem::with_id(
+        app,
+        "local-stop",
+        "Stop broker",
+        true,
+        Some(stop_icon()),
+        None::<&str>,
+    )?;
+    let local = Submenu::with_items(
+        app,
+        format!("Local broker · {}", if broker_alive { "running" } else { "stopped" }),
+        true,
+        &[&start, &stop],
+    )?;
+
+    let (toggle_id, toggle_label, toggle_icon) = if mcp_on {
+        ("mcp-stop", "Stop gateway", stop_icon())
+    } else {
+        ("mcp-start", "Start gateway", play_icon())
+    };
+    let mcp_toggle =
+        IconMenuItem::with_id(app, toggle_id, toggle_label, true, Some(toggle_icon), None::<&str>)?;
+    let copy = MenuItem::with_id(app, "mcp-copy", "Copy endpoint URL", true, None::<&str>)?;
+    let mcp = Submenu::with_items(
+        app,
+        if mcp_on { "MCP · running" } else { "MCP" },
+        true,
+        &[&mcp_toggle, &copy],
+    )?;
+
+    // Remote brokers: live summary; clicking a remote switches to it.
+    let remote = if remotes.is_empty() {
+        let empty = MenuItem::with_id(
+            app,
+            "remote-empty",
+            "No remote brokers — add in Settings",
+            false,
+            None::<&str>,
+        )?;
+        Submenu::with_items(app, "Remote brokers", true, &[&empty])?
+    } else {
+        let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
+        for r in &remotes {
+            let health = probe_health(&r.http_url);
+            let marker = if health { "●" } else { "○" };
+            let status = if health { "connected" } else { "offline" };
+            let tick = if active == r.name { " ✓" } else { "" };
+            let label = format!("{marker} {} · {}{tick}", r.name, status);
+            let item = MenuItem::with_id(app, format!("remote-{}", r.name), label, true, None::<&str>)?;
+            items.push(Box::new(item));
         }
-        match result {
-            Ok(url) => {
-                let _ = app.emit("mcp-status", &url);
-            }
-            Err(e) => {
-                let _ = app.emit("supervisor-error", &e);
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+            items.iter().map(|b| b.as_ref()).collect();
+        Submenu::with_items(app, "Remote brokers", true, &refs)?
+    };
+
+    let quit = IconMenuItem::with_id(
+        app,
+        "quit",
+        "Quit ChopFlow",
+        true,
+        Some(power_icon()),
+        None::<&str>,
+    )?;
+
+    Menu::with_items(
+        app,
+        &[
+            &open,
+            &PredefinedMenuItem::separator(app)?,
+            &local,
+            &mcp,
+            &PredefinedMenuItem::separator(app)?,
+            &remote,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Menu events
+// ---------------------------------------------------------------------------
+
+fn handle_tray_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    match event.id().as_ref() {
+        "open" => show_main_window(app),
+        "menu-settings" => open_settings(app),
+        "local-start" => {
+            let app2 = app.clone();
+            let state = app.state::<SharedState>();
+            let dir = state.data_dir.clone();
+            let sup = state.supervisor.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = sup.ensure_started(dir, std::process::id()).await;
+                rebuild(&app2);
+            });
+        }
+        "local-stop" => {
+            let app2 = app.clone();
+            let state = app.state::<SharedState>();
+            let sup = state.supervisor.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = sup.stop_broker().await;
+                rebuild(&app2);
+            });
+        }
+        "mcp-start" => {
+            let app2 = app.clone();
+            let state = app.state::<SharedState>();
+            let sup = state.supervisor.clone();
+            tauri::async_runtime::spawn(async move {
+                let st = app2.state::<SharedState>();
+                let (base, token) = active_endpoint(&st, &sup).await;
+                let url = sup.start_mcp(&base, token.as_deref()).await.ok();
+                st.with_store(|s| s.mcp_enabled = true);
+                let _ = st.persist();
+                let _ = app2.emit("mcp-status", &url);
+                rebuild(&app2);
+            });
+        }
+        "mcp-stop" => {
+            let app2 = app.clone();
+            let state = app.state::<SharedState>();
+            let sup = state.supervisor.clone();
+            tauri::async_runtime::spawn(async move {
+                let st = app2.state::<SharedState>();
+                sup.stop_mcp().await;
+                st.with_store(|s| s.mcp_enabled = false);
+                let _ = st.persist();
+                rebuild(&app2);
+            });
+        }
+        "mcp-copy" => {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.eval(&format!(
+                    "navigator.clipboard.writeText('http://127.0.0.1:{MCP_HTTP_PORT}/mcp')"
+                ));
             }
         }
-    });
+        "remote-empty" => {}
+        id if id.starts_with("remote-") => {
+            let name = id.trim_start_matches("remote-").to_string();
+            let state = app.state::<SharedState>();
+            let exists = state.with_store(|s| s.remote(&name).is_some());
+            if exists {
+                state.with_store(|s| s.last_used = Some(name.clone()));
+                let _ = state.persist();
+                let _ = app.emit("connection-switched", &name);
+                rebuild(app);
+            }
+        }
+        "quit" => app.exit(0),
+        _ => {}
+    }
 }

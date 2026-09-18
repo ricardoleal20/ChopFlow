@@ -284,6 +284,23 @@ impl Supervisor {
         LocalBrokerStatus::Stopped
     }
 
+    /// Synchronous liveness check for the tray (adopted broker → alive; managed
+    /// child → not yet exited).
+    pub fn broker_alive(&self) -> bool {
+        if self.adopted.try_lock().map(|g| *g).unwrap_or(false) {
+            return true;
+        }
+        match self.broker.try_lock() {
+            Ok(mut guard) => guard
+                .as_mut()
+                .map(|m| m.child.try_wait().ok().flatten().is_none())
+                .unwrap_or(false),
+            // Lock busy (an async op in flight) — optimistically report as
+            // alive rather than flashing "stopped" mid-operation.
+            Err(_) => true,
+        }
+    }
+
     /// Snapshot of the broker status without starting anything.
     pub async fn status(&self) -> LocalBrokerStatus {
         if *self.adopted.lock().await {
@@ -391,6 +408,14 @@ impl Supervisor {
     pub async fn shutdown(&self) {
         self.stop_mcp().await;
         self.stop_broker().await;
+    }
+
+    /// Blocking teardown for command handlers (app_reset) that cannot await.
+    pub fn shutdown_blocking(&self) {
+        tauri::async_runtime::block_on(async {
+            self.stop_mcp().await;
+            self.stop_broker().await;
+        });
     }
 }
 

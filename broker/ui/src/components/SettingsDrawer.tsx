@@ -6,7 +6,7 @@
 // gateway toggle, and a ring-buffer log viewer. Web dashboard never renders it.
 
 import { useCallback, useEffect, useState } from "react";
-import { appGetLogs, appSetMcp, type AppState } from "../lib/appBridge";
+import { appGetLogs, appReset, appSetMcp, type AppState } from "../lib/appBridge";
 import type { useAppTauri } from "../hooks/useAppTauri";
 
 type Shell = ReturnType<typeof useAppTauri>;
@@ -195,6 +195,29 @@ export default function SettingsDrawer({ shell, onClose }: Props) {
                 here.
               </p>
             ) : null}
+          </section>
+
+          <section className="s-sec s-danger">
+            <h3>Danger zone</h3>
+            <button
+              type="button"
+              className="s-btn s-btn-danger"
+              onClick={async () => {
+                if (
+                  window.confirm(
+                    "Delete ALL ChopFlow local information?\n\nThis removes your connections and the local database, then restarts the app fresh.",
+                  )
+                ) {
+                  await appReset();
+                  window.location.reload();
+                }
+              }}
+            >
+              Delete all local information
+            </button>
+            <p className="s-hint">
+              Wipes connections, tokens, and chopflow.db — back to first run.
+            </p>
           </section>
 
           <section className="s-sec">

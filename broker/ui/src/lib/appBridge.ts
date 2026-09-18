@@ -77,6 +77,11 @@ export async function appGetLogs(): Promise<string[]> {
   return invoke("app_get_logs");
 }
 
+/// Destructive reset: wipe local data (connections + db) and restart first-run.
+export async function appReset(): Promise<void> {
+  return invoke("app_reset");
+}
+
 /// Local broker HTTP base from a status, or null when not serving.
 export function localHttpBase(status: LocalStatus): string | null {
   switch (status.kind) {

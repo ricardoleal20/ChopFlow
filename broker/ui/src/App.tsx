@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Sidebar, { type View } from "./components/Sidebar";
 import TopBar from "./components/TopBar";
 import TasksView from "./components/TasksView";
@@ -22,6 +22,10 @@ import type { Task, TaskStatus, Schedule } from "./lib/api";
 export default function App() {
   const { theme, toggle } = useTheme();
   const shell = useAppTauri();
+  // Always call the latest switchTo (the tray can switch any time; the mount-
+  // time closure would see stale state).
+  const shellRef = useRef(shell);
+  shellRef.current = shell;
   const [view, setView] = useState<View>("tasks");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TaskStatus | "all">("all");
@@ -30,6 +34,26 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
   const [schedSelected, setSchedSelected] = useState<Schedule | null>(null);
+
+  // From the tray / native menu: open Settings (⌘,) or switch connection.
+  useEffect(() => {
+    if (!shell.tauri) return;
+    let disposed = false;
+    let off: Array<() => void> = [];
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      if (disposed) return;
+      const un1 = await listen("open-settings", () => setSettingsOpen(true));
+      const un2 = await listen("connection-switched", (e) => {
+        void shellRef.current.switchTo(String(e.payload));
+      });
+      off = [un1, un2];
+    })();
+    return () => {
+      disposed = true;
+      off.forEach((f) => f());
+    };
+  }, [shell.tauri]);
 
   const { data: stats } = useStats();
   const tasksQ = useTasks();

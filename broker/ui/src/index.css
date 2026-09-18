@@ -2418,3 +2418,13 @@ textarea.cf-input {
   white-space: pre-wrap;
   word-break: break-all;
 }
+.s-danger {
+  border-top: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+}
+.s-btn-danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-fg);
+}
+.s-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}

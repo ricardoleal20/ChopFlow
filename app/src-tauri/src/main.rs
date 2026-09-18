@@ -33,6 +33,7 @@ fn main() {
             commands::app_set_mcp,
             commands::app_complete_first_run,
             commands::app_get_logs,
+            commands::app_reset,
         ])
         .setup(|app| {
             // App-data dir (~/Library/Application Support/io.chopflow.ops).

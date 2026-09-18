@@ -19,12 +19,12 @@ pub struct SharedState {
 }
 
 impl SharedState {
-    fn with_store<R>(&self, f: impl FnOnce(&mut ConnectionStore) -> R) -> R {
+    pub(crate) fn with_store<R>(&self, f: impl FnOnce(&mut ConnectionStore) -> R) -> R {
         let mut store = self.store.lock().unwrap();
         f(&mut store)
     }
 
-    fn persist(&self) -> Result<(), String> {
+    pub(crate) fn persist(&self) -> Result<(), String> {
         let snapshot = self.store.lock().unwrap().clone();
         snapshot.save(&self.data_dir)
     }
@@ -240,4 +240,22 @@ pub fn app_complete_first_run(state: State<'_, SharedState>) -> Result<(), Strin
 #[tauri::command]
 pub async fn app_get_logs(state: State<'_, SharedState>) -> Result<Vec<String>, String> {
     Ok(state.supervisor.logs().await)
+}
+
+/// Destructive: stop managed children, wipe every local data file
+/// (connections.json + chopflow.db + prisma-wal), and return to a pristine
+/// first-run state. The frontend reloads after invoking.
+#[tauri::command]
+pub fn app_reset(state: State<'_, SharedState>) -> Result<(), String> {
+    state.supervisor.shutdown_blocking();
+    for f in [
+        "connections.json",
+        "connections.json.tmp",
+        "chopflow.db",
+        "chopflow.db-shm",
+        "chopflow.db-wal",
+    ] {
+        let _ = std::fs::remove_file(state.data_dir.join(f));
+    }
+    Ok(())
 }
