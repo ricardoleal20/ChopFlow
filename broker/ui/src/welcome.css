@@ -1015,3 +1015,38 @@ html:not(.dark) .welcome-shell {
   color: var(--w-fg, #e7ecf5);
   border-style: dashed;
 }
+
+/* Centered wizard step (MCP toggles etc.) */
+.w-centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.w-centered .w-card-sub,
+.w-centered .w-mcp-legend,
+.w-centered .w-mcp-url {
+  max-width: 44ch;
+}
+.w-mcp-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+.w-mcp-legend-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.w-mcp-legend {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--w-fg-dim, #8b96ab);
+}
+.w-add-another {
+  color: #9db6ff;
+}

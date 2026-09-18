@@ -183,6 +183,7 @@ export default function Welcome({
   const [tokBusy, setTokBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<LocalTokenCreated | null>(null);
   const [tokCopied, setTokCopied] = useState(false);
+  const [addAnother, setAddAnother] = useState(false);
 
   // Phases: hero mirrors first-run gating; boot rail only during real boot
   // (non-first-run) or while finishing setup.
@@ -326,7 +327,10 @@ export default function Welcome({
   const finish = () => {
     if (!canFinish || finishing) return;
     setFinishing(true);
-    void onProceed();
+    // Hold the loading rail long enough to be legible (3.5s) — it shows
+    // "Starting local broker… → Checking connections… → Loading dashboard…"
+    // before the dashboard appears.
+    window.setTimeout(() => void onProceed(), 3500);
   };
 
   const MCP_TOKEN_REVEALED = mcpTokenOnce !== null && mcpToken !== null;
@@ -548,28 +552,49 @@ export default function Welcome({
                     </div>
                   </div>
                 ) : step === 1 ? (
-                  <div className="w-step-body">
+                  <div className="w-step-body w-centered">
                     <h2 className="w-card-title">MCP gateway</h2>
                     <p className="w-card-sub">
                       Expose this broker to AI assistants (Claude Desktop, Cursor…) over streamable
                       HTTP. Optional — toggle later in Settings.
                     </p>
-                    <label className="w-mcp">
-                      <input
-                        type="checkbox"
-                        checked={mcpOn}
-                        disabled={mcpBusy}
-                        onChange={() => void toggleMcp(!mcpOn)}
-                      />
-                      <span className="w-mcp-track">
-                        <span className="w-mcp-knob" />
-                      </span>
-                      <span className="w-mcp-label">
-                        {mcpBusy ? "Starting…" : mcpOn ? "MCP gateway on" : "MCP gateway off"}
-                      </span>
-                    </label>
+                    <div className="w-mcp-wrap">
+                      <label className="w-mcp">
+                        <input
+                          type="checkbox"
+                          checked={mcpOn}
+                          disabled={mcpBusy}
+                          onChange={() => void toggleMcp(!mcpOn)}
+                        />
+                        <span className="w-mcp-track">
+                          <span className="w-mcp-knob" />
+                        </span>
+                        <span className="w-mcp-label">
+                          {mcpBusy ? "Starting…" : mcpOn ? "MCP gateway on" : "MCP gateway off"}
+                        </span>
+                      </label>
+                      {mcpOn ? (
+                        <label className="w-mcp">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(mcpToken)}
+                            disabled={mcpBusy}
+                            onChange={() => void toggleMcpToken(!mcpToken)}
+                          />
+                          <span className="w-mcp-track">
+                            <span className="w-mcp-knob" />
+                          </span>
+                          <span className="w-mcp-label">Requires token to connect</span>
+                        </label>
+                      ) : null}
+                    </div>
                     {mcpOn ? (
-                      <>
+                      <div className="w-mcp-legend-wrap">
+                        <p className="w-mcp-legend">
+                          {mcpToken
+                            ? "Needs to generate tokens to connect."
+                            : "Everyone that connects can use it without problem."}
+                        </p>
                         {MCP_TOKEN_REVEALED ? (
                           <div className="sv-token-once" role="status">
                             <div className="sv-token-once-title">MCP access token — shown once</div>
@@ -593,30 +618,32 @@ export default function Welcome({
                               >
                                 {mcpCopied ? "Copied!" : "Copy token"}
                               </button>
+                              <button
+                                type="button"
+                                className="w-btn w-btn-ghost w-btn-sm"
+                                onClick={() => setMcpTokenOnce(null)}
+                              >
+                                Done
+                              </button>
                             </div>
                           </div>
                         ) : null}
-                        <label className="w-mcp">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(mcpToken)}
-                            disabled={mcpBusy}
-                            onChange={() => void toggleMcpToken(!mcpToken)}
-                          />
-                          <span className="w-mcp-track">
-                            <span className="w-mcp-knob" />
-                          </span>
-                          <span className="w-mcp-label">
-                            {mcpToken
-                              ? "Require an access token"
-                              : "Anyone on this machine can use it"}
-                          </span>
-                        </label>
+                        {mcpToken && !MCP_TOKEN_REVEALED ? (
+                          <button
+                            type="button"
+                            className="w-skip w-add-another"
+                            onClick={() =>
+                              void toggleMcpToken(false).then(() => void toggleMcpToken(true))
+                            }
+                          >
+                            Generate a new access token
+                          </button>
+                        ) : null}
                         <p className="w-mcp-url">
                           Endpoint{" "}
                           <code>{mcpUrl ?? state?.mcp_url ?? "http://127.0.0.1:8810/mcp"}</code>
                         </p>
-                      </>
+                      </div>
                     ) : null}
                   </div>
                 ) : step === 2 ? (
@@ -716,6 +743,61 @@ export default function Welcome({
                       <p className="w-mcp-url">
                         ✓ Secured with {tokenCount} labelled token{tokenCount > 1 ? "s" : ""}.
                       </p>
+                    ) : null}
+                    {protect && tokenCount > 0 && !addAnother ? (
+                      <button
+                        type="button"
+                        className="w-skip w-add-another"
+                        onClick={() => setAddAnother(true)}
+                      >
+                        + Add another token
+                      </button>
+                    ) : null}
+                    {protect && tokenCount > 0 && addAnother ? (
+                      <div className="w-mcp-url">
+                        <form className="s-add s-add-stack" onSubmit={createToken}>
+                          <input
+                            className="s-in"
+                            placeholder="Identifier (who uses it?)"
+                            value={tokId}
+                            onChange={(e) => setTokId(e.target.value)}
+                            aria-label="Token identifier"
+                          />
+                          <input
+                            className="s-in s-monow"
+                            placeholder="Token value (or generate one)"
+                            value={tokValue}
+                            onChange={(e) => setTokValue(e.target.value)}
+                            aria-label="Token value"
+                          />
+                          <button
+                            type="button"
+                            className="w-btn w-btn-ghost w-btn-sm"
+                            disabled={tokBusy}
+                            onClick={() =>
+                              setTokValue(
+                                `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+                              )
+                            }
+                          >
+                            Generate
+                          </button>
+                          <button
+                            type="submit"
+                            className="w-btn w-btn-primary w-btn-sm"
+                            disabled={tokBusy || !tokId.trim() || !tokValue.trim()}
+                          >
+                            Create token
+                          </button>
+                          <button
+                            type="button"
+                            className="w-skip"
+                            onClick={() => setAddAnother(false)}
+                          >
+                            Cancel
+                          </button>
+                        </form>
+                      </div>
                     ) : null}
                     {!protect ? (
                       <p className="w-mcp-url">
