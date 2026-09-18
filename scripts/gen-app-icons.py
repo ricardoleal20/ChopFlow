@@ -10,7 +10,7 @@ Deterministic, dependency-light (Pillow only) regeneration of:
   - every size Tauri's `icon` config lists (32..1024 PNGs, .icns via
     `iconutil`, .ico),
   - the menu bar item glyphs: Google Material Symbols (play_arrow / stop /
-    power_settings_new) rendered white-on-transparent for IconMenuItem.
+    power_settings_new) rendered white-on-transparent at 8px for IconMenuItem.
 
 Run from the repo root:  uv run --with pillow python scripts/gen-app-icons.py
 """
@@ -103,7 +103,7 @@ def app_icon(size: int) -> Image.Image:
 
 # ---------------------------------------------------------------------------
 # Menu bar glyphs: Google Material Symbols (Rounded) rendered white-on-
-# transparent at 16px for the macOS IconMenuItems. The source SVGs live in
+# transparent at 8px for the macOS IconMenuItems. The source SVGs live in
 # app/src-tauri/icons/material/ (Copyright Google LLC, Apache-2.0).
 #
 # macOS has no Python-callable system SVG rasterizer, so we render via
@@ -114,7 +114,7 @@ def app_icon(size: int) -> Image.Image:
 MATERIAL_DIR = ICONS / "material"
 
 
-def material_glyph(svg_name: str, size: int = 16) -> Image.Image:
+def material_glyph(svg_name: str, size: int = 8) -> Image.Image:
     """Render icons/material/<svg_name> as a white-on-transparent icon."""
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(
@@ -133,15 +133,15 @@ def material_glyph(svg_name: str, size: int = 16) -> Image.Image:
     return canvas.resize((size, size), Image.LANCZOS)
 
 
-def play_glyph(size: int = 16) -> Image.Image:
+def play_glyph(size: int = 8) -> Image.Image:
     return material_glyph("play_arrow.svg", size)
 
 
-def stop_glyph(size: int = 16) -> Image.Image:
+def stop_glyph(size: int = 8) -> Image.Image:
     return material_glyph("stop.svg", size)
 
 
-def power_glyph(size: int = 16) -> Image.Image:
+def power_glyph(size: int = 8) -> Image.Image:
     return material_glyph("power_settings_new.svg", size)
 
 
