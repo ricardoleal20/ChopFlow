@@ -381,7 +381,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                       setMcpBusy(true);
                       try {
                         await appSetMcp(e.target.checked);
-                        window.location.reload();
+                        await shell.reloadState();
                       } finally {
                         setMcpBusy(false);
                       }

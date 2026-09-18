@@ -21,6 +21,9 @@ import {
   type LocalTokenCreated,
 } from "../lib/appBridge";
 import appIcon from "../assets/app-icon.png";
+import langRust from "../assets/langs/rust.svg";
+import langPython from "../assets/langs/python.svg";
+import langJava from "../assets/langs/java.svg";
 import "../welcome.css";
 
 export type BootStep = "starting-broker" | "checking-connections" | "loading-dashboard";
@@ -68,65 +71,32 @@ function openDocs() {
 
 // ---- Language guide cards (Learn screen) --------------------------------
 
-const RustIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.8}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <circle cx="12" cy="12" r="4.2" />
-    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1" />
-  </svg>
-);
-const PythonIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.9}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M12 3.2c-4.4 0-4.4 1.9-4.4 4V9h4.7v1H5.8C3.6 10 3 12 3 14.4c0 2.4 0 4.6 2.8 4.6h1.7v-2.1c0-1.9 1.6-3.4 3.5-3.4h4.4c1.6 0 2.8-1.3 2.8-2.9V7.2c0-2.8-.7-4-4.7-4Z" />
-    <path
-      d="M12.4 20.6c4.4 0 4-1.9 4-3.9v-1.6h-4.3v-1h6.6c2.4 0 2.8-2 2.8-4.3 0-2.4 0-4.3-2.8-4.3h-1.4"
-      fill="none"
-    />
-  </svg>
-);
-const JavaIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.8}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M4 8.5h16v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16Z" />
-    <path d="M2.5 8.5h19l-1.2-3H3.7Z" />
-    <path d="M8.5 18.5l-.8 3M15.5 18.5l.8 3" />
-  </svg>
-);
-
 const LANGS = [
-  { key: "rust", label: "Rust", icon: RustIcon, blurb: "chopflow-worker, typed handlers, cargo" },
-  { key: "python", label: "Python", icon: PythonIcon, blurb: "pip client SDK, decorators, async" },
-  { key: "java", label: "Java", icon: JavaIcon, blurb: "Maven SDK, @Task handlers" },
+  {
+    key: "rust",
+    label: "Rust",
+    img: langRust,
+    blurb: "chopflow-worker, typed handlers, cargo",
+  },
+  {
+    key: "python",
+    label: "Python",
+    img: langPython,
+    blurb: "pip client SDK, decorators, async",
+  },
+  {
+    key: "java",
+    label: "Java",
+    img: langJava,
+    blurb: "Maven SDK, @Task handlers",
+  },
 ] as const;
 
 function LearnCard({ lang }: { lang: (typeof LANGS)[number] }) {
-  const Icon = lang.icon;
   return (
     <button type="button" className="w-lang" onClick={openDocs}>
       <span className="w-lang-icon">
-        <Icon />
+        <img src={lang.img} alt={`${lang.label} icon`} />
       </span>
       <span className="w-lang-body">
         <span className="w-lang-title">{lang.label}</span>
@@ -573,78 +543,76 @@ export default function Welcome({
                           {mcpBusy ? "Starting…" : mcpOn ? "MCP gateway on" : "MCP gateway off"}
                         </span>
                       </label>
-                      {mcpOn ? (
-                        <label className="w-mcp">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(mcpToken)}
-                            disabled={mcpBusy}
-                            onChange={() => void toggleMcpToken(!mcpToken)}
-                          />
-                          <span className="w-mcp-track">
-                            <span className="w-mcp-knob" />
-                          </span>
-                          <span className="w-mcp-label">Requires token to connect</span>
-                        </label>
-                      ) : null}
+                      {/* Protecting the gateway is a Security decision too —
+                          the question is always visible, even before enabling it. */}
+                      <label className="w-mcp">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(mcpToken)}
+                          disabled={mcpBusy}
+                          onChange={() => void toggleMcpToken(!mcpToken)}
+                        />
+                        <span className="w-mcp-track">
+                          <span className="w-mcp-knob" />
+                        </span>
+                        <span className="w-mcp-label">Requires token to connect</span>
+                      </label>
                     </div>
-                    {mcpOn ? (
-                      <div className="w-mcp-legend-wrap">
-                        <p className="w-mcp-legend">
-                          {mcpToken
-                            ? "Needs to generate tokens to connect."
-                            : "Everyone that connects can use it without problem."}
-                        </p>
-                        {MCP_TOKEN_REVEALED ? (
-                          <div className="sv-token-once" role="status">
-                            <div className="sv-token-once-title">MCP access token — shown once</div>
-                            <p className="sv-token-once-legend">
-                              This token will only show once, please store it somewhere safe. Each
-                              MCP client must present it (Authorization: Bearer).
-                            </p>
-                            <code className="sv-token-once-value">{mcpTokenOnce}</code>
-                            <div className="sv-token-once-actions">
-                              <button
-                                type="button"
-                                className="w-btn w-btn-primary w-btn-sm"
-                                onClick={() => {
-                                  void navigator.clipboard
-                                    ?.writeText(mcpTokenOnce ?? "")
-                                    .then(() => {
-                                      setMcpCopied(true);
-                                      window.setTimeout(() => setMcpCopied(false), 1400);
-                                    });
-                                }}
-                              >
-                                {mcpCopied ? "Copied!" : "Copy token"}
-                              </button>
-                              <button
-                                type="button"
-                                className="w-btn w-btn-ghost w-btn-sm"
-                                onClick={() => setMcpTokenOnce(null)}
-                              >
-                                Done
-                              </button>
-                            </div>
+                    <div className="w-mcp-legend-wrap">
+                      <p className="w-mcp-legend">
+                        {mcpToken
+                          ? "Needs to generate tokens to connect."
+                          : "Everyone that connects can use it without problem."}
+                      </p>
+                      {MCP_TOKEN_REVEALED ? (
+                        <div className="sv-token-once" role="status">
+                          <div className="sv-token-once-title">MCP access token — shown once</div>
+                          <p className="sv-token-once-legend">
+                            This token will only show once, please store it somewhere safe. Each MCP
+                            client must present it (Authorization: Bearer).
+                          </p>
+                          <code className="sv-token-once-value">{mcpTokenOnce}</code>
+                          <div className="sv-token-once-actions">
+                            <button
+                              type="button"
+                              className="w-btn w-btn-primary w-btn-sm"
+                              onClick={() => {
+                                void navigator.clipboard?.writeText(mcpTokenOnce ?? "").then(() => {
+                                  setMcpCopied(true);
+                                  window.setTimeout(() => setMcpCopied(false), 1400);
+                                });
+                              }}
+                            >
+                              {mcpCopied ? "Copied!" : "Copy token"}
+                            </button>
+                            <button
+                              type="button"
+                              className="w-btn w-btn-ghost w-btn-sm"
+                              onClick={() => setMcpTokenOnce(null)}
+                            >
+                              Done
+                            </button>
                           </div>
-                        ) : null}
-                        {mcpToken && !MCP_TOKEN_REVEALED ? (
-                          <button
-                            type="button"
-                            className="w-skip w-add-another"
-                            onClick={() =>
-                              void toggleMcpToken(false).then(() => void toggleMcpToken(true))
-                            }
-                          >
-                            Generate a new access token
-                          </button>
-                        ) : null}
+                        </div>
+                      ) : null}
+                      {mcpToken && !MCP_TOKEN_REVEALED ? (
+                        <button
+                          type="button"
+                          className="w-skip w-add-another"
+                          onClick={() =>
+                            void toggleMcpToken(false).then(() => void toggleMcpToken(true))
+                          }
+                        >
+                          Generate a new access token
+                        </button>
+                      ) : null}
+                      {mcpOn ? (
                         <p className="w-mcp-url">
                           Endpoint{" "}
                           <code>{mcpUrl ?? state?.mcp_url ?? "http://127.0.0.1:8810/mcp"}</code>
                         </p>
-                      </div>
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
                 ) : step === 2 ? (
                   <div className="w-step-body">
@@ -701,41 +669,53 @@ export default function Welcome({
                             </div>
                           </div>
                         ) : (
-                          <form className="s-add s-add-stack" onSubmit={createToken}>
-                            <input
-                              className="s-in"
-                              placeholder="Identifier (who uses it?)"
-                              value={tokId}
-                              onChange={(e) => setTokId(e.target.value)}
-                              aria-label="Token identifier"
-                            />
-                            <input
-                              className="s-in s-monow"
-                              placeholder="Token value (or generate one)"
-                              value={tokValue}
-                              onChange={(e) => setTokValue(e.target.value)}
-                              aria-label="Token value"
-                            />
+                          <>
+                            <form className="s-add s-add-stack" onSubmit={createToken}>
+                              <input
+                                className="s-in"
+                                placeholder="Identifier (who uses it?)"
+                                value={tokId}
+                                onChange={(e) => setTokId(e.target.value)}
+                                aria-label="Token identifier"
+                              />
+                              <input
+                                className="s-in s-monow"
+                                placeholder="Token value (or generate one)"
+                                value={tokValue}
+                                onChange={(e) => setTokValue(e.target.value)}
+                                aria-label="Token value"
+                              />
+                              <button
+                                type="button"
+                                className="w-btn w-btn-ghost w-btn-sm"
+                                disabled={tokBusy}
+                                onClick={() =>
+                                  setTokValue(
+                                    `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+                                  )
+                                }
+                              >
+                                Generate
+                              </button>
+                              <button
+                                type="submit"
+                                className="w-btn w-btn-primary w-btn-sm"
+                                disabled={tokBusy || !tokId.trim() || !tokValue.trim()}
+                              >
+                                Create token
+                              </button>
+                            </form>
                             <button
                               type="button"
-                              className="w-btn w-btn-ghost w-btn-sm"
-                              disabled={tokBusy}
-                              onClick={() =>
-                                setTokValue(
-                                  `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
-                                )
-                              }
+                              className="w-skip"
+                              onClick={() => {
+                                void toggleProtect(false);
+                                setStep((st) => st + 1);
+                              }}
                             >
-                              Generate
+                              Skip it — set up later
                             </button>
-                            <button
-                              type="submit"
-                              className="w-btn w-btn-primary w-btn-sm"
-                              disabled={tokBusy || !tokId.trim() || !tokValue.trim()}
-                            >
-                              Create token
-                            </button>
-                          </form>
+                          </>
                         )}
                       </>
                     ) : null}
