@@ -16,6 +16,7 @@ import {
   appReset,
   appSetDataDir,
   appSetMcp,
+  appSetMcpAccessToken,
   type AppState,
   type LocalTokenCreated,
 } from "../lib/appBridge";
@@ -112,6 +113,11 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [dirConfirm, setDirConfirm] = useState(false);
   const [dangerConfirm, setDangerConfirm] = useState(false);
   const [previewConfirm, setPreviewConfirm] = useState(false);
+  const [mcpTokVal, setMcpTokVal] = useState("");
+  const [mcpTokBusy, setMcpTokBusy] = useState(false);
+  const [mcpTokShow, setMcpTokShow] = useState(false);
+  const [mcpJustSet, setMcpJustSet] = useState<string | null>(null);
+  const [mcpJustCopied, setMcpJustCopied] = useState(false);
 
   const loadLogs = useCallback(async () => {
     setLogs(await appGetLogs());
@@ -391,6 +397,124 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                   here.
                 </p>
               ) : null}
+
+              <h3 style={{ marginTop: 18 }}>Access token</h3>
+              {mcpJustSet ? (
+                <div className="sv-token-once" role="status">
+                  <div className="sv-token-once-title">MCP access token — shown once</div>
+                  <p className="sv-token-once-legend">
+                    This token will only show once, please store it somewhere safe. Every MCP client
+                    must present it (Authorization: Bearer).
+                  </p>
+                  <code className="sv-token-once-value">{mcpJustSet}</code>
+                  <div className="sv-token-once-actions">
+                    <Btn
+                      variant="primary"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(mcpJustSet).then(() => {
+                          setMcpJustCopied(true);
+                          window.setTimeout(() => setMcpJustCopied(false), 1400);
+                        });
+                      }}
+                    >
+                      {mcpJustCopied ? "Copied!" : "Copy token"}
+                    </Btn>
+                    <Btn variant="ghost" onClick={() => setMcpJustSet(null)}>
+                      Done
+                    </Btn>
+                  </div>
+                </div>
+              ) : null}
+
+              <Row
+                label="Status"
+                value={state?.mcp_access_token ? "protected — token required" : "open (no token)"}
+              />
+              {state?.mcp_access_token ? (
+                <div className="s-row">
+                  <span className="s-row-label">Token</span>
+                  <code className="s-row-value">
+                    {mcpTokShow ? state.mcp_access_token : "·".repeat(24)}
+                  </code>
+                  <Btn variant="ghost" onClick={() => setMcpTokShow((v) => !v)}>
+                    {mcpTokShow ? "Hide" : "Show"}
+                  </Btn>
+                  <Btn
+                    variant="ghost"
+                    disabled={mcpTokBusy}
+                    onClick={() => {
+                      setMcpTokBusy(true);
+                      const fresh = `chopflow-mcp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+                      void appSetMcpAccessToken(fresh)
+                        .then((kept) => {
+                          setMcpJustSet(kept);
+                          return shell.reloadState();
+                        })
+                        .catch((err: unknown) => window.alert(String(err)))
+                        .finally(() => setMcpTokBusy(false));
+                    }}
+                  >
+                    Regenerate
+                  </Btn>
+                  <Btn
+                    variant="ghost"
+                    disabled={mcpTokBusy}
+                    onClick={() => {
+                      setMcpTokBusy(true);
+                      void appSetMcpAccessToken(null)
+                        .then(() => shell.reloadState())
+                        .catch((err: unknown) => window.alert(String(err)))
+                        .finally(() => setMcpTokBusy(false));
+                    }}
+                  >
+                    Remove
+                  </Btn>
+                </div>
+              ) : null}
+
+              <form
+                className="s-add"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const value = mcpTokVal.trim();
+                  if (mcpTokBusy || !value) return;
+                  setMcpTokBusy(true);
+                  void appSetMcpAccessToken(value)
+                    .then((kept) => {
+                      setMcpJustSet(kept);
+                      setMcpTokVal("");
+                      return shell.reloadState();
+                    })
+                    .catch((err: unknown) => window.alert(String(err)))
+                    .finally(() => setMcpTokBusy(false));
+                }}
+              >
+                <input
+                  className="s-in s-monow"
+                  placeholder="Paste a token, or generate one"
+                  value={mcpTokVal}
+                  onChange={(e) => setMcpTokVal(e.target.value)}
+                  aria-label="MCP access token"
+                />
+                <Btn
+                  variant="ghost"
+                  disabled={mcpTokBusy}
+                  onClick={() =>
+                    setMcpTokVal(
+                      `chopflow-mcp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+                    )
+                  }
+                >
+                  Generate
+                </Btn>
+                <Btn type="submit" variant="primary" disabled={!mcpTokVal.trim() || mcpTokBusy}>
+                  Set token
+                </Btn>
+              </form>
+              <p className="s-hint">
+                When set, every MCP client (Claude Desktop, Cursor…) must send this as
+                Authorization: Bearer. Independent from the broker's own tokens.
+              </p>
             </NeedsApp>
           </section>
         ) : tab === "security" ? (

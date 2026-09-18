@@ -53,6 +53,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         client,
         base,
         token: cli.api_token.filter(|t| !t.is_empty()),
+        access_token: cli.access_token.filter(|t| !t.is_empty()),
     };
 
     match cli.http {
@@ -87,13 +88,54 @@ pub fn http_router(service: ChopFlowMcp) -> axum::Router {
 
     // One MCP service instance per HTTP session; the local session manager
     // keeps per-client state (session ids, progress tokens).
+    let access = service.access_token.clone();
     let session_manager = LocalSessionManager::default().into();
     let mcp_service = StreamableHttpService::new(
         move || Ok(service.clone()),
         session_manager,
         Default::default(),
     );
-    axum::Router::new().nest_service("/mcp", mcp_service)
+    axum::Router::new()
+        .nest_service("/mcp", mcp_service)
+        .layer(axum::middleware::from_fn_with_state(access, mcp_access_auth))
+}
+
+/// Gate the MCP gateway itself behind a Bearer token when `--access-token`
+/// is configured. Accepts the token via the `Authorization: Bearer` header or
+/// an `?access_token=` / `?code=` URL param (both appear in the MCP
+/// streamable-HTTP auth spec). No token configured = gateway stays open.
+async fn mcp_access_auth(
+    axum::extract::State(expected): axum::extract::State<Option<String>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(expected) = expected else {
+        return next.run(req).await;
+    };
+    let supplied = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_string)
+        .or_else(|| {
+            req.uri().query().and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+                    (k == "access_token" || k == "code").then(|| v.to_string())
+                })
+            })
+        })
+        .unwrap_or_default();
+    if supplied != expected {
+        use axum::response::IntoResponse;
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({"error": "invalid or missing MCP access token"})),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 /// CLI config. Kept minimal — the broker HTTP URL and the optional HTTP bind.
@@ -117,6 +159,14 @@ pub struct Cli {
     /// `Authorization: Bearer <token>` on every broker call.
     #[arg(long)]
     pub api_token: Option<String>,
+
+    /// Optional token REQUIRED to reach this MCP gateway itself over HTTP.
+    /// When set, every client must send `Authorization: Bearer <token>` (or
+    /// `?access_token=` / `?code=` in the URL). Independent from the broker's
+    /// own API token — it gates access to the AI endpoint, not to the broker.
+    /// No flag = the gateway is open.
+    #[arg(long)]
+    pub access_token: Option<String>,
 }
 
 /// The MCP server. Holds a reusable HTTP client, the broker base URL, and the
@@ -126,6 +176,8 @@ pub struct ChopFlowMcp {
     client: reqwest::Client,
     base: String,
     token: Option<String>,
+    /// Optional Bearer required to reach the MCP endpoint itself (--access-token).
+    access_token: Option<String>,
 }
 
 impl ChopFlowMcp {
@@ -137,7 +189,14 @@ impl ChopFlowMcp {
             client,
             base: base.into().trim_end_matches('/').to_string(),
             token: None,
+            access_token: None,
         }
+    }
+
+    /// Attach the token MCP clients must present to reach the gateway.
+    pub fn with_access_token(mut self, access_token: Option<String>) -> Self {
+        self.access_token = access_token;
+        self
     }
 }
 

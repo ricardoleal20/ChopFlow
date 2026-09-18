@@ -55,6 +55,11 @@ pub struct ConnectionStore {
     /// token. Empty = no auth, exactly like a bare `chopflow broker start`.
     #[serde(default)]
     pub local_tokens: Vec<LocalToken>,
+    /// Optional token the MCP gateway itself requires (passed as
+    /// `--access-token`). None = anyone who can reach the endpoint can use
+    /// it. Independent from broker auth (`local_tokens`).
+    #[serde(default)]
+    pub mcp_access_token: Option<String>,
 }
 
 impl ConnectionStore {

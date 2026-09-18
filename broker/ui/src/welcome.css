@@ -770,8 +770,7 @@ html:not(.dark) .welcome-shell {
   position: relative;
   transition: background 180ms var(--w-ease, ease-out);
 }
-.w-mcp-track::after {
-  content: "";
+.w-mcp-knob {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -785,7 +784,7 @@ html:not(.dark) .welcome-shell {
 .w-mcp input:checked + .w-mcp-track {
   background: #4060ff;
 }
-.w-mcp input:checked + .w-mcp-track::after {
+.w-mcp input:checked + .w-mcp-track .w-mcp-knob {
   transform: translateX(17px);
 }
 .w-mcp-label {
@@ -861,4 +860,158 @@ html:not(.dark) .welcome-shell {
   align-items: center;
   gap: 10px;
   justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------------------
+ * Hero (first-run landing) + language guide cards
+ * ------------------------------------------------------------------------- */
+.w-hero {
+  text-align: center;
+  padding-top: 10vh;
+}
+.w-hero-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: w-hero-rise 600ms var(--w-ease, cubic-bezier(0.22, 0.61, 0.36, 1)) both;
+}
+@keyframes w-hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.w-hero-mark {
+  position: relative;
+  margin-bottom: 22px;
+}
+.w-hero-tile {
+  width: 96px;
+  height: 96px;
+  border-radius: 26px;
+  box-shadow:
+    0 24px 60px rgba(64, 96, 255, 0.45),
+    inset 0 1px 0 var(--w-tile-hi);
+  animation: w-hero-float 3.6s ease-in-out infinite;
+}
+@keyframes w-hero-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+.w-hero-glow {
+  position: absolute;
+  inset: -30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(64, 96, 255, 0.35), transparent 65%);
+  filter: blur(18px);
+  z-index: -1;
+  animation: w-hero-pulse 3.6s ease-in-out infinite;
+}
+@keyframes w-hero-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.w-hero-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--w-fg, #e7ecf5);
+}
+.w-hero-title b {
+  color: #fff;
+  font-weight: 700;
+}
+.w-hero-sub {
+  max-width: 40ch;
+  margin: 8px 0 26px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--w-fg-dim, #8b96ab);
+}
+.w-hero-cta {
+  font-size: 14px;
+  padding: 11px 26px;
+}
+
+/* Language guide cards */
+.w-lang {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--w-brd, rgba(148, 163, 184, 0.24));
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.4);
+  color: var(--w-fg, #e7ecf5);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms var(--w-ease, ease-out),
+    background 160ms var(--w-ease, ease-out),
+    transform 160ms var(--w-ease, ease-out);
+}
+.w-lang:hover {
+  border-color: rgba(64, 96, 255, 0.55);
+  background: rgba(15, 23, 42, 0.7);
+  transform: translateY(-1px);
+}
+.w-lang-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, #4060ff 16%, transparent);
+  color: #9db6ff;
+}
+.w-lang-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.w-lang-icon:nth-child(1) {
+}
+.w-lang-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.w-lang-title {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #fff;
+}
+.w-lang-blurb {
+  font-size: 11.5px;
+  color: var(--w-fg-dim, #8b96ab);
+}
+.w-lang-link {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9db6ff;
+}
+.w-lang-all {
+  color: var(--w-fg, #e7ecf5);
+  border-style: dashed;
 }

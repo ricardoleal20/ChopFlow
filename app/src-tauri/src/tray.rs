@@ -300,7 +300,11 @@ fn handle_tray_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             tauri::async_runtime::spawn(async move {
                 let st = app2.state::<SharedState>();
                 let (base, token) = active_endpoint(&st, &sup).await;
-                let url = sup.start_mcp(&base, token.as_deref()).await.ok();
+                let access = st.with_store(|s| s.mcp_access_token.clone());
+                let url = sup
+                    .start_mcp(&base, token.as_deref(), access.as_deref())
+                    .await
+                    .ok();
                 st.with_store(|s| s.mcp_enabled = true);
                 let _ = st.persist();
                 let _ = app2.emit("mcp-status", &url);

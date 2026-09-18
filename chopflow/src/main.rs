@@ -76,6 +76,10 @@ enum Command {
         /// Bearer token for brokers started with --api-token.
         #[arg(long)]
         api_token: Option<String>,
+
+        /// Optional token required to reach the MCP gateway itself (`--access-token`).
+        #[arg(long)]
+        access_token: Option<String>,
     },
 
     /// Enqueue a task from a JSON file.
@@ -237,11 +241,13 @@ async fn main() -> anyhow::Result<()> {
             broker,
             http,
             api_token,
+            access_token,
         } => {
             chopflow_mcp::run(chopflow_mcp::Cli {
                 broker,
                 http,
                 api_token,
+                access_token,
             })
             .await?;
         }

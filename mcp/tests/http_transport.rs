@@ -9,14 +9,18 @@ use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
 fn router() -> axum::Router {
+    router_with_access(None)
+}
+
+fn router_with_access(access: Option<&str>) -> axum::Router {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap();
-    chopflow_mcp::http_router(chopflow_mcp::ChopFlowMcp::new(
-        client,
-        "http://127.0.0.1:1", // unreachable on purpose: handshake/list never call the broker
-    ))
+    chopflow_mcp::http_router(
+        chopflow_mcp::ChopFlowMcp::new(client, "http://127.0.0.1:1") // unreachable on purpose
+            .with_access_token(access.map(str::to_string)),
+    )
 }
 
 async fn post_mcp(body: String) -> (StatusCode, String) {
@@ -128,4 +132,51 @@ async fn unknown_path_is_not_mcp() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ---- Gateway access token (--access-token) -------------------------------
+
+fn init_payload() -> String {
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"0\"}}}"
+        .to_string()
+}
+
+#[tokio::test]
+async fn access_token_401_without_and_200_with() {
+    // No auth configured -> open.
+    let open = router();
+    let (status, _, _) = post_on(open, init_payload(), None).await;
+    assert_eq!(status, StatusCode::OK, "no token configured => open");
+
+    // Token configured -> 401 without it.
+    let guarded = router_with_access(Some("mcp-secret"));
+    let (status, _, body) = post_on(guarded.clone(), init_payload(), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "missing token is rejected: {body}");
+
+    // Authorization: Bearer header -> 200.
+    let ok = post_authed(guarded.clone(), init_payload(), "Bearer mcp-secret").await;
+    assert_eq!(ok, StatusCode::OK, "Bearer header accepted");
+
+    // ?access_token= query param -> 200.
+    let via_query = post_authed(guarded, init_payload(), "Query mcp-secret").await;
+    assert_eq!(via_query, StatusCode::OK, "query access_token accepted");
+}
+
+async fn post_authed(router: axum::Router, body: String, auth: &str) -> StatusCode {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(match auth.split_once(' ').unwrap() {
+            ("Query", t) => format!("/mcp?access_token={t}"),
+            _ => "/mcp".to_string(),
+        })
+        .header("host", "localhost")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream");
+    if let Some((kind, t)) = auth.split_once(' ') {
+        if kind == "Bearer" {
+            builder = builder.header("authorization", format!("Bearer {t}"));
+        }
+    }
+    let resp = router.oneshot(builder.body(Body::from(body)).unwrap()).await.unwrap();
+    resp.status()
 }

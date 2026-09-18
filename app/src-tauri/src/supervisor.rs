@@ -333,10 +333,13 @@ impl Supervisor {
 
     /// Start (or restart) the MCP HTTP gateway against `broker_http_base`,
     /// forwarding the connection's Bearer token when the broker requires one.
+    /// `access_token`, when set, makes the gateway itself require
+    /// `Authorization: Bearer <access_token>` to reach `/mcp`.
     pub async fn start_mcp(
         &self,
         broker_http_base: &str,
         api_token: Option<&str>,
+        access_token: Option<&str>,
     ) -> Result<String, String> {
         self.stop_mcp().await;
         let binary = Self::resolve_binary()?;
@@ -350,6 +353,9 @@ impl Supervisor {
         ]);
         if let Some(token) = api_token {
             cmd.args(["--api-token", token]);
+        }
+        if let Some(token) = access_token {
+            cmd.args(["--access-token", token]);
         }
         let mut child = cmd
             .stdout(Stdio::piped())

@@ -41,6 +41,8 @@ export type AppState = {
   local_tokens: string[];
   /** Token value the app itself uses against its local broker. */
   local_api_token: string | null;
+  /** Token the MCP gateway itself requires (null = open). */
+  mcp_access_token: string | null;
 };
 
 export async function appGetState(): Promise<AppState> {
@@ -105,6 +107,12 @@ export async function appAddLocalToken(id: string, token: string): Promise<Local
 /// working. The managed broker restarts without it.
 export async function appRemoveLocalToken(id: string): Promise<void> {
   return invoke("app_remove_local_token", { id });
+}
+
+/// Set (or clear) the token the MCP gateway itself requires. When set, every
+/// MCP client must present it (Authorization: Bearer). Applies immediately.
+export async function appSetMcpAccessToken(token: string | null): Promise<string | null> {
+  return invoke("app_set_mcp_access_token", { token });
 }
 
 /// Non-destructive first-run preview: clears the first-run flag so the app

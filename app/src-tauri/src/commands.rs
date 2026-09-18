@@ -114,6 +114,8 @@ pub struct AppStateDto {
     /// A token value the app itself uses to talk to its local broker (the
     /// first configured one) when the broker is protected.
     pub local_api_token: Option<String>,
+    /// Optional token the MCP gateway itself requires (--access-token).
+    pub mcp_access_token: Option<String>,
 }
 
 #[tauri::command]
@@ -154,11 +156,11 @@ pub async fn app_get_state(
         None => None,
     };
     let _ = app; // reserved for future event emission
-    let (local_tokens, local_api_token) = {
+    let (local_tokens, local_api_token, mcp_access_token) = {
         let store = state.store.lock().unwrap();
         let ids = store.local_tokens.iter().map(|t| t.id.clone()).collect();
         let first = store.local_tokens.first().map(|t| t.token.clone());
-        (ids, first)
+        (ids, first, store.mcp_access_token.clone())
     };
     let data_dir = state.data_dir();
     Ok(AppStateDto {
@@ -176,6 +178,7 @@ pub async fn app_get_state(
         local_grpc_port: grpc_port,
         local_tokens,
         local_api_token,
+        mcp_access_token,
     })
 }
 
@@ -281,7 +284,10 @@ pub async fn app_set_last_used(
     if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
         let base = state.active_base(&supervisor).await;
         let token = state.active_token().await;
-        supervisor.start_mcp(&base, token.as_deref()).await?;
+        let access = state.with_store(|s| s.mcp_access_token.clone());
+        supervisor
+            .start_mcp(&base, token.as_deref(), access.as_deref())
+            .await?;
     }
     Ok(connection)
 }
@@ -323,7 +329,12 @@ pub async fn app_set_mcp(
     let url = if enabled {
         let base = state.active_base(&supervisor).await;
         let token = state.active_token().await;
-        Some(supervisor.start_mcp(&base, token.as_deref()).await?)
+        let access = state.with_store(|s| s.mcp_access_token.clone());
+        Some(
+            supervisor
+                .start_mcp(&base, token.as_deref(), access.as_deref())
+                .await?,
+        )
     } else {
         supervisor.stop_mcp().await;
         None
@@ -423,9 +434,47 @@ async fn restart_local_broker(state: &State<'_, SharedState>) -> Result<(), Stri
     if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
         let base = state.active_base(&supervisor).await;
         let tok = state.active_token().await;
-        supervisor.start_mcp(&base, tok.as_deref()).await?;
+        let access = state.with_store(|s| s.mcp_access_token.clone());
+        supervisor
+            .start_mcp(&base, tok.as_deref(), access.as_deref())
+            .await?;
     }
     Ok(())
+}
+
+/// Set (or clear) the token the MCP gateway itself requires. When set, every
+/// MCP client must present `Authorization: Bearer <token>`. Applies
+/// immediately when the gateway is running (it restarts with the new token);
+/// the broker's own auth is unaffected.
+#[tauri::command]
+pub async fn app_set_mcp_access_token(
+    state: State<'_, SharedState>,
+    token: Option<String>,
+) -> Result<Option<String>, String> {
+    let token = token
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+    let changed = state.with_store(|s| {
+        if s.mcp_access_token == token {
+            false
+        } else {
+            s.mcp_access_token = token.clone();
+            true
+        }
+    });
+    if !changed {
+        return Ok(token);
+    }
+    state.persist()?;
+    let supervisor = state.supervisor.clone();
+    if supervisor.mcp_running() {
+        let base = state.active_base(&supervisor).await;
+        let api_tok = state.active_token().await;
+        supervisor
+            .start_mcp(&base, api_tok.as_deref(), token.as_deref())
+            .await?;
+    }
+    Ok(token)
 }
 
 /// Non-destructive preview of the first-run welcome: clears only the

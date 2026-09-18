@@ -1,20 +1,21 @@
 // Welcome.tsx — the app's boot + first-run gate (Tauri only).
 //
-// Ported from the OpenDesign artifact `welcome.html` (project
-// chopflow-design-4a5f, GLM-5.3): a dark-first loader with the app's real
-// icon and a 3-step rail (starting local broker → checking connections →
-// loading dashboard). On first run the configuration card is a 4-step
-// wizard taken before "Finish setup":
-//   1. Environment — start the local broker or add a remote
-//   2. MCP — optional persistent MCP-over-HTTP gateway
-//   3. Security — optional first labeled API token (shown once)
-//   4. Learn — quickstart commands (worker, SDK, MCP endpoint)
-// Finishing shows the loading rail, then the dashboard loads.
+// Flow on a fresh install:
+//   1. Animated hero — "Welcome to ChopFlow" + Start. (The broker boots in
+//      the background; the loading rail is NOT shown first.)
+//   2. Setup wizard, 4 screens (no visible step chips — just a linear flow):
+//      Environment (local/remote) · MCP (gateway + own access token) ·
+//      Security (protect toggle + first labelled token) · Learn (Rust /
+//      Python / Java guides linking to the docs site).
+//   3. "Finish setup" → the loading rail ("Loading broker…" etc.) → dashboard.
+// Non-first-run launches keep the plain boot gate.
 
 import { useState } from "react";
 import {
   appAddLocalToken,
+  appRemoveLocalToken,
   appSetMcp,
+  appSetMcpAccessToken,
   type AppState,
   type LocalStatus,
   type LocalTokenCreated,
@@ -37,8 +38,7 @@ type Props = {
 
 const BOOT_ORDER: BootStep[] = ["starting-broker", "checking-connections", "loading-dashboard"];
 const LOADING = "Loading dashboard…";
-
-const SETUP_LABELS = ["Environment", "MCP", "Security", "Learn"] as const;
+const DOCS_URL = "https://chopflow.ricardoleal20.dev";
 
 const Check = () => (
   <svg
@@ -54,30 +54,92 @@ const Check = () => (
   </svg>
 );
 
-// A monospace quickstart block with a copy button (used by the Learn step).
-function Quickstart({ code, label }: { code: string; label: string }) {
-  const [copied, setCopied] = useState(false);
+// Generic open of the docs site for a language guide.
+function openDocs() {
+  void (async () => {
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(DOCS_URL);
+    } catch {
+      window.open(DOCS_URL, "_blank");
+    }
+  })();
+}
+
+// ---- Language guide cards (Learn screen) --------------------------------
+
+const RustIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1" />
+  </svg>
+);
+const PythonIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.9}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3.2c-4.4 0-4.4 1.9-4.4 4V9h4.7v1H5.8C3.6 10 3 12 3 14.4c0 2.4 0 4.6 2.8 4.6h1.7v-2.1c0-1.9 1.6-3.4 3.5-3.4h4.4c1.6 0 2.8-1.3 2.8-2.9V7.2c0-2.8-.7-4-4.7-4Z" />
+    <path
+      d="M12.4 20.6c4.4 0 4-1.9 4-3.9v-1.6h-4.3v-1h6.6c2.4 0 2.8-2 2.8-4.3 0-2.4 0-4.3-2.8-4.3h-1.4"
+      fill="none"
+    />
+  </svg>
+);
+const JavaIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 8.5h16v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16Z" />
+    <path d="M2.5 8.5h19l-1.2-3H3.7Z" />
+    <path d="M8.5 18.5l-.8 3M15.5 18.5l.8 3" />
+  </svg>
+);
+
+const LANGS = [
+  { key: "rust", label: "Rust", icon: RustIcon, blurb: "chopflow-worker, typed handlers, cargo" },
+  { key: "python", label: "Python", icon: PythonIcon, blurb: "pip client SDK, decorators, async" },
+  { key: "java", label: "Java", icon: JavaIcon, blurb: "Maven SDK, @Task handlers" },
+] as const;
+
+function LearnCard({ lang }: { lang: (typeof LANGS)[number] }) {
+  const Icon = lang.icon;
   return (
-    <div className="w-qs">
-      <div className="w-qs-head">
-        <span className="w-qs-label">{label}</span>
-        <button
-          type="button"
-          className={`w-qs-copy${copied ? " done" : ""}`}
-          onClick={() => {
-            void navigator.clipboard?.writeText(code).then(() => {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1400);
-            });
-          }}
-        >
-          {copied ? "Copied!" : "Copy"}
-        </button>
-      </div>
-      <code className="w-qs-code">{code}</code>
-    </div>
+    <button type="button" className="w-lang" onClick={openDocs}>
+      <span className="w-lang-icon">
+        <Icon />
+      </span>
+      <span className="w-lang-body">
+        <span className="w-lang-title">{lang.label}</span>
+        <span className="w-lang-blurb">{lang.blurb}</span>
+      </span>
+      <span className="w-lang-link">
+        Docs <span aria-hidden>↗</span>
+      </span>
+    </button>
   );
 }
+
+// ---- Component -----------------------------------------------------------
 
 export default function Welcome({
   state,
@@ -90,6 +152,15 @@ export default function Welcome({
   onProceed,
 }: Props) {
   const firstRun = state ? !state.first_run_done : true;
+
+  // Hero gate (first-run only).
+  const [heroDone, setHeroDone] = useState(false);
+
+  // Wizard state.
+  const [step, setStep] = useState(0);
+  const [finishing, setFinishing] = useState(false);
+
+  // Environment (step 0).
   const [starting, setStarting] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -97,22 +168,27 @@ export default function Welcome({
   const [adding, setAdding] = useState(false);
   const [hint, setHint] = useState("");
 
-  // Wizard state.
-  const [step, setStep] = useState(0);
-  const [finishing, setFinishing] = useState(false);
+  // MCP (step 1).
   const [mcpOn, setMcpOn] = useState(state?.mcp_enabled ?? false);
   const [mcpUrl, setMcpUrl] = useState<string | null>(state?.mcp_url ?? null);
   const [mcpBusy, setMcpBusy] = useState(false);
+  const [mcpToken, setMcpToken] = useState<string | null>(state?.mcp_access_token ?? null);
+  const [mcpTokenOnce, setMcpTokenOnce] = useState<string | null>(null);
+  const [mcpCopied, setMcpCopied] = useState(false);
+
+  // Security (step 2).
+  const [protect, setProtect] = useState((state?.local_tokens.length ?? 0) > 0);
   const [tokId, setTokId] = useState("");
   const [tokValue, setTokValue] = useState("");
   const [tokBusy, setTokBusy] = useState(false);
-  const [tokCreated, setTokCreated] = useState<LocalTokenCreated | null>(null);
+  const [justCreated, setJustCreated] = useState<LocalTokenCreated | null>(null);
   const [tokCopied, setTokCopied] = useState(false);
 
-  // Boot vs config: during the boot sequence show the rail; while finishing
-  // first run we show the rail too ("Finishing setup…").
-  const showBoot = bootStep !== null || finishing;
-  const showConfig = !showBoot && firstRun;
+  // Phases: hero mirrors first-run gating; boot rail only during real boot
+  // (non-first-run) or while finishing setup.
+  const showHero = firstRun && !heroDone;
+  const showWizard = firstRun && heroDone && !finishing;
+  const showBoot = finishing || (bootStep !== null && !firstRun);
 
   const activeIndex = BOOT_ORDER.indexOf(bootStep ?? BOOT_ORDER[0]);
   const stepState = (i: number): "done" | "active" | "pending" =>
@@ -153,23 +229,66 @@ export default function Welcome({
     }
   };
 
-  const toggleMcp = async () => {
-    if (mcpBusy) return;
+  // MCP: toggle the gateway, and optionally protect it with its own token.
+  const ensureLocalFirst = async () => {
     if (!localDeploy) {
       startLocal();
-      window.setTimeout(() => void toggleMcp(), 900);
-      return;
+      await new Promise((r) => window.setTimeout(r, 900));
     }
+  };
+
+  const toggleMcp = async (want: boolean) => {
+    if (mcpBusy) return;
+    await ensureLocalFirst();
     setMcpBusy(true);
-    const next = !mcpOn;
     try {
-      const url = await appSetMcp(next);
-      setMcpOn(next);
-      setMcpUrl(url);
+      const endpoint = await appSetMcp(want);
+      setMcpOn(want);
+      setMcpUrl(endpoint);
     } catch (err) {
       window.alert(String(err));
     } finally {
       setMcpBusy(false);
+    }
+  };
+
+  const toggleMcpToken = async (want: boolean) => {
+    if (want) {
+      const value = `chopflow-mcp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+      try {
+        const kept = await appSetMcpAccessToken(value);
+        setMcpToken(kept);
+        setMcpTokenOnce(value);
+      } catch (err) {
+        window.alert(String(err));
+      }
+    } else {
+      try {
+        await appSetMcpAccessToken(null);
+        setMcpToken(null);
+        setMcpTokenOnce(null);
+      } catch (err) {
+        window.alert(String(err));
+      }
+    }
+  };
+
+  // Security: protect toggle + create the first labelled token.
+  const tokenCount = (state?.local_tokens.length ?? 0) + (justCreated ? 1 : 0);
+  const securityOk = !protect || tokenCount > 0;
+
+  const toggleProtect = async (want: boolean) => {
+    setProtect(want);
+    if (!want) {
+      // Turning protection off clears every token so the broker runs open.
+      for (const id of state?.local_tokens ?? []) {
+        try {
+          await appRemoveLocalToken(id);
+        } catch {
+          /* best effort */
+        }
+      }
+      setJustCreated(null);
     }
   };
 
@@ -178,14 +297,14 @@ export default function Welcome({
     const id = tokId.trim();
     const value = tokValue.trim();
     if (tokBusy || !id || !value) return;
-    if (state?.local_tokens.includes(id)) {
+    if (state?.local_tokens.includes(id) || justCreated?.id === id) {
       window.alert(`A token labelled "${id}" already exists — pick another identifier.`);
       return;
     }
     setTokBusy(true);
     try {
       const created = await appAddLocalToken(id, value);
-      setTokCreated(created);
+      setJustCreated(created);
       setTokId("");
       setTokValue("");
     } catch (err) {
@@ -198,16 +317,20 @@ export default function Welcome({
   const remotes = state?.remotes ?? [];
   const canFinish = Boolean(localDeploy) || remotes.length > 0;
 
+  const next = () => {
+    if (step === 2 && !securityOk) return;
+    if (step === 3) return finish();
+    setStep((s) => Math.min(s + 1, 3));
+  };
+
   const finish = () => {
     if (!canFinish || finishing) return;
     setFinishing(true);
     void onProceed();
   };
 
-  const next = () => {
-    if (step === SETUP_LABELS.length - 1) return finish();
-    setStep((s) => Math.min(s + 1, SETUP_LABELS.length - 1));
-  };
+  const MCP_TOKEN_REVEALED = mcpTokenOnce !== null && mcpToken !== null;
+  const WIZARD_LAST = 3;
 
   return (
     <div className="welcome-shell w-tile">
@@ -227,48 +350,81 @@ export default function Welcome({
 
       <main className="w-stage">
         <div className="w-phases">
-          {/* Boot / loading rail */}
-          <section
-            className={`w-phase w-boot${showBoot ? " w-active" : ""}`}
-            aria-label="Starting ChopFlow"
-            aria-hidden={!showBoot}
-          >
-            <div className="w-lockup">
-              <div className="w-mark-wrap">
-                <div className="w-mark-glow" aria-hidden="true" />
-                <div className="w-brand-tile w-boot-tile">
-                  <img src={appIcon} alt="ChopFlow" />
+          {/* Hero — the very first thing a fresh install sees */}
+          {showHero ? (
+            <section className="w-phase w-hero w-active" aria-label="Welcome to ChopFlow">
+              <div className="w-hero-inner">
+                <div className="w-hero-mark">
+                  <div className="w-hero-glow" aria-hidden="true" />
+                  <div className="w-brand-tile w-hero-tile">
+                    <img src={appIcon} alt="ChopFlow" />
+                  </div>
+                </div>
+                <h1 className="w-hero-title">
+                  Welcome to <b>ChopFlow</b>
+                </h1>
+                <p className="w-hero-sub">
+                  Your local durable task queue. Let's get you started working in a minute.
+                </p>
+                <button
+                  type="button"
+                  className="w-btn w-btn-primary w-hero-cta"
+                  onClick={() => setHeroDone(true)}
+                >
+                  Start <span className="w-arr">→</span>
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {/* Boot / loading rail (real boot or "Finish setup") */}
+          {showBoot ? (
+            <section
+              className={`w-phase w-boot${showBoot ? " w-active" : ""}`}
+              aria-label="Starting ChopFlow"
+              aria-hidden={!showBoot}
+            >
+              <div className="w-lockup">
+                <div className="w-mark-wrap">
+                  <div className="w-mark-glow" aria-hidden="true" />
+                  <div className="w-brand-tile w-boot-tile">
+                    <img src={appIcon} alt="ChopFlow" />
+                  </div>
+                </div>
+                <div className="w-wordmark">
+                  <b>Chop</b>
+                  <span>Flow</span>
                 </div>
               </div>
-              <div className="w-wordmark">
-                <b>Chop</b>
-                <span>Flow</span>
+              <div className="w-rail-wrap">
+                <ol className="w-boot-rail">
+                  {BOOT_ORDER.map((label, i) => (
+                    <li
+                      key={label}
+                      className="w-step"
+                      data-state={
+                        showBoot && finishing ? (i < 2 ? "done" : "active") : stepState(i)
+                      }
+                    >
+                      <span className="w-dot">
+                        <Check />
+                      </span>
+                      <span className="w-lbl">
+                        {label === "loading-dashboard"
+                          ? LOADING
+                          : label === "starting-broker"
+                            ? "Starting local broker…"
+                            : "Checking connections…"}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
               </div>
-            </div>
-            <div className="w-rail-wrap">
-              <ol className="w-boot-rail">
-                {BOOT_ORDER.map((label, i) => (
-                  <li key={label} className="w-step" data-state={finishing ? "done" : stepState(i)}>
-                    <span className="w-dot">
-                      <Check />
-                    </span>
-                    <span className="w-lbl">
-                      {label === "loading-dashboard"
-                        ? finishing
-                          ? "Finishing setup…"
-                          : LOADING
-                        : label === "starting-broker"
-                          ? "Starting local broker…"
-                          : "Checking connections…"}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </section>
+            </section>
+          ) : null}
 
           {/* First-run wizard */}
-          {showConfig ? (
+          {showWizard ? (
             <section
               className="w-phase w-config w-active"
               aria-label="First-run setup"
@@ -285,19 +441,6 @@ export default function Welcome({
               </div>
 
               <div className="w-card">
-                {/* Step progress */}
-                <ol className="w-steps" aria-label="Setup progress">
-                  {SETUP_LABELS.map((label, i) => (
-                    <li
-                      key={label}
-                      className={`w-step-chip${i === step ? " active" : ""}${i < step ? " done" : ""}`}
-                    >
-                      <span className="w-step-num">{i < step ? <Check /> : i + 1}</span>
-                      <span>{label}</span>
-                    </li>
-                  ))}
-                </ol>
-
                 {step === 0 ? (
                   <div className="w-step-body">
                     <h2 className="w-card-title">Get your first environment running</h2>
@@ -409,14 +552,14 @@ export default function Welcome({
                     <h2 className="w-card-title">MCP gateway</h2>
                     <p className="w-card-sub">
                       Expose this broker to AI assistants (Claude Desktop, Cursor…) over streamable
-                      HTTP. Optional — you can toggle it later in Settings.
+                      HTTP. Optional — toggle later in Settings.
                     </p>
                     <label className="w-mcp">
                       <input
                         type="checkbox"
                         checked={mcpOn}
                         disabled={mcpBusy}
-                        onChange={toggleMcp}
+                        onChange={() => void toggleMcp(!mcpOn)}
                       />
                       <span className="w-mcp-track">
                         <span className="w-mcp-knob" />
@@ -425,104 +568,187 @@ export default function Welcome({
                         {mcpBusy ? "Starting…" : mcpOn ? "MCP gateway on" : "MCP gateway off"}
                       </span>
                     </label>
-                    {mcpUrl ? (
-                      <p className="w-mcp-url">
-                        Endpoint <code>{mcpUrl}</code>
-                      </p>
+                    {mcpOn ? (
+                      <>
+                        {MCP_TOKEN_REVEALED ? (
+                          <div className="sv-token-once" role="status">
+                            <div className="sv-token-once-title">MCP access token — shown once</div>
+                            <p className="sv-token-once-legend">
+                              This token will only show once, please store it somewhere safe. Each
+                              MCP client must present it (Authorization: Bearer).
+                            </p>
+                            <code className="sv-token-once-value">{mcpTokenOnce}</code>
+                            <div className="sv-token-once-actions">
+                              <button
+                                type="button"
+                                className="w-btn w-btn-primary w-btn-sm"
+                                onClick={() => {
+                                  void navigator.clipboard
+                                    ?.writeText(mcpTokenOnce ?? "")
+                                    .then(() => {
+                                      setMcpCopied(true);
+                                      window.setTimeout(() => setMcpCopied(false), 1400);
+                                    });
+                                }}
+                              >
+                                {mcpCopied ? "Copied!" : "Copy token"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        <label className="w-mcp">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(mcpToken)}
+                            disabled={mcpBusy}
+                            onChange={() => void toggleMcpToken(!mcpToken)}
+                          />
+                          <span className="w-mcp-track">
+                            <span className="w-mcp-knob" />
+                          </span>
+                          <span className="w-mcp-label">
+                            {mcpToken
+                              ? "Require an access token"
+                              : "Anyone on this machine can use it"}
+                          </span>
+                        </label>
+                        <p className="w-mcp-url">
+                          Endpoint{" "}
+                          <code>{mcpUrl ?? state?.mcp_url ?? "http://127.0.0.1:8810/mcp"}</code>
+                        </p>
+                      </>
                     ) : null}
                   </div>
                 ) : step === 2 ? (
                   <div className="w-step-body">
                     <h2 className="w-card-title">Protect your broker</h2>
                     <p className="w-card-sub">
-                      Give each client its own labelled token — optional, you can add more later in
-                      Settings → Security.
+                      Choose how clients connect: open, or secured with labelled API tokens (one per
+                      client). You can manage both later in Settings → Security.
                     </p>
-                    {tokCreated ? (
-                      <div className="sv-token-once" role="status">
-                        <div className="sv-token-once-title">
-                          Token created for “{tokCreated.id}” — shown once
-                        </div>
-                        <p className="sv-token-once-legend">
-                          This token will only show once, please store it somewhere safe.
+                    <label className="w-mcp">
+                      <input
+                        type="checkbox"
+                        checked={protect}
+                        onChange={() => void toggleProtect(!protect)}
+                      />
+                      <span className="w-mcp-track">
+                        <span className="w-mcp-knob" />
+                      </span>
+                      <span className="w-mcp-label">
+                        {protect
+                          ? "Secured — a token is required to connect"
+                          : "Open — anyone can connect"}
+                      </span>
+                    </label>
+
+                    {protect && tokenCount === 0 ? (
+                      <>
+                        <p className="w-rf-hint" role="status">
+                          Create your first token to finish securing the broker.
                         </p>
-                        <code className="sv-token-once-value">{tokCreated.token}</code>
-                        <div className="sv-token-once-actions">
-                          <button
-                            type="button"
-                            className="w-btn w-btn-primary w-btn-sm"
-                            onClick={() => {
-                              void navigator.clipboard?.writeText(tokCreated.token).then(() => {
-                                setTokCopied(true);
-                                window.setTimeout(() => setTokCopied(false), 1400);
-                              });
-                            }}
-                          >
-                            {tokCopied ? "Copied!" : "Copy token"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <form className="s-add s-add-stack" onSubmit={createToken}>
-                        <input
-                          className="s-in"
-                          placeholder="Identifier (who uses it?)"
-                          value={tokId}
-                          onChange={(e) => setTokId(e.target.value)}
-                          aria-label="Token identifier"
-                        />
-                        <input
-                          className="s-in s-monow"
-                          placeholder="Token value (or generate one)"
-                          value={tokValue}
-                          onChange={(e) => setTokValue(e.target.value)}
-                          aria-label="Token value"
-                        />
-                        <button
-                          type="button"
-                          className="w-btn w-btn-ghost w-btn-sm"
-                          disabled={tokBusy}
-                          onClick={() =>
-                            setTokValue(
-                              `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
-                            )
-                          }
-                        >
-                          Generate
-                        </button>
-                        <button
-                          type="submit"
-                          className="w-btn w-btn-primary w-btn-sm"
-                          disabled={tokBusy || !tokId.trim() || !tokValue.trim()}
-                        >
-                          Create token
-                        </button>
-                      </form>
-                    )}
-                    <button type="button" className="w-skip" onClick={() => setStep((s) => s + 1)}>
-                      Skip — set up later
-                    </button>
+                        {justCreated ? (
+                          <div className="sv-token-once" role="status">
+                            <div className="sv-token-once-title">
+                              Token created for “{justCreated.id}” — shown once
+                            </div>
+                            <p className="sv-token-once-legend">
+                              This token will only show once, please store it somewhere safe.
+                            </p>
+                            <code className="sv-token-once-value">{justCreated.token}</code>
+                            <div className="sv-token-once-actions">
+                              <button
+                                type="button"
+                                className="w-btn w-btn-primary w-btn-sm"
+                                onClick={() => {
+                                  void navigator.clipboard
+                                    ?.writeText(justCreated.token)
+                                    .then(() => {
+                                      setTokCopied(true);
+                                      window.setTimeout(() => setTokCopied(false), 1400);
+                                    });
+                                }}
+                              >
+                                {tokCopied ? "Copied!" : "Copy token"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <form className="s-add s-add-stack" onSubmit={createToken}>
+                            <input
+                              className="s-in"
+                              placeholder="Identifier (who uses it?)"
+                              value={tokId}
+                              onChange={(e) => setTokId(e.target.value)}
+                              aria-label="Token identifier"
+                            />
+                            <input
+                              className="s-in s-monow"
+                              placeholder="Token value (or generate one)"
+                              value={tokValue}
+                              onChange={(e) => setTokValue(e.target.value)}
+                              aria-label="Token value"
+                            />
+                            <button
+                              type="button"
+                              className="w-btn w-btn-ghost w-btn-sm"
+                              disabled={tokBusy}
+                              onClick={() =>
+                                setTokValue(
+                                  `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+                                )
+                              }
+                            >
+                              Generate
+                            </button>
+                            <button
+                              type="submit"
+                              className="w-btn w-btn-primary w-btn-sm"
+                              disabled={tokBusy || !tokId.trim() || !tokValue.trim()}
+                            >
+                              Create token
+                            </button>
+                          </form>
+                        )}
+                      </>
+                    ) : null}
+                    {protect && tokenCount > 0 ? (
+                      <p className="w-mcp-url">
+                        ✓ Secured with {tokenCount} labelled token{tokenCount > 1 ? "s" : ""}.
+                      </p>
+                    ) : null}
+                    {!protect ? (
+                      <p className="w-mcp-url">
+                        Everything that can reach this address can use the broker. You can enable
+                        tokens later.
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="w-step-body">
-                    <h2 className="w-card-title">Ready to run work</h2>
+                    <h2 className="w-card-title">
+                      Learn and see examples of how to implement workers
+                    </h2>
                     <p className="w-card-sub">
-                      Your local broker is up. Here are the quick ways to start pushing tasks.
+                      Pick your language — every guide links to the full ChopFlow documentation.
                     </p>
-                    <Quickstart
-                      label="Run a worker (Rust)"
-                      code="chopflow worker start --broker http://127.0.0.1:8080"
-                    />
-                    <Quickstart
-                      label="Python client"
-                      code={
-                        'pip install chopflow\n\nfrom chopflow import Client\nc = Client("http://127.0.0.1:8080")\nc.enqueue("echo", {"message": "hello"})'
-                      }
-                    />
-                    <Quickstart
-                      label="MCP endpoint (if enabled)"
-                      code="http://127.0.0.1:8810/mcp"
-                    />
+                    {LANGS.map((lang) => (
+                      <LearnCard key={lang.key} lang={lang} />
+                    ))}
+                    <a
+                      className="w-lang w-lang-all"
+                      href={DOCS_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <span className="w-lang-body">
+                        <span className="w-lang-title">Full documentation</span>
+                        <span className="w-lang-blurb">chopflow.ricardoleal20.dev</span>
+                      </span>
+                      <span className="w-lang-link">
+                        Open <span aria-hidden>↗</span>
+                      </span>
+                    </a>
                   </div>
                 )}
               </div>
@@ -540,10 +766,10 @@ export default function Welcome({
                   <button
                     type="button"
                     className="w-continue"
-                    disabled={step === SETUP_LABELS.length - 1 ? !canFinish : false}
+                    disabled={step === WIZARD_LAST ? !canFinish : step === 2 ? !securityOk : false}
                     onClick={next}
                   >
-                    {step === SETUP_LABELS.length - 1 ? (
+                    {step === WIZARD_LAST ? (
                       <>
                         Finish setup <span className="w-arr">→</span>
                       </>
@@ -554,9 +780,14 @@ export default function Welcome({
                     )}
                   </button>
                 </div>
-                {step === SETUP_LABELS.length - 1 && !canFinish ? (
+                {step === WIZARD_LAST && !canFinish ? (
                   <p className="w-continue-hint">
                     Start the local broker or add a remote to finish setup.
+                  </p>
+                ) : null}
+                {step === 2 && !securityOk ? (
+                  <p className="w-continue-hint">
+                    Create a token (or turn protection off) to continue.
                   </p>
                 ) : null}
               </div>
