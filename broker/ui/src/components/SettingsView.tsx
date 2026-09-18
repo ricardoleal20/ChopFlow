@@ -98,6 +98,12 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [tokValue, setTokValue] = useState("");
   const [tokBusy, setTokBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<LocalTokenCreated | null>(null);
+  // Two-step confirmations. window.confirm is unsupported in the Tauri
+  // webview (it silently returns false), so destructive actions confirm
+  // inline instead.
+  const [confirming, setConfirming] = useState<{ kind: "revoke"; id: string } | null>(null);
+  const [dirConfirm, setDirConfirm] = useState(false);
+  const [dangerConfirm, setDangerConfirm] = useState(false);
 
   const loadLogs = useCallback(async () => {
     setLogs(await appGetLogs());
@@ -177,12 +183,11 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!dirPath.trim() || dirBusy) return;
-                    if (
-                      !window.confirm(
-                        `Move all ChopFlow data to:\n${dirPath.trim()}\n\nThe local broker stops, the data moves, and the app reloads.`,
-                      )
-                    )
+                    if (!dirConfirm) {
+                      setDirConfirm(true);
                       return;
+                    }
+                    setDirConfirm(false);
                     setDirBusy(true);
                     void appSetDataDir(dirPath.trim())
                       .then(() => window.location.reload())
@@ -201,8 +206,13 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     autoFocus
                   />
                   <Btn type="submit" variant="primary" disabled={!dirPath.trim() || dirBusy}>
-                    Move data
+                    {dirConfirm ? "Confirm move" : "Move data"}
                   </Btn>
+                  {dirConfirm ? (
+                    <Btn variant="ghost" disabled={dirBusy} onClick={() => setDirConfirm(false)}>
+                      Cancel
+                    </Btn>
+                  ) : null}
                   <Btn
                     variant="ghost"
                     onClick={() => {
@@ -417,25 +427,40 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                       <Btn
                         variant="ghost"
                         disabled={tokBusy}
-                        onClick={() => {
-                          if (
-                            !window.confirm(
-                              `Revoke the token labelled "${id}"?\n\nClients using it will stop working; the local broker restarts without it.`,
-                            )
-                          )
-                            return;
-                          setTokBusy(true);
-                          void appRemoveLocalToken(id)
-                            .then(() => shell.reloadState())
-                            .catch((err: unknown) => window.alert(String(err)))
-                            .finally(() => setTokBusy(false));
-                        }}
+                        onClick={() => setConfirming({ kind: "revoke", id })}
                       >
                         Revoke
                       </Btn>
                     </li>
                   ))}
                 </ul>
+              ) : null}
+
+              {confirming ? (
+                <div className="sv-confirm">
+                  <span className="sv-confirm-msg">
+                    Revoke token “{confirming.id}”? Clients using it will stop working; the local
+                    broker restarts without it.
+                  </span>
+                  <Btn
+                    disabled={tokBusy}
+                    onClick={() => {
+                      setTokBusy(true);
+                      void appRemoveLocalToken(confirming.id)
+                        .then(() => shell.reloadState())
+                        .catch((err: unknown) => window.alert(String(err)))
+                        .finally(() => {
+                          setTokBusy(false);
+                          setConfirming(null);
+                        });
+                    }}
+                  >
+                    Confirm revoke
+                  </Btn>
+                  <Btn variant="ghost" disabled={tokBusy} onClick={() => setConfirming(null)}>
+                    Cancel
+                  </Btn>
+                </div>
               ) : null}
 
               <p className="s-hint">
@@ -546,22 +571,32 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     data-folder override — then restarts the app as a fresh first run. This cannot
                     be undone.
                   </p>
-                  <button
-                    type="button"
-                    className="s-btn s-btn-danger"
-                    onClick={async () => {
-                      if (
-                        window.confirm(
-                          "Delete ALL ChopFlow local information?\n\nThis removes your connections and the local database, then restarts the app fresh. This cannot be undone.",
-                        )
-                      ) {
+                  {dangerConfirm ? (
+                    <p className="sv-danger-warn">
+                      Are you absolutely sure? This deletes everything and cannot be undone.
+                    </p>
+                  ) : null}
+                  <div className="sv-danger-actions">
+                    <button
+                      type="button"
+                      className={`s-btn s-btn-danger${dangerConfirm ? " sv-danger-final" : ""}`}
+                      onClick={async () => {
+                        if (!dangerConfirm) {
+                          setDangerConfirm(true);
+                          return;
+                        }
                         await appReset();
                         window.location.reload();
-                      }
-                    }}
-                  >
-                    Delete everything
-                  </button>
+                      }}
+                    >
+                      {dangerConfirm ? "Yes — delete everything" : "Delete everything"}
+                    </button>
+                    {dangerConfirm ? (
+                      <Btn variant="ghost" onClick={() => setDangerConfirm(false)}>
+                        Cancel
+                      </Btn>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </NeedsApp>

@@ -2327,6 +2327,40 @@ textarea.cf-input {
   color: var(--danger-fg);
   letter-spacing: 0.01em;
 }
+.sv-danger-warn {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  font-size: 12.5px;
+  color: var(--danger-fg);
+}
+.sv-danger-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sv-danger-final {
+  font-weight: 700;
+}
+.sv-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.sv-confirm-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--danger-fg);
+}
 .sv-danger-desc {
   margin: 6px 0 12px;
   max-width: 52ch;
