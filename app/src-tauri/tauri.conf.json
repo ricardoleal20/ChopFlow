@@ -30,6 +30,7 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["bin/chopflow"],
     "targets": [
       "app",
       "dmg"

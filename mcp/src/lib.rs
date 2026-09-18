@@ -95,9 +95,9 @@ pub fn http_router(service: ChopFlowMcp) -> axum::Router {
         session_manager,
         Default::default(),
     );
-    axum::Router::new()
-        .nest_service("/mcp", mcp_service)
-        .layer(axum::middleware::from_fn_with_state(access, mcp_access_auth))
+    axum::Router::new().nest_service("/mcp", mcp_service).layer(
+        axum::middleware::from_fn_with_state(access, mcp_access_auth),
+    )
 }
 
 /// Gate the MCP gateway itself behind a Bearer token when `--access-token`

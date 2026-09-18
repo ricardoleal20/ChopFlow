@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **macOS desktop app** (`app/src-tauri`, Tauri 2). Starts/stops the local
+  broker (spawn + `--parent-pid` watchdog, adopt-or-rebind), runs the optional
+  persistent MCP-over-HTTP gateway, owns the connection store (local +
+  remotes), and lives in the macOS menu bar (Open · Local broker · MCP ·
+  Remote brokers with live ●/○ status · Quit). Ships a first-run wizard
+  (animated hero → Environment · MCP · Security · Learn → Finish setup with a
+  loading rail). Distributed as a self-contained `.dmg` from GitHub Releases;
+  the landing page's "Download the macOS App — Free!" button (Material icon)
+  links to the latest release.
+- **Broker security:** `--api-token` is repeatable (one credential per
+  occurrence, all equally valid); a bare flag auto-generates one;
+  `CHOPFLOW_API_TOKEN` env is the fallback; no flag = open. Non-2xx statuses
+  and `auth_required` are surfaced to clients.
+- **MCP gateway access token:** `--access-token` gates the gateway itself
+  (`Authorization: Bearer`, `?access_token=` / `?code=`), independent from the
+  broker's tokens — set/generate/regenerate/remove in the app.
+- **Non-destructive security switches** in Settings (Security: broker tokens
+  enforced on/off; MCP: gateway access token enforced on/off). Switches never
+  create or delete tokens; the first-run wizard is where the decision creates
+  the first one.
+- **Settings full screen** (sidebar or ⌘,): data folder (editable, native
+  folder picker), remote servers, MCP + access token, Security, Logs (copy /
+  download `.log` via the native save dialog), Danger zone (delete-all and a
+  non-destructive "Preview first-run welcome").
+- **Menu bar icons:** Google Material Symbols (play_arrow / stop /
+  power_settings_new), white-on-transparent; squircle app icon (black
+  gradient tile + white mark); real Rust/Python/Java icons on the Learn
+  screen (homarr-labs/dashboard-icons, MIT).
+
+### Changed
+- Workspace + Python client bumped to `0.1.5`.
+- Dev executable is named `ChopFlow`; packaged app display name comes from
+  `productName` in `tauri.conf.json`.
+- The `.dmg` bundles the `chopflow` CLI as a sidecar (`externalBin`), so the
+  app's broker/MCP spawns work offline from the packaged app.
+
+### Fixed
+- Settings destructive confirmations use inline two-step confirms
+  (`window.confirm` is unsupported in the Tauri webview — it silently returns
+  false, so "Revoke"/"Delete"/"Move data" never fired).
+- Toggling the MCP gateway no longer reloads the whole app (in-place state
+  refresh).
+- The active-connection "pill" (and the oversized 16px menu glyphs, since
+  corrected to 62%-padded 16px) cleaned up.
+
+## [0.1.4] - 2026-09-16
+
 ## [0.1.4] - 2026-09-16
 
 ### Added

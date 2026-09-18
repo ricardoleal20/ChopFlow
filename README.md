@@ -35,6 +35,41 @@
 > production-hardened yet — see the [roadmap](#roadmap) for what exists and
 > what's planned.
 
+## macOS App
+
+ChopFlow ships a **native macOS app** (Tauri 2) that runs the whole stack with
+a menu-bar presence — start the local broker, run the persistent MCP gateway,
+switch between local and remote brokers, and manage security — all from one
+icon next to the clock.
+
+- **Menu bar:** Open · Local broker (Start/Stop) · MCP (Start/Stop, copy
+  endpoint) · Remote brokers (live ● connected / ○ offline status, click to
+  switch) · Quit.
+- **First-run wizard:** animated "Welcome to ChopFlow" → Environment · MCP ·
+  Security · Learn (Rust/Python/Java guides) → "Finish setup" loads the
+  dashboard.
+- **Settings (⌘,):** data folder (editable, native folder picker), remote
+  servers, MCP gateway + its own access token, the broker's labelled API
+  tokens with a **non-destructive** on/off switch, log viewer (copy /
+  download), and a danger zone ("Delete all local information").
+
+**Download:** the "Download the macOS App — Free!" button on the landing page,
+or the latest [GitHub Release](https://github.com/ricardoleal20/ChopFlow/releases/latest)
+— a self-contained `.dmg` built by CI on every tag.
+
+### Security
+
+- **Broker API tokens:** `chopflow broker start --api-token` is repeatable —
+  each occurrence adds an equally valid credential (bare `--api-token`
+  auto-generates one, `CHOPFLOW_API_TOKEN` is the env fallback, no flag = open).
+- **MCP gateway access token:** `chopflow mcp --access-token <token>` makes the
+  gateway itself require the token (`Authorization: Bearer`, or `?access_token=`
+  / `?code=`), independent from the broker's tokens.
+- **App switches:** Settings → Security / MCP turn enforcement **on or off
+  without creating or deleting any token**; you add/revoke tokens manually,
+  and the first-run wizard is where the decision creates the first one.
+
+
 ## The 20-second demo
 
 Three terminals, one queue — broker, worker, submit:

@@ -151,7 +151,11 @@ async fn access_token_401_without_and_200_with() {
     // Token configured -> 401 without it.
     let guarded = router_with_access(Some("mcp-secret"));
     let (status, _, body) = post_on(guarded.clone(), init_payload(), None).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "missing token is rejected: {body}");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "missing token is rejected: {body}"
+    );
 
     // Authorization: Bearer header -> 200.
     let ok = post_authed(guarded.clone(), init_payload(), "Bearer mcp-secret").await;
@@ -177,6 +181,9 @@ async fn post_authed(router: axum::Router, body: String, auth: &str) -> StatusCo
             builder = builder.header("authorization", format!("Bearer {t}"));
         }
     }
-    let resp = router.oneshot(builder.body(Body::from(body)).unwrap()).await.unwrap();
+    let resp = router
+        .oneshot(builder.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
     resp.status()
 }
