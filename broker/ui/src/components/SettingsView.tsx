@@ -14,6 +14,7 @@ import {
   appPreviewWelcome,
   appRemoveLocalToken,
   appReset,
+  appSetAuthEnabled,
   appSetDataDir,
   appSetMcp,
   appSetMcpAccessToken,
@@ -113,6 +114,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [dirConfirm, setDirConfirm] = useState(false);
   const [dangerConfirm, setDangerConfirm] = useState(false);
   const [previewConfirm, setPreviewConfirm] = useState(false);
+  const [secBusy, setSecBusy] = useState(false);
   const [mcpTokVal, setMcpTokVal] = useState("");
   const [mcpTokBusy, setMcpTokBusy] = useState(false);
   const [mcpTokShow, setMcpTokShow] = useState(false);
@@ -135,6 +137,18 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
       : shell.local?.kind === "failed"
         ? `failed — ${shell.local.reason}`
         : "stopped";
+
+  // Security switch: flips whether the broker REQUIRES tokens. It never
+  // creates or deletes tokens — they are only enforced (or not).
+  const toggleAuth = async () => {
+    setSecBusy(true);
+    try {
+      await appSetAuthEnabled(!state?.auth_enabled);
+      await shell.reloadState();
+    } finally {
+      setSecBusy(false);
+    }
+  };
 
   const submitRemote = (e: React.FormEvent) => {
     e.preventDefault();
@@ -526,10 +540,28 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
           <section className="s-sec">
             <h3>Local broker tokens</h3>
             <NeedsApp shell={shell}>
+              <div className="s-mcp">
+                <label className="s-toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(state?.auth_enabled)}
+                    disabled={secBusy}
+                    onChange={() => void toggleAuth()}
+                  />
+                  <span />
+                </label>
+                <span>
+                  {state?.auth_enabled
+                    ? "Secured — a token is required to connect"
+                    : "Open — anyone can connect"}
+                </span>
+              </div>
               <p className="s-hint" style={{ marginBottom: 10 }}>
-                {state?.local_tokens.length
-                  ? "The broker is protected: every request needs a labelled token. Add more or revoke them below."
-                  : "The broker is open. To protect it, add at least one labelled token below — ChopFlow stores only what you add."}
+                {state?.auth_enabled
+                  ? state.local_tokens.length
+                    ? "The broker is protected: every request needs a labelled token. Add more or revoke them below."
+                    : "Security is on, but there are no tokens yet — add one below. Until then the broker stays open."
+                  : "Security is off. Tokens (if any) are kept but not required — you can flip the switch on any time."}
               </p>
               {justCreated ? (
                 <div className="sv-token-once" role="status">
@@ -590,9 +622,11 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
               <Row
                 label="Status"
                 value={
-                  state && state.local_tokens.length
-                    ? `protected — ${state.local_tokens.length} token${state.local_tokens.length > 1 ? "s" : ""} accepted`
-                    : "open (no token)"
+                  state?.auth_enabled
+                    ? state.local_tokens.length
+                      ? `secured — ${state.local_tokens.length} token${state.local_tokens.length > 1 ? "s" : ""} enforced`
+                      : "security on (no tokens yet)"
+                    : "open — security off"
                 }
               />
 

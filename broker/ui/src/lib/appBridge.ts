@@ -43,6 +43,8 @@ export type AppState = {
   local_api_token: string | null;
   /** Token the MCP gateway itself requires (null = open). */
   mcp_access_token: string | null;
+  /** Whether the local broker requires tokens (switch only — tokens are kept). */
+  auth_enabled: boolean;
 };
 
 export async function appGetState(): Promise<AppState> {
@@ -113,6 +115,12 @@ export async function appRemoveLocalToken(id: string): Promise<void> {
 /// MCP client must present it (Authorization: Bearer). Applies immediately.
 export async function appSetMcpAccessToken(token: string | null): Promise<string | null> {
   return invoke("app_set_mcp_access_token", { token });
+}
+
+/// Flip whether the local broker requires tokens. Non-destructive: tokens
+/// are never created or removed — they are just enforced (or not).
+export async function appSetAuthEnabled(enabled: boolean): Promise<boolean> {
+  return invoke("app_set_auth_enabled", { enabled });
 }
 
 /// Non-destructive first-run preview: clears the first-run flag so the app

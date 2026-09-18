@@ -60,6 +60,13 @@ pub struct ConnectionStore {
     /// it. Independent from broker auth (`local_tokens`).
     #[serde(default)]
     pub mcp_access_token: Option<String>,
+    /// Whether the local broker requires tokens. `None` = default: derived
+    /// from the tokens list (existing protected installs stay protected);
+    /// `Some(true/false)` is the operator's explicit switch. Tokens are
+    /// never created or deleted by switching this — the switch only decides
+    /// whether they are enforced.
+    #[serde(default)]
+    pub auth_enabled: Option<bool>,
 }
 
 impl ConnectionStore {
@@ -117,6 +124,30 @@ impl ConnectionStore {
 
     pub fn remote(&self, name: &str) -> Option<&Remote> {
         self.remotes.iter().find(|r| r.name == name)
+    }
+
+    /// Effective security switch: explicit, or derived from the token list
+    /// (tokens exist => protected) so pre-existing installs keep working.
+    pub fn auth_enabled(&self) -> bool {
+        self.auth_enabled.unwrap_or(!self.local_tokens.is_empty())
+    }
+
+    /// The tokens the broker should enforce right now (empty when off).
+    pub fn enabled_tokens(&self) -> Vec<String> {
+        if self.auth_enabled() {
+            self.local_tokens.iter().map(|t| t.token.clone()).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The token the app itself uses against its local broker (none when off).
+    pub fn effective_api_token(&self) -> Option<String> {
+        if self.auth_enabled() {
+            self.local_tokens.first().map(|t| t.token.clone())
+        } else {
+            None
+        }
     }
 }
 

@@ -51,7 +51,7 @@ async fn active_endpoint(state: &SharedState, sup: &Supervisor) -> (String, Opti
         let store = state.store.lock().unwrap();
         (
             store.effective_last_used(),
-            store.local_tokens.first().map(|t| t.token.clone()),
+            store.effective_api_token(),
         )
     };
     let remote = state.store.lock().unwrap().remote(&last).cloned();
@@ -277,7 +277,7 @@ fn handle_tray_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let state = app.state::<SharedState>();
             let dir = state.data_dir();
             let tokens: Vec<String> =
-                state.with_store(|s| s.local_tokens.iter().map(|t| t.token.clone()).collect::<Vec<String>>());
+                state.with_store(|s| s.enabled_tokens());
             let sup = state.supervisor.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = sup.ensure_started(dir, std::process::id(), &tokens).await;

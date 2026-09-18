@@ -13,7 +13,7 @@
 import { useState } from "react";
 import {
   appAddLocalToken,
-  appRemoveLocalToken,
+  appSetAuthEnabled,
   appSetMcp,
   appSetMcpAccessToken,
   type AppState,
@@ -147,7 +147,9 @@ export default function Welcome({
   const [mcpCopied, setMcpCopied] = useState(false);
 
   // Security (step 2).
-  const [protect, setProtect] = useState((state?.local_tokens.length ?? 0) > 0);
+  const [protect, setProtect] = useState(
+    state?.auth_enabled ?? (state?.local_tokens.length ?? 0) > 0,
+  );
   const [tokId, setTokId] = useState("");
   const [tokValue, setTokValue] = useState("");
   const [tokBusy, setTokBusy] = useState(false);
@@ -250,16 +252,11 @@ export default function Welcome({
 
   const toggleProtect = async (want: boolean) => {
     setProtect(want);
-    if (!want) {
-      // Turning protection off clears every token so the broker runs open.
-      for (const id of state?.local_tokens ?? []) {
-        try {
-          await appRemoveLocalToken(id);
-        } catch {
-          /* best effort */
-        }
-      }
-      setJustCreated(null);
+    try {
+      // Just flip whether tokens are required — never delete the ones kept.
+      await appSetAuthEnabled(want);
+    } catch {
+      /* best effort */
     }
   };
 

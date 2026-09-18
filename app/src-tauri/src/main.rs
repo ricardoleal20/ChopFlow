@@ -38,6 +38,7 @@ fn main() {
             commands::app_export_logs,
             commands::app_set_data_dir,
             commands::app_set_mcp_access_token,
+            commands::app_set_auth_enabled,
             commands::app_add_local_token,
             commands::app_remove_local_token,
             commands::app_preview_welcome,

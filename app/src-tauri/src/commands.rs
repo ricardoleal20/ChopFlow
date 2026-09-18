@@ -74,13 +74,7 @@ impl SharedState {
     async fn active_token(&self) -> Option<String> {
         let last = self.store.lock().unwrap().effective_last_used();
         if last == "local" {
-            return self
-                .store
-                .lock()
-                .unwrap()
-                .local_tokens
-                .first()
-                .map(|t| t.token.clone());
+            return self.store.lock().unwrap().effective_api_token();
         }
         self.store
             .lock()
@@ -116,6 +110,9 @@ pub struct AppStateDto {
     pub local_api_token: Option<String>,
     /// Optional token the MCP gateway itself requires (--access-token).
     pub mcp_access_token: Option<String>,
+    /// Whether the local broker requires tokens (explicit switch; tokens are
+    /// kept either way, they are only enforced when this is true).
+    pub auth_enabled: bool,
 }
 
 #[tauri::command]
@@ -156,11 +153,10 @@ pub async fn app_get_state(
         None => None,
     };
     let _ = app; // reserved for future event emission
-    let (local_tokens, local_api_token, mcp_access_token) = {
+    let (local_tokens, local_api_token, mcp_access_token, auth_enabled) = {
         let store = state.store.lock().unwrap();
         let ids = store.local_tokens.iter().map(|t| t.id.clone()).collect();
-        let first = store.local_tokens.first().map(|t| t.token.clone());
-        (ids, first, store.mcp_access_token.clone())
+        (ids, store.effective_api_token(), store.mcp_access_token.clone(), store.auth_enabled())
     };
     let data_dir = state.data_dir();
     Ok(AppStateDto {
@@ -179,6 +175,7 @@ pub async fn app_get_state(
         local_tokens,
         local_api_token,
         mcp_access_token,
+        auth_enabled,
     })
 }
 
@@ -298,7 +295,7 @@ pub async fn app_start_local(
     state: State<'_, SharedState>,
 ) -> Result<crate::supervisor::LocalBrokerStatus, String> {
     let data_dir = state.data_dir();
-    let tokens = state.with_store(|s| s.local_tokens.iter().map(|t| t.token.clone()).collect::<Vec<String>>());
+    let tokens = state.with_store(|s| s.enabled_tokens());
     let supervisor = state.supervisor.clone();
     let status = supervisor
         .ensure_started(data_dir, std::process::id(), &tokens)
@@ -393,7 +390,11 @@ pub async fn app_add_local_token(
         return Err(format!("a token labelled \"{id}\" already exists"));
     }
     let entry = LocalToken { id: id.clone(), token };
-    state.with_store(|s| s.local_tokens.push(entry.clone()));
+    state.with_store(|s| {
+        s.local_tokens.push(entry.clone());
+        // Adding a token implies wanting security: enforce right away.
+        s.auth_enabled = Some(true);
+    });
     state.persist()?;
     // Restart the managed broker so the new token applies now (adopted
     // brokers are external and intentionally left alone).
@@ -411,6 +412,10 @@ pub async fn app_remove_local_token(
     if !state.with_store(|s| {
         let before = s.local_tokens.len();
         s.local_tokens.retain(|t| t.id != id);
+        if s.local_tokens.is_empty() {
+            // No tokens left to enforce — the broker must run open.
+            s.auth_enabled = Some(false);
+        }
         s.local_tokens.len() != before
     }) {
         return Err(format!("no token labelled \"{id}\""));
@@ -428,7 +433,7 @@ async fn restart_local_broker(state: &State<'_, SharedState>) -> Result<(), Stri
         return Ok(());
     }
     let dir = state.data_dir();
-    let tokens = state.with_store(|s| s.local_tokens.iter().map(|t| t.token.clone()).collect::<Vec<String>>());
+    let tokens = state.with_store(|s| s.enabled_tokens());
     supervisor.stop_broker().await;
     supervisor.ensure_started(dir, std::process::id(), &tokens).await?;
     if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
@@ -475,6 +480,27 @@ pub async fn app_set_mcp_access_token(
             .await?;
     }
     Ok(token)
+}
+
+/// Flip whether the local broker REQUIRES tokens. Non-destructive: tokens
+/// are never created or removed by this — they are just enforced (or not)
+/// from now on. The managed broker restarts immediately.
+#[tauri::command]
+pub async fn app_set_auth_enabled(
+    state: State<'_, SharedState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    let changed = state.with_store(|s| {
+        let before = s.auth_enabled();
+        s.auth_enabled = Some(enabled);
+        before != enabled
+    });
+    if !changed {
+        return Ok(enabled);
+    }
+    state.persist()?;
+    restart_local_broker(&state).await?;
+    Ok(enabled)
 }
 
 /// Non-destructive preview of the first-run welcome: clears only the
