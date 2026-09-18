@@ -16,6 +16,8 @@ export const isTauri = (): boolean =>
 
 export type Remote = { name: string; http_url: string; token?: string | null };
 
+export type LocalTokenCreated = { id: string; token: string };
+
 export type LocalStatus =
   | { kind: "running"; http_port: number; grpc_port: number; pid?: number }
   | { kind: "adopted"; http_port: number; grpc_port: number }
@@ -35,7 +37,10 @@ export type AppState = {
   data_dir: string;
   db_path: string;
   local_grpc_port: number;
-  local_token: string | null;
+  /** Labels of the local broker's accepted tokens (values show once only). */
+  local_tokens: string[];
+  /** Token value the app itself uses against its local broker. */
+  local_api_token: string | null;
 };
 
 export async function appGetState(): Promise<AppState> {
@@ -84,11 +89,17 @@ export async function appSetDataDir(path: string): Promise<string> {
   return invoke("app_set_data_dir", { path });
 }
 
-/// Set (or clear, with null) the Bearer token the app's local broker
-/// requires. Applies immediately: the managed broker restarts with the new
-/// --api-token (or without one).
-export async function appSetLocalToken(token: string | null): Promise<string | null> {
-  return invoke("app_set_local_token", { token });
+/// Add a labelled token the local broker accepts. Returns {id, token} for
+/// the one-time display; the value is never shown again afterwards. The
+/// managed broker restarts with the new credential set.
+export async function appAddLocalToken(id: string, token: string): Promise<LocalTokenCreated> {
+  return invoke("app_add_local_token", { id, token });
+}
+
+/// Revoke a labelled local token by its identifier; other tokens keep
+/// working. The managed broker restarts without it.
+export async function appRemoveLocalToken(id: string): Promise<void> {
+  return invoke("app_remove_local_token", { id });
 }
 
 /// Destructive reset: wipe local data (connections + db) and restart first-run.

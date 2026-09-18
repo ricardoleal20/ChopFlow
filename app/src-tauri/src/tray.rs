@@ -48,8 +48,11 @@ fn probe_health(base: &str) -> bool {
 /// Active connection HTTP base + optional token (async, from the store).
 async fn active_endpoint(state: &SharedState, sup: &Supervisor) -> (String, Option<String>) {
     let (last, local_token) = {
-        let s = state.store.lock().unwrap();
-        (s.effective_last_used(), s.local_token.clone())
+        let store = state.store.lock().unwrap();
+        (
+            store.effective_last_used(),
+            store.local_tokens.first().map(|t| t.token.clone()),
+        )
     };
     let remote = state.store.lock().unwrap().remote(&last).cloned();
     if last == "local" || remote.is_none() {
@@ -273,12 +276,11 @@ fn handle_tray_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let app2 = app.clone();
             let state = app.state::<SharedState>();
             let dir = state.data_dir();
-            let token = state.with_store(|s| s.local_token.clone());
+            let tokens: Vec<String> =
+                state.with_store(|s| s.local_tokens.iter().map(|t| t.token.clone()).collect::<Vec<String>>());
             let sup = state.supervisor.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = sup
-                    .ensure_started(dir, std::process::id(), token.as_deref())
-                    .await;
+                let _ = sup.ensure_started(dir, std::process::id(), &tokens).await;
                 rebuild(&app2);
             });
         }

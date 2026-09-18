@@ -375,15 +375,17 @@ pub fn router(state: BrokerState) -> Router {
 
 /// Bearer-token gate for the HTTP API. No-op when the broker has no token.
 /// `/healthz` is always open (adopt-probe + LB parity), everything else is
-/// 401 without a matching `Authorization: Bearer <token>`.
+/// 401 without a matching `Authorization: Bearer <token>` (any of the
+/// configured tokens is accepted).
 async fn api_auth(
     State(state): State<Arc<BrokerState>>,
     req: axum::extract::Request,
     next: middleware::Next,
 ) -> Response {
-    let Some(expected) = state.api_token.as_deref() else {
+    let expected = state.api_tokens.clone();
+    if expected.is_empty() {
         return next.run(req).await; // no auth configured
-    };
+    }
     if req.uri().path() == "/healthz" {
         return next.run(req).await;
     }
@@ -393,7 +395,7 @@ async fn api_auth(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    if supplied.is_empty() || supplied != expected {
+    if supplied.is_empty() || !expected.iter().any(|t| t == supplied) {
         return (StatusCode::UNAUTHORIZED, r#"{"error":"unauthorized"}"#).into_response();
     }
     next.run(req).await
@@ -460,7 +462,7 @@ async fn environments(State(state): SharedState) -> Json<EnvironmentsResponse> {
     Json(EnvironmentsResponse {
         current,
         environments: state.catalog.clone(),
-        auth_required: state.api_token.is_some(),
+        auth_required: !state.api_tokens.is_empty(),
     })
 }
 
@@ -505,7 +507,7 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
         schedules,
         env: state.env.clone(),
         region: state.region.clone(),
-        auth_required: state.api_token.is_some(),
+        auth_required: !state.api_tokens.is_empty(),
     }))
 }
 

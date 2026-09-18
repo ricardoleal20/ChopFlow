@@ -36,7 +36,7 @@ fn app_with_token(
     let storage: std::sync::Arc<dyn Storage> =
         std::sync::Arc::new(chopflow_core::InMemoryStorage::new());
     let state = BrokerState::with_identity(storage, env.into(), region.into(), catalog)
-        .with_api_token(token.map(|t| t.to_string()));
+        .with_api_tokens(token.into_iter().map(str::to_string).collect());
     router(state)
 }
 

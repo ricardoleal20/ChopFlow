@@ -2227,6 +2227,53 @@ textarea.cf-input {
   color: var(--danger-fg);
   border-bottom-color: var(--danger);
 }
+/* One-time token reveal (Security tab): shown right after creation, with a
+   legend telling the operator to store it somewhere safe. */
+.sv-token-once {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+.sv-token-once-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--success);
+}
+.sv-token-once-legend {
+  margin: 6px 0 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.sv-token-once-value {
+  display: block;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  font: 500 12px var(--font-mono);
+  color: var(--text);
+  white-space: nowrap;
+}
+.sv-token-once-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.s-add-stack {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.s-add-stack .s-in:first-child {
+  width: 180px;
+}
+.s-add-stack .s-in:nth-child(2) {
+  flex: 1;
+  min-width: 180px;
+}
+
 .s-hbar {
   border: none;
   border-top: 1px solid var(--border);

@@ -8,12 +8,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  appAddLocalToken,
   appGetLogs,
+  appRemoveLocalToken,
   appReset,
   appSetDataDir,
-  appSetLocalToken,
   appSetMcp,
   type AppState,
+  type LocalTokenCreated,
 } from "../lib/appBridge";
 import type { useAppTauri } from "../hooks/useAppTauri";
 
@@ -42,14 +44,16 @@ const Btn = ({
   onClick,
   disabled,
   variant,
+  type = "button",
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   variant?: "primary" | "ghost";
+  type?: "button" | "submit";
 }) => (
   <button
-    type="button"
+    type={type}
     className={`s-btn${variant === "primary" ? " s-btn-primary" : variant === "ghost" ? " s-btn-ghost" : ""}`}
     onClick={onClick}
     disabled={disabled}
@@ -90,9 +94,10 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [dirEdit, setDirEdit] = useState(false);
   const [dirPath, setDirPath] = useState("");
   const [dirBusy, setDirBusy] = useState(false);
-  const [tokInput, setTokInput] = useState("");
+  const [tokId, setTokId] = useState("");
+  const [tokValue, setTokValue] = useState("");
   const [tokBusy, setTokBusy] = useState(false);
-  const [tokReveal, setTokReveal] = useState(false);
+  const [justCreated, setJustCreated] = useState<LocalTokenCreated | null>(null);
 
   const loadLogs = useCallback(async () => {
     setLogs(await appGetLogs());
@@ -195,7 +200,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     aria-label="New data folder"
                     autoFocus
                   />
-                  <Btn variant="primary" disabled={!dirPath.trim() || dirBusy}>
+                  <Btn type="submit" variant="primary" disabled={!dirPath.trim() || dirBusy}>
                     Move data
                   </Btn>
                   <Btn
@@ -292,7 +297,11 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     onChange={(e) => setToken(e.target.value)}
                     aria-label="API token"
                   />
-                  <Btn variant="primary" disabled={!name.trim() || !url.trim() || adding}>
+                  <Btn
+                    type="submit"
+                    variant="primary"
+                    disabled={!name.trim() || !url.trim() || adding}
+                  >
                     Add
                   </Btn>
                 </form>
@@ -354,92 +363,143 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
           </section>
         ) : tab === "security" ? (
           <section className="s-sec">
-            <h3>Local broker token</h3>
+            <h3>Local broker tokens</h3>
             <NeedsApp shell={shell}>
-              <Row
-                label="Status"
-                value={state?.local_token ? "protected — Bearer token required" : "open (no token)"}
-              />
-              {state?.local_token ? (
-                <div className="s-row">
-                  <span className="s-row-label">Token</span>
-                  <code className="s-row-value">
-                    {tokReveal ? state.local_token : "·".repeat(24)}
-                  </code>
-                  <Btn variant="ghost" onClick={() => setTokReveal((v) => !v)}>
-                    {tokReveal ? "Hide" : "Show"}
-                  </Btn>
+              {justCreated ? (
+                <div className="sv-token-once" role="status">
+                  <div className="sv-token-once-title">
+                    Token created for “{justCreated.id}” — shown once
+                  </div>
+                  <p className="sv-token-once-legend">
+                    This token will only show once, please store it somewhere safe. You will not see
+                    it again.
+                  </p>
+                  <code className="sv-token-once-value">{justCreated.token}</code>
+                  <div className="sv-token-once-actions">
+                    <Btn
+                      variant="primary"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(justCreated.token);
+                      }}
+                    >
+                      Copy token
+                    </Btn>
+                    <Btn
+                      variant="ghost"
+                      onClick={() => {
+                        setJustCreated(null);
+                        setTokId("");
+                        setTokValue("");
+                      }}
+                    >
+                      Done
+                    </Btn>
+                  </div>
                 </div>
               ) : null}
+
+              <Row
+                label="Status"
+                value={
+                  state && state.local_tokens.length
+                    ? `protected — ${state.local_tokens.length} token${state.local_tokens.length > 1 ? "s" : ""} accepted`
+                    : "open (no token)"
+                }
+              />
+
+              {state && state.local_tokens.length ? (
+                <ul className="s-remotes">
+                  {state.local_tokens.map((id) => (
+                    <li key={id} className="s-remote">
+                      <span className="s-rdot" />
+                      <span className="s-rname">{id}</span>
+                      <code className="s-rurl">••••••••••••••••••••••••</code>
+                      <Btn
+                        variant="ghost"
+                        disabled={tokBusy}
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `Revoke the token labelled "${id}"?\n\nClients using it will stop working; the local broker restarts without it.`,
+                            )
+                          )
+                            return;
+                          setTokBusy(true);
+                          void appRemoveLocalToken(id)
+                            .then(() => shell.reloadState())
+                            .catch((err: unknown) => window.alert(String(err)))
+                            .finally(() => setTokBusy(false));
+                        }}
+                      >
+                        Revoke
+                      </Btn>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
               <p className="s-hint">
-                When set, every request to the local broker (HTTP API + MCP gateway) must carry this
-                Bearer token. The app and its MCP gateway send it automatically; external clients
-                need it too. Changing it restarts the local broker.
+                Give each client its own labelled token so you know who holds what: one for this
+                machine's CLI, one for Claude Desktop, one for a CI pipeline. Revoking one does not
+                affect the others. The app and its MCP gateway authenticate automatically.
               </p>
+
               <form
-                className="s-add"
+                className="s-add s-add-stack"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (tokBusy || !tokInput.trim()) return;
-                  if (
-                    !window.confirm(
-                      "Set the local broker token?\n\nThe local broker restarts with the new token.",
-                    )
-                  )
+                  const id = tokId.trim();
+                  const value = tokValue.trim();
+                  if (tokBusy || !id || !value) return;
+                  if (state?.local_tokens.includes(id)) {
+                    window.alert(
+                      `A token labelled "${id}" already exists — pick another identifier.`,
+                    );
                     return;
+                  }
                   setTokBusy(true);
-                  void appSetLocalToken(tokInput.trim())
-                    .then(() => window.location.reload())
-                    .catch((err: unknown) => {
-                      window.alert(String(err));
-                      setTokBusy(false);
-                    });
+                  void appAddLocalToken(id, value)
+                    .then((created) => {
+                      setJustCreated(created);
+                      return shell.reloadState();
+                    })
+                    .catch((err: unknown) => window.alert(String(err)))
+                    .finally(() => setTokBusy(false));
                 }}
               >
                 <input
+                  className="s-in"
+                  placeholder="Identifier (who uses it?)"
+                  value={tokId}
+                  onChange={(e) => setTokId(e.target.value)}
+                  aria-label="Token identifier"
+                />
+                <input
                   className="s-in s-monow"
-                  placeholder="Paste a token, or generate one"
-                  value={tokInput}
-                  onChange={(e) => setTokInput(e.target.value)}
-                  aria-label="Local broker token"
+                  placeholder="Token value (or generate one)"
+                  value={tokValue}
+                  onChange={(e) => setTokValue(e.target.value)}
+                  aria-label="Token value"
                 />
                 <Btn
                   variant="ghost"
                   disabled={tokBusy}
                   onClick={() =>
-                    setTokInput(
+                    setTokValue(
                       `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
                     )
                   }
                 >
                   Generate
                 </Btn>
-                <Btn variant="primary" disabled={!tokInput.trim() || tokBusy}>
-                  Set token
+                <Btn
+                  type="submit"
+                  variant="primary"
+                  disabled={!tokId.trim() || !tokValue.trim() || tokBusy}
+                >
+                  Add token
                 </Btn>
               </form>
-              {state?.local_token ? (
-                <Btn
-                  disabled={tokBusy}
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        "Remove the local broker token?\n\nThe local broker restarts without authentication — anything that can reach it can use it.",
-                      )
-                    )
-                      return;
-                    setTokBusy(true);
-                    void appSetLocalToken(null)
-                      .then(() => window.location.reload())
-                      .catch((err: unknown) => {
-                        window.alert(String(err));
-                        setTokBusy(false);
-                      });
-                  }}
-                >
-                  Remove token
-                </Btn>
-              ) : null}
             </NeedsApp>
           </section>
         ) : tab === "logs" ? (

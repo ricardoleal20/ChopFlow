@@ -112,12 +112,19 @@ pub enum Commands {
         #[arg(long)]
         parent_pid: Option<u32>,
 
-        /// Require a Bearer token on the HTTP `/api/*` endpoints. Optional
-        /// value: `--api-token <TOKEN>` uses that token; bare `--api-token`
-        /// auto-generates one and prints it at startup. `CHOPFLOW_API_TOKEN`
-        /// env is honored when the flag is absent. No flag = no auth.
-        #[arg(long, num_args = 0..=1, default_missing_value = "")]
-        api_token: Option<String>,
+        /// Require Bearer token(s) on the HTTP `/api/*` endpoints. Repeat the
+        /// flag to allow several tokens (each is a separate credential, e.g.
+        /// one per client). Optional value: `--api-token <TOKEN>` uses that
+        /// token; a bare `--api-token` auto-generates one and prints it at
+        /// startup. `CHOPFLOW_API_TOKEN` env is honored when no flags are
+        /// given. No flag at all = no auth.
+        #[arg(
+            long,
+            num_args = 0..=1,
+            default_missing_value = "",
+            action = clap::ArgAction::Append
+        )]
+        api_token: Vec<String>,
     },
 }
 
@@ -258,10 +265,11 @@ pub struct BrokerState {
     /// dashboard can switch between brokers. Empty when no
     /// `environments.yml` is configured.
     pub catalog: Vec<Environment>,
-    /// Optional API token. When set, every `/api/*` request must carry
-    /// `Authorization: Bearer <token>`; `/healthz` stays open so adopt-probes
-    /// and load balancers keep working. `None` = no auth (default).
-    pub api_token: Option<String>,
+    /// Optional API tokens (one per `--api-token` occurrence, plus the env).
+    /// When non-empty, every `/api/*` request must carry
+    /// `Authorization: Bearer <one of these>`; `/healthz` stays open so
+    /// adopt-probes and load balancers keep working. Empty = no auth.
+    pub api_tokens: Vec<String>,
 }
 
 impl BrokerState {
@@ -293,13 +301,13 @@ impl BrokerState {
             env,
             region,
             catalog,
-            api_token: None,
+            api_tokens: Vec::new(),
         }
     }
 
-    /// Attach an API token (Bearer) to this broker's HTTP API.
-    pub fn with_api_token(mut self, api_token: Option<String>) -> Self {
-        self.api_token = api_token;
+    /// Attach API tokens (Bearer) to this broker's HTTP API.
+    pub fn with_api_tokens(mut self, api_tokens: Vec<String>) -> Self {
+        self.api_tokens = api_tokens;
         self
     }
 }
@@ -1037,25 +1045,39 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
         }
     };
 
-    // Resolve the optional API token: explicit value, bare `--api-token`
-    // (auto-generate), or CHOPFLOW_API_TOKEN. `None` = HTTP API stays open.
-    let api_token: Option<String> = match api_token {
-        Some(value) if !value.is_empty() => Some(value),
-        Some(_) => Some(generate_api_token()),
-        None => std::env::var("CHOPFLOW_API_TOKEN")
-            .ok()
-            .filter(|s| !s.is_empty()),
-    };
-    if let Some(ref token) = api_token {
-        if token.starts_with("chopflow-") {
-            // Auto-generated below: tell the operator, they must capture it to
-            // configure the dashboard/client.
-            info!("HTTP API token (auto-generated): {token}  ->  add it to the dashboard's Connection settings for this broker");
+    // Resolve the API tokens: explicit values, bare occurrences
+    // (auto-generate), or CHOPFLOW_API_TOKEN when no flag was given.
+    // Empty = HTTP API stays open.
+    let mut api_tokens: Vec<String> = Vec::with_capacity(api_token.len());
+    for provided in api_token {
+        if provided.is_empty() {
+            api_tokens.push(generate_api_token());
         } else {
-            info!("HTTP API auth enabled with a provided token");
+            api_tokens.push(provided);
         }
-    } else {
+    }
+    if api_tokens.is_empty() {
+        if let Ok(env) = std::env::var("CHOPFLOW_API_TOKEN") {
+            if !env.is_empty() {
+                api_tokens.push(env);
+            }
+        }
+    }
+    if api_tokens.is_empty() {
         info!("HTTP API auth disabled (no --api-token)");
+    } else {
+        for token in &api_tokens {
+            if token.starts_with("chopflow-") {
+                // Auto-generated: the operator must capture it to configure
+                // the dashboard/client.
+                info!("HTTP API token (auto-generated): {token}  ->  add it to the dashboard's Connection settings for this broker");
+            } else {
+                info!("HTTP API auth enabled with a provided token");
+            }
+        }
+    }
+    if api_tokens.len() > 1 {
+        info!("HTTP API accepts {} tokens", api_tokens.len());
     }
 
     let backend = match storage.as_str() {
@@ -1079,7 +1101,8 @@ pub async fn run(cli: Cli) -> std::result::Result<(), Box<dyn std::error::Error>
 
     // One shared state object backs both the gRPC service and the HTTP layer,
     // so the dashboard sees live updates from workers and vice versa.
-    let state = BrokerState::with_identity(storage, env, region, catalog).with_api_token(api_token);
+    let state =
+        BrokerState::with_identity(storage, env, region, catalog).with_api_tokens(api_tokens);
     let service = ChopFlowBrokerService::from_state(state.clone());
     service.spawn_timeout_monitor();
 

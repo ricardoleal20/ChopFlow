@@ -75,7 +75,7 @@ export function useAppTauri() {
           if (cancelled) return;
           setLocal(loc);
           const base = localHttpBase(loc);
-          if (base) pointAt(base, st.local_token); // local token when configured
+          if (base) pointAt(base, st.local_api_token); // app's own local token
         } else {
           const remote = st.remotes.find((r) => r.name === st.last_used);
           if (remote) pointAt(remote.http_url, remote.token || null);
@@ -110,11 +110,11 @@ export function useAppTauri() {
     const base = localHttpBase(loc);
     if (base) {
       setActive("local");
-      pointAt(base, state?.local_token ?? null);
+      pointAt(base, state?.local_api_token ?? null);
     }
     await appSetLastUsed("local");
     return loc;
-  }, [pointAt, state?.local_token]);
+  }, [pointAt, state?.local_api_token]);
 
   /// Stop the local broker (adopted brokers are untouched by the Rust side).
   const stopLocal = useCallback(async () => {
@@ -149,7 +149,7 @@ export function useAppTauri() {
           : state!.remotes.find((r) => r.name === name)!.http_url;
       const token =
         name === "local"
-          ? (state?.local_token ?? null)
+          ? (state?.local_api_token ?? null)
           : (state!.remotes.find((r) => r.name === name)!.token ?? null);
       await appSetLastUsed(name);
       setActive(name);
@@ -163,6 +163,21 @@ export function useAppTauri() {
     await appCompleteFirstRun();
     setState((prev) => (prev ? { ...prev, first_run_done: true } : prev));
   }, []);
+
+  /// Re-fetch the app state and re-point the query layer at the active
+  /// connection (token may have changed) without reloading the window.
+  const reloadState = useCallback(async () => {
+    const st = await appGetState();
+    setState(st);
+    setLocal(st.local);
+    if (st.last_used === "local") {
+      const base = localHttpBase(st.local) ?? st.local_http_base;
+      if (base) pointAt(base, st.local_api_token);
+    } else {
+      const r = st.remotes.find((x) => x.name === st.last_used);
+      if (r) pointAt(r.http_url, r.token ?? null);
+    }
+  }, [pointAt]);
 
   /// Nothing to do in the browser: expose a no-op surface.
   const noop = useCallback(async () => {}, []);
@@ -183,6 +198,7 @@ export function useAppTauri() {
       removeRemote: noop,
       switchTo: noop,
       completeFirstRun: noop,
+      reloadState: noop,
     };
   }
 
@@ -201,5 +217,6 @@ export function useAppTauri() {
     removeRemote,
     switchTo,
     completeFirstRun,
+    reloadState,
   };
 }

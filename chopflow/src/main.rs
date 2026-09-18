@@ -177,10 +177,16 @@ enum BrokerCmd {
         #[arg(long)]
         parent_pid: Option<u32>,
 
-        /// Require a Bearer token on the HTTP API. Optional value: pass one
-        /// or leave bare to auto-generate (printed at startup).
-        #[arg(long, num_args = 0..=1, default_missing_value = "")]
-        api_token: Option<String>,
+        /// Require Bearer token(s) on the HTTP API. Repeat the flag to allow
+        /// several tokens. Optional value per occurrence: pass a token or
+        /// leave bare to auto-generate (printed at startup).
+        #[arg(
+            long,
+            num_args = 0..=1,
+            default_missing_value = "",
+            action = clap::ArgAction::Append
+        )]
+        api_token: Vec<String>,
     },
 }
 

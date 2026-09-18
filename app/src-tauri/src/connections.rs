@@ -11,6 +11,18 @@ use serde::{Deserialize, Serialize};
 
 const STORE_FILE: &str = "connections.json";
 
+/// A labelled API token the app's local broker accepts. `token` is shown in
+/// full exactly once (when created) — afterwards only the identifier is
+/// displayed; the value lives on in the app-data store so the app, workers,
+/// and its MCP gateway can authenticate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalToken {
+    /// Operator-chosen name: which client / person holds this token.
+    pub id: String,
+    /// The Bearer value (never displayed after creation).
+    pub token: String,
+}
+
 /// A user-declared remote broker.
 ///
 /// `token` is the optional Bearer token the remote broker requires when it was
@@ -36,11 +48,13 @@ pub struct ConnectionStore {
     pub mcp_enabled: bool,
     #[serde(default)]
     pub first_run_done: bool,
-    /// Optional Bearer token the app's local broker requires (passed as
-    /// `--api-token` when spawning it). None = the local broker serves
-    /// unauthenticated, exactly like a bare `chopflow broker start`.
+    /// Labelled Bearer tokens the app's local broker requires (passed as
+    /// `--api-token` when spawning it; each is a separate credential, e.g.
+    /// one per client). All are equally valid at the broker; the `id` is
+    /// app-side metadata so an operator knows which client holds which
+    /// token. Empty = no auth, exactly like a bare `chopflow broker start`.
     #[serde(default)]
-    pub local_token: Option<String>,
+    pub local_tokens: Vec<LocalToken>,
 }
 
 impl ConnectionStore {
