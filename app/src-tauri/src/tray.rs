@@ -47,10 +47,13 @@ fn probe_health(base: &str) -> bool {
 
 /// Active connection HTTP base + optional token (async, from the store).
 async fn active_endpoint(state: &SharedState, sup: &Supervisor) -> (String, Option<String>) {
-    let last = state.store.lock().unwrap().effective_last_used();
+    let (last, local_token) = {
+        let s = state.store.lock().unwrap();
+        (s.effective_last_used(), s.local_token.clone())
+    };
     let remote = state.store.lock().unwrap().remote(&last).cloned();
     if last == "local" || remote.is_none() {
-        return (sup.local_http_base().await, None);
+        return (sup.local_http_base().await, local_token);
     }
     let r = remote.expect("checked above");
     (r.http_url.trim_end_matches('/').to_string(), r.token)
@@ -270,9 +273,12 @@ fn handle_tray_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let app2 = app.clone();
             let state = app.state::<SharedState>();
             let dir = state.data_dir();
+            let token = state.with_store(|s| s.local_token.clone());
             let sup = state.supervisor.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = sup.ensure_started(dir, std::process::id()).await;
+                let _ = sup
+                    .ensure_started(dir, std::process::id(), token.as_deref())
+                    .await;
                 rebuild(&app2);
             });
         }

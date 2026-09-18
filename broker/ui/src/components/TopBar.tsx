@@ -10,15 +10,12 @@ interface Props {
   onQuery: (q: string) => void;
   onEnqueue: () => void;
   stats?: Stats;
-  /** When non-null (desktop shell), show a small pill with the active
-   * connection name next to the search. */
-  shellActive?: string;
 }
 
 // 54px command bar: environment switcher (with dropdown) on the left, breadcrumb,
 // contextual search with ⌘K hint, a segmented live count pill, and the single
 // primary CTA ("New Task").
-export default function TopBar({ view, query, onQuery, onEnqueue, stats, shellActive }: Props) {
+export default function TopBar({ view, query, onQuery, onEnqueue, stats }: Props) {
   const [clusterOpen, setClusterOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const envsQ = useEnvironments();
@@ -59,17 +56,6 @@ export default function TopBar({ view, query, onQuery, onEnqueue, stats, shellAc
 
   return (
     <header className="topbar">
-      {/* Active connection pill (desktop shell only) — the name of the broker
-          the dashboard is talking to ("local" or a remote), green dot = the
-          connection is reachable. */}
-      {shellActive ? (
-        <span
-          className="shell-pill"
-          title="Active connection — this is the broker the dashboard is talking to. Green dot means it is reachable."
-        >
-          {shellActive}
-        </span>
-      ) : null}
       {/* Environment switcher */}
       <div className={`cluster-sel${clusterOpen ? " open" : ""}`}>
         <button

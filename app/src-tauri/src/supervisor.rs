@@ -112,11 +112,14 @@ impl Supervisor {
 
     /// Ensure the local broker is up: adopt a foreign ChopFlow broker on the
     /// port, or spawn (rebinding to the next free port if something
-    /// non-ChopFlow occupies ours). Returns the status once healthy.
+    /// non-ChopFlow occupies ours). `api_token` is forwarded as
+    /// `--api-token` when the app is configured to protect its local broker.
+    /// Returns the status once healthy.
     pub async fn ensure_started(
         &self,
         app_data_dir: PathBuf,
         parent_pid: u32,
+        api_token: Option<&str>,
     ) -> Result<LocalBrokerStatus, String> {
         // Already running?
         {
@@ -200,7 +203,11 @@ impl Supervisor {
             "local",
             "--parent-pid",
             &parent_pid.to_string(),
-        ])
+        ]);
+        if let Some(token) = api_token {
+            cmd.args(["--api-token", token]);
+        }
+        cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);

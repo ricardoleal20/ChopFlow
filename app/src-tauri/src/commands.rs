@@ -69,11 +69,12 @@ impl SharedState {
         }
     }
 
-    /// Bearer token of the active connection, if the remote requires one.
+    /// Bearer token of the active connection: the app's local-token setting
+    /// when local is active, or the remote's token.
     async fn active_token(&self) -> Option<String> {
         let last = self.store.lock().unwrap().effective_last_used();
         if last == "local" {
-            return None; // managed local broker is never API-token protected
+            return self.store.lock().unwrap().local_token.clone();
         }
         self.store
             .lock()
@@ -101,6 +102,8 @@ pub struct AppStateDto {
     pub db_path: String,
     /// Port the managed local broker listens on for gRPC (workers/CLI).
     pub local_grpc_port: u16,
+    /// Bearer token the app's local broker requires, when configured.
+    pub local_token: Option<String>,
 }
 
 #[tauri::command]
@@ -141,6 +144,7 @@ pub async fn app_get_state(
         None => None,
     };
     let _ = app; // reserved for future event emission
+    let local_token = state.with_store(|s| s.local_token.clone());
     let data_dir = state.data_dir();
     Ok(AppStateDto {
         first_run_done,
@@ -155,6 +159,7 @@ pub async fn app_get_state(
         data_dir: data_dir.display().to_string(),
         db_path: data_dir.join("chopflow.db").display().to_string(),
         local_grpc_port: grpc_port,
+        local_token,
     })
 }
 
@@ -271,13 +276,57 @@ pub async fn app_start_local(
     state: State<'_, SharedState>,
 ) -> Result<crate::supervisor::LocalBrokerStatus, String> {
     let data_dir = state.data_dir();
+    let local_token = state.with_store(|s| s.local_token.clone());
     let supervisor = state.supervisor.clone();
     let status = supervisor
-        .ensure_started(data_dir, std::process::id())
+        .ensure_started(data_dir, std::process::id(), local_token.as_deref())
         .await?;
     // Tell the frontend the broker state changed (e.g. from the tray).
     let _ = app.emit("local-broker-status", &status);
     Ok(status)
+}
+
+/// Set (or clear) the Bearer token the app's local broker requires. Applies
+/// immediately: the managed broker restarts with the new `--api-token` (or
+/// without one) so the setting never lags behind the running process.
+#[tauri::command]
+pub async fn app_set_local_token(
+    state: State<'_, SharedState>,
+    token: Option<String>,
+) -> Result<Option<String>, String> {
+    let token = token
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+    let changed = state.with_store(|s| {
+        if s.local_token == token {
+            false
+        } else {
+            s.local_token = token.clone();
+            true
+        }
+    });
+    if !changed {
+        return Ok(token);
+    }
+    state.persist()?;
+
+    // Restart the managed broker so the token applies now (adopted brokers
+    // are external and intentionally left alone).
+    let supervisor = state.supervisor.clone();
+    if supervisor.broker_alive() {
+        let dir = state.data_dir();
+        supervisor.stop_broker().await;
+        supervisor
+            .ensure_started(dir, std::process::id(), token.as_deref())
+            .await?;
+    }
+    // Retarget the MCP gateway if it is running (it forwards the token).
+    if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
+        let base = state.active_base(&supervisor).await;
+        let tok = state.active_token().await;
+        supervisor.start_mcp(&base, tok.as_deref()).await?;
+    }
+    Ok(token)
 }
 
 #[tauri::command]

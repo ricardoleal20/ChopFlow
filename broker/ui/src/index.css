@@ -2117,32 +2117,7 @@ textarea.cf-input {
   margin-top: 4px;
 }
 
-/* Desktop shell connection pill (in the topbar). */
-.shell-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 12px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-}
-.shell-pill::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-}
-
-/* ---------------------------------------------------------------------------
- * Desktop app: settings (full-screen view, .sv-* layout + .s-* content) and
- * the sidebar entry.
- * ------------------------------------------------------------------------- */
+/* (The old topbar active-connection pill was removed; nothing renders it.) */
 .side-settings {
   display: flex;
   align-items: center;

@@ -34,6 +34,7 @@ fn main() {
             commands::app_complete_first_run,
             commands::app_get_logs,
             commands::app_set_data_dir,
+            commands::app_set_local_token,
             commands::app_reset,
         ])
         .setup(|app| {

@@ -2,22 +2,30 @@
 //
 // Replaces the old right-hand drawer: a separate screen with a "Go back to
 // the dashboard" header and its own tabs (Storage · Remote servers · MCP ·
-// Logs · Danger zone). Reached from the sidebar (desktop app), the native
+// Security · Logs · Danger zone). Reached from the sidebar (desktop app), the native
 // macOS "Settings…" (⌘,) menu item, or the #settings hash in the browser
 // (where app-managed sections show a desktop-only notice).
 
 import { useCallback, useEffect, useState } from "react";
-import { appGetLogs, appReset, appSetDataDir, appSetMcp, type AppState } from "../lib/appBridge";
+import {
+  appGetLogs,
+  appReset,
+  appSetDataDir,
+  appSetLocalToken,
+  appSetMcp,
+  type AppState,
+} from "../lib/appBridge";
 import type { useAppTauri } from "../hooks/useAppTauri";
 
 type Shell = ReturnType<typeof useAppTauri>;
 
-export type SettingsTab = "storage" | "remotes" | "mcp" | "logs" | "danger";
+export type SettingsTab = "storage" | "remotes" | "mcp" | "security" | "logs" | "danger";
 
 const TABS: { key: SettingsTab; label: string; danger?: boolean }[] = [
   { key: "storage", label: "Storage" },
   { key: "remotes", label: "Remote servers" },
   { key: "mcp", label: "MCP" },
+  { key: "security", label: "Security" },
   { key: "logs", label: "Logs" },
   { key: "danger", label: "Danger zone", danger: true },
 ];
@@ -82,6 +90,9 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [dirEdit, setDirEdit] = useState(false);
   const [dirPath, setDirPath] = useState("");
   const [dirBusy, setDirBusy] = useState(false);
+  const [tokInput, setTokInput] = useState("");
+  const [tokBusy, setTokBusy] = useState(false);
+  const [tokReveal, setTokReveal] = useState(false);
 
   const loadLogs = useCallback(async () => {
     setLogs(await appGetLogs());
@@ -248,7 +259,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     <code className="s-rurl">{r.http_url}</code>
                     <code className="s-rtok">{r.token ? "·".repeat(8) : "no token"}</code>
                     <Btn variant="ghost" onClick={() => void shell.removeRemote(r.name)}>
-                      ×
+                      Remove
                     </Btn>
                   </li>
                 ))}
@@ -339,26 +350,96 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                   here.
                 </p>
               ) : null}
-              <hr className="s-hbar" />
-              <button
-                type="button"
-                className="s-btn s-btn-danger"
-                disabled={mcpBusy || !state?.mcp_enabled}
-                onClick={() => {
-                  setMcpBusy(true);
-                  void appSetMcp(false)
+            </NeedsApp>
+          </section>
+        ) : tab === "security" ? (
+          <section className="s-sec">
+            <h3>Local broker token</h3>
+            <NeedsApp shell={shell}>
+              <Row
+                label="Status"
+                value={state?.local_token ? "protected — Bearer token required" : "open (no token)"}
+              />
+              {state?.local_token ? (
+                <div className="s-row">
+                  <span className="s-row-label">Token</span>
+                  <code className="s-row-value">
+                    {tokReveal ? state.local_token : "·".repeat(24)}
+                  </code>
+                  <Btn variant="ghost" onClick={() => setTokReveal((v) => !v)}>
+                    {tokReveal ? "Hide" : "Show"}
+                  </Btn>
+                </div>
+              ) : null}
+              <p className="s-hint">
+                When set, every request to the local broker (HTTP API + MCP gateway) must carry this
+                Bearer token. The app and its MCP gateway send it automatically; external clients
+                need it too. Changing it restarts the local broker.
+              </p>
+              <form
+                className="s-add"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (tokBusy || !tokInput.trim()) return;
+                  if (
+                    !window.confirm(
+                      "Set the local broker token?\n\nThe local broker restarts with the new token.",
+                    )
+                  )
+                    return;
+                  setTokBusy(true);
+                  void appSetLocalToken(tokInput.trim())
                     .then(() => window.location.reload())
                     .catch((err: unknown) => {
                       window.alert(String(err));
-                      setMcpBusy(false);
+                      setTokBusy(false);
                     });
                 }}
               >
-                Remove MCP gateway
-              </button>
-              <p className="s-hint">
-                Stops the gateway and clears its configuration — nothing stays behind.
-              </p>
+                <input
+                  className="s-in s-monow"
+                  placeholder="Paste a token, or generate one"
+                  value={tokInput}
+                  onChange={(e) => setTokInput(e.target.value)}
+                  aria-label="Local broker token"
+                />
+                <Btn
+                  variant="ghost"
+                  disabled={tokBusy}
+                  onClick={() =>
+                    setTokInput(
+                      `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+                    )
+                  }
+                >
+                  Generate
+                </Btn>
+                <Btn variant="primary" disabled={!tokInput.trim() || tokBusy}>
+                  Set token
+                </Btn>
+              </form>
+              {state?.local_token ? (
+                <Btn
+                  disabled={tokBusy}
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        "Remove the local broker token?\n\nThe local broker restarts without authentication — anything that can reach it can use it.",
+                      )
+                    )
+                      return;
+                    setTokBusy(true);
+                    void appSetLocalToken(null)
+                      .then(() => window.location.reload())
+                      .catch((err: unknown) => {
+                        window.alert(String(err));
+                        setTokBusy(false);
+                      });
+                  }}
+                >
+                  Remove token
+                </Btn>
+              ) : null}
             </NeedsApp>
           </section>
         ) : tab === "logs" ? (

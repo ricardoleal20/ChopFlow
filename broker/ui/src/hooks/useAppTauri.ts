@@ -75,7 +75,7 @@ export function useAppTauri() {
           if (cancelled) return;
           setLocal(loc);
           const base = localHttpBase(loc);
-          if (base) pointAt(base, null); // managed local broker: no token
+          if (base) pointAt(base, st.local_token); // local token when configured
         } else {
           const remote = st.remotes.find((r) => r.name === st.last_used);
           if (remote) pointAt(remote.http_url, remote.token || null);
@@ -110,11 +110,11 @@ export function useAppTauri() {
     const base = localHttpBase(loc);
     if (base) {
       setActive("local");
-      pointAt(base);
+      pointAt(base, state?.local_token ?? null);
     }
     await appSetLastUsed("local");
     return loc;
-  }, [pointAt]);
+  }, [pointAt, state?.local_token]);
 
   /// Stop the local broker (adopted brokers are untouched by the Rust side).
   const stopLocal = useCallback(async () => {
@@ -148,7 +148,9 @@ export function useAppTauri() {
           ? localHttpBase(local ?? (await appStartLocal()))
           : state!.remotes.find((r) => r.name === name)!.http_url;
       const token =
-        name === "local" ? null : (state!.remotes.find((r) => r.name === name)!.token ?? null);
+        name === "local"
+          ? (state?.local_token ?? null)
+          : (state!.remotes.find((r) => r.name === name)!.token ?? null);
       await appSetLastUsed(name);
       setActive(name);
       pointAt(base, token);

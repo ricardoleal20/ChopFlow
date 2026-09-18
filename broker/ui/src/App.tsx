@@ -142,7 +142,6 @@ export default function App() {
           onQuery={setQuery}
           onEnqueue={() => setEnqueueOpen(true)}
           stats={stats}
-          shellActive={shell.tauri ? shell.active : undefined}
         />
 
         <main className="content">

@@ -35,6 +35,7 @@ export type AppState = {
   data_dir: string;
   db_path: string;
   local_grpc_port: number;
+  local_token: string | null;
 };
 
 export async function appGetState(): Promise<AppState> {
@@ -81,6 +82,13 @@ export async function appGetLogs(): Promise<string[]> {
 /// reloads afterwards; the broker restarts against the new database.
 export async function appSetDataDir(path: string): Promise<string> {
   return invoke("app_set_data_dir", { path });
+}
+
+/// Set (or clear, with null) the Bearer token the app's local broker
+/// requires. Applies immediately: the managed broker restarts with the new
+/// --api-token (or without one).
+export async function appSetLocalToken(token: string | null): Promise<string | null> {
+  return invoke("app_set_local_token", { token });
 }
 
 /// Destructive reset: wipe local data (connections + db) and restart first-run.

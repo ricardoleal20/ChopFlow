@@ -36,6 +36,11 @@ pub struct ConnectionStore {
     pub mcp_enabled: bool,
     #[serde(default)]
     pub first_run_done: bool,
+    /// Optional Bearer token the app's local broker requires (passed as
+    /// `--api-token` when spawning it). None = the local broker serves
+    /// unauthenticated, exactly like a bare `chopflow broker start`.
+    #[serde(default)]
+    pub local_token: Option<String>,
 }
 
 impl ConnectionStore {

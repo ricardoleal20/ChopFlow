@@ -9,8 +9,8 @@ Deterministic, dependency-light (Pillow only) regeneration of:
     white Shepherd mark,
   - every size Tauri's `icon` config lists (32..1024 PNGs, .icns via
     `iconutil`, .ico),
-  - the menu bar item glyphs (play / stop / power) as SF-Symbols-style
-    white-on-transparent icons for IconMenuItem.
+  - the menu bar item glyphs: Google Material Symbols (play_arrow / stop /
+    power_settings_new) rendered white-on-transparent for IconMenuItem.
 
 Run from the repo root:  uv run --with pillow python scripts/gen-app-icons.py
 """
@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 REPO = Path(__file__).resolve().parent.parent
 ICONS = REPO / "app" / "src-auri" / "icons"
@@ -102,67 +102,47 @@ def app_icon(size: int) -> Image.Image:
 
 
 # ---------------------------------------------------------------------------
-# Menu bar glyphs: SF-Symbols-style white-on-transparent, 16pt menu icons.
-# Drawn on an alpha mask (mode L) at 32x so strokes can be erased (the power
-# symbol's gap) before becoming the white image's alpha.
+# Menu bar glyphs: Google Material Symbols (Rounded) rendered white-on-
+# transparent at 16px for the macOS IconMenuItems. The source SVGs live in
+# app/src-tauri/icons/material/ (Copyright Google LLC, Apache-2.0).
+#
+# macOS has no Python-callable system SVG rasterizer, so we render via
+# `qlmanage -t` (which stamps a white page) and recover the glyph's alpha from
+# the luminance: black glyph on white -> alpha = 255 - luminance.
 # ---------------------------------------------------------------------------
 
-def _glyph(size: int, painter) -> Image.Image:
-    big = size * 32
-    mask = Image.new("L", (big, big), 0)
-    painter(ImageDraw.Draw(mask), big)
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    img.putalpha(mask.resize((size, size), Image.LANCZOS))
-    # white everywhere the mask allows
-    full = Image.new("RGBA", (size, size), WHITE)
-    return Image.composite(full, img, img.getchannel("A"))
+MATERIAL_DIR = ICONS / "material"
+
+
+def material_glyph(svg_name: str, size: int = 16) -> Image.Image:
+    """Render icons/material/<svg_name> as a white-on-transparent icon."""
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(
+            ["qlmanage", "-t", "-s", "512", "-o", tmp, str(MATERIAL_DIR / svg_name)],
+            check=True,
+            capture_output=True,
+        )
+        src = Image.open(Path(tmp) / f"{svg_name}.png").convert("L")
+    alpha = ImageOps.invert(src)
+    img = Image.new("RGBA", src.size, WHITE)
+    img.putalpha(alpha)
+    img = img.crop(img.getchannel("A").getbbox())
+    side = max(img.size)
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2), img)
+    return canvas.resize((size, size), Image.LANCZOS)
 
 
 def play_glyph(size: int = 16) -> Image.Image:
-    """SF `play.fill`: rounded triangle pointing right."""
-
-    def paint(d: ImageDraw.ImageDraw, s: int):
-        r = s * 0.075  # corner rounding
-        a, b, c = (s * 0.34, s * 0.22), (s * 0.34, s * 0.78), (s * 0.78, s * 0.5)
-        d.polygon([a, b, c], fill=255)
-        for p in (a, b, c):
-            d.ellipse((p[0] - r, p[1] - r, p[0] + r, p[1] + r), fill=255)
-
-    return _glyph(size, paint)
+    return material_glyph("play_arrow.svg", size)
 
 
 def stop_glyph(size: int = 16) -> Image.Image:
-    """SF `stop.fill`: rounded square."""
-
-    def paint(d: ImageDraw.ImageDraw, s: int):
-        m = s * 0.22
-        d.rounded_rectangle((m, m, s - m, s - m), radius=s * 0.16, fill=255)
-
-    return _glyph(size, paint)
+    return material_glyph("stop.svg", size)
 
 
 def power_glyph(size: int = 16) -> Image.Image:
-    """SF `power`: open circle with a vertical stem at the top."""
-
-    def paint(d: ImageDraw.ImageDraw, s: int):
-        w = max(2, round(s * 0.11))
-        cx = s / 2
-        cy = s * 0.56
-        rr = s * 0.30
-        d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=255, width=w)
-        # Open the circle where the stem enters (top), then draw the stem.
-        d.pieslice(
-            (cx - rr - w, cy - rr - w, cx + rr + w, cy + rr + w),
-            start=250,
-            end=290,
-            fill=0,
-        )
-        x0, y0, y1 = cx, s * 0.12, cy - rr * 0.4
-        d.line((x0, y0, x0, y1), fill=255, width=w)
-        for y in (y0, y1):
-            d.ellipse((x0 - w / 2, y - w / 2, x0 + w / 2, y + w / 2), fill=255)
-
-    return _glyph(size, paint)
+    return material_glyph("power_settings_new.svg", size)
 
 
 def build_icns(master: Image.Image) -> None:
