@@ -113,6 +113,8 @@ pub struct AppStateDto {
     /// Whether the local broker requires tokens (explicit switch; tokens are
     /// kept either way, they are only enforced when this is true).
     pub auth_enabled: bool,
+    /// Whether the MCP gateway enforces its access token (switch only).
+    pub mcp_access_enabled: bool,
 }
 
 #[tauri::command]
@@ -153,10 +155,16 @@ pub async fn app_get_state(
         None => None,
     };
     let _ = app; // reserved for future event emission
-    let (local_tokens, local_api_token, mcp_access_token, auth_enabled) = {
+    let (local_tokens, local_api_token, mcp_access_token, auth_enabled, mcp_access_enabled) = {
         let store = state.store.lock().unwrap();
         let ids = store.local_tokens.iter().map(|t| t.id.clone()).collect();
-        (ids, store.effective_api_token(), store.mcp_access_token.clone(), store.auth_enabled())
+        (
+            ids,
+            store.effective_api_token(),
+            store.mcp_access_token.clone(),
+            store.auth_enabled(),
+            store.mcp_access_enabled(),
+        )
     };
     let data_dir = state.data_dir();
     Ok(AppStateDto {
@@ -176,6 +184,7 @@ pub async fn app_get_state(
         local_api_token,
         mcp_access_token,
         auth_enabled,
+        mcp_access_enabled,
     })
 }
 
@@ -281,7 +290,7 @@ pub async fn app_set_last_used(
     if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
         let base = state.active_base(&supervisor).await;
         let token = state.active_token().await;
-        let access = state.with_store(|s| s.mcp_access_token.clone());
+        let access = state.with_store(|s| s.effective_mcp_access_token());
         supervisor
             .start_mcp(&base, token.as_deref(), access.as_deref())
             .await?;
@@ -326,7 +335,7 @@ pub async fn app_set_mcp(
     let url = if enabled {
         let base = state.active_base(&supervisor).await;
         let token = state.active_token().await;
-        let access = state.with_store(|s| s.mcp_access_token.clone());
+        let access = state.with_store(|s| s.effective_mcp_access_token());
         Some(
             supervisor
                 .start_mcp(&base, token.as_deref(), access.as_deref())
@@ -439,7 +448,7 @@ async fn restart_local_broker(state: &State<'_, SharedState>) -> Result<(), Stri
     if state.with_store(|s| s.mcp_enabled) && supervisor.mcp_running() {
         let base = state.active_base(&supervisor).await;
         let tok = state.active_token().await;
-        let access = state.with_store(|s| s.mcp_access_token.clone());
+        let access = state.with_store(|s| s.effective_mcp_access_token());
         supervisor
             .start_mcp(&base, tok.as_deref(), access.as_deref())
             .await?;
@@ -464,6 +473,10 @@ pub async fn app_set_mcp_access_token(
             false
         } else {
             s.mcp_access_token = token.clone();
+            if token.is_some() {
+                // Setting a token implies enforcing it.
+                s.mcp_access_enabled = Some(true);
+            }
             true
         }
     });
@@ -475,11 +488,41 @@ pub async fn app_set_mcp_access_token(
     if supervisor.mcp_running() {
         let base = state.active_base(&supervisor).await;
         let api_tok = state.active_token().await;
+        let enforced = state.with_store(|s| s.effective_mcp_access_token());
         supervisor
-            .start_mcp(&base, api_tok.as_deref(), token.as_deref())
+            .start_mcp(&base, api_tok.as_deref(), enforced.as_deref())
             .await?;
     }
     Ok(token)
+}
+
+/// Flip whether the MCP gateway enforces its access token. Non-destructive:
+/// the token value is never created or removed — it is just enforced (or
+/// not) from now on. Restarts the gateway immediately when it is running.
+#[tauri::command]
+pub async fn app_set_mcp_auth_enabled(
+    state: State<'_, SharedState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    let changed = state.with_store(|s| {
+        let before = s.mcp_access_enabled();
+        s.mcp_access_enabled = Some(enabled);
+        before != enabled
+    });
+    if !changed {
+        return Ok(enabled);
+    }
+    state.persist()?;
+    let supervisor = state.supervisor.clone();
+    if supervisor.mcp_running() {
+        let base = state.active_base(&supervisor).await;
+        let api_tok = state.active_token().await;
+        let enforced = state.with_store(|s| s.effective_mcp_access_token());
+        supervisor
+            .start_mcp(&base, api_tok.as_deref(), enforced.as_deref())
+            .await?;
+    }
+    Ok(enabled)
 }
 
 /// Flip whether the local broker REQUIRES tokens. Non-destructive: tokens

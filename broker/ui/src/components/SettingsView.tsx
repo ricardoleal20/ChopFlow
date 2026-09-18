@@ -18,6 +18,7 @@ import {
   appSetDataDir,
   appSetMcp,
   appSetMcpAccessToken,
+  appSetMcpAuthEnabled,
   type AppState,
   type LocalTokenCreated,
 } from "../lib/appBridge";
@@ -147,6 +148,18 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
       await shell.reloadState();
     } finally {
       setSecBusy(false);
+    }
+  };
+
+  // MCP access switch: flips whether the gateway enforces its token. Never
+  // creates or deletes the token — it is only enforced (or not).
+  const toggleMcpAccess = async () => {
+    setMcpTokBusy(true);
+    try {
+      await appSetMcpAuthEnabled(!state?.mcp_access_enabled);
+      await shell.reloadState();
+    } finally {
+      setMcpTokBusy(false);
     }
   };
 
@@ -413,10 +426,30 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
               ) : null}
 
               <h3 style={{ marginTop: 18 }}>Access token</h3>
+              <div className="s-mcp">
+                <label className="s-toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(state?.mcp_access_enabled)}
+                    disabled={mcpTokBusy}
+                    onChange={() => void toggleMcpAccess()}
+                  />
+                  <span />
+                </label>
+                <span>
+                  {state?.mcp_access_enabled
+                    ? "Requires token to connect"
+                    : "Open — anyone that connects can use it"}
+                </span>
+              </div>
               <p className="s-hint" style={{ marginBottom: 10 }}>
-                {state?.mcp_access_token
-                  ? "The gateway is protected: every MCP client must send this token as Authorization: Bearer."
-                  : "The gateway is open. To protect it, set an access token below (independent from the broker's tokens)."}
+                {state?.mcp_access_enabled
+                  ? state.mcp_access_token
+                    ? "The gateway is protected: every MCP client must send the token as Authorization: Bearer."
+                    : "Security is on, but there is no access token yet — set one below. Until then the endpoint stays open."
+                  : state?.mcp_access_token
+                    ? "Security is off for the gateway: the stored token is kept but not required. Flip the switch on to enforce it."
+                    : "The gateway is open. Set an access token below (independent from the broker's tokens), then flip the switch."}
               </p>
               {mcpJustSet ? (
                 <div className="sv-token-once" role="status">
@@ -447,7 +480,13 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
 
               <Row
                 label="Status"
-                value={state?.mcp_access_token ? "protected — token required" : "open (no token)"}
+                value={
+                  state?.mcp_access_enabled
+                    ? state.mcp_access_token
+                      ? "protected — token required"
+                      : "security on (no token yet)"
+                    : "open — security off"
+                }
               />
               {state?.mcp_access_token ? (
                 <div className="s-row">

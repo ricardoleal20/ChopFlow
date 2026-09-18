@@ -67,6 +67,11 @@ pub struct ConnectionStore {
     /// whether they are enforced.
     #[serde(default)]
     pub auth_enabled: Option<bool>,
+    /// Whether the MCP gateway requires its access token. `None` = derived
+    /// (a stored token is enforced). Like `auth_enabled`, flipping this is
+    /// non-destructive: the token value is kept either way.
+    #[serde(default)]
+    pub mcp_access_enabled: Option<bool>,
 }
 
 impl ConnectionStore {
@@ -145,6 +150,21 @@ impl ConnectionStore {
     pub fn effective_api_token(&self) -> Option<String> {
         if self.auth_enabled() {
             self.local_tokens.first().map(|t| t.token.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Whether the MCP gateway enforces its access token right now.
+    pub fn mcp_access_enabled(&self) -> bool {
+        self.mcp_access_enabled.unwrap_or(self.mcp_access_token.is_some())
+    }
+
+    /// The access token the gateway should enforce (none when the switch is
+    /// off, even if a value is stored).
+    pub fn effective_mcp_access_token(&self) -> Option<String> {
+        if self.mcp_access_enabled() {
+            self.mcp_access_token.clone()
         } else {
             None
         }
