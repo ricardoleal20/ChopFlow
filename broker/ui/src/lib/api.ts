@@ -122,6 +122,7 @@ export interface EnvironmentsResponse {
 // the caller invalidates all react-query caches so every view refetches
 // against the new broker.
 let apiBase = normalizeBase((import.meta.env.VITE_API_BASE as string | undefined) || "/api");
+let apiToken: string | null = null;
 
 /** Strip trailing slashes so `${base}${path}` never produces `//`. */
 function normalizeBase(url: string): string {
@@ -136,15 +137,25 @@ export function getApiBase(): string {
 /**
  * Retarget the dashboard at a broker. Pass `null` (or an empty `http_url`) to
  * point back at the serving broker (same-origin `/api`); otherwise pass the
- * environment's `http_url` and the base becomes `${http_url}/api`.
+ * environment's `http_url` and the base becomes `${http_url}/api`. `token` is
+ * the optional per-connection Bearer token the broker requires (`--api-token`);
+ * a null clears it (broker without auth).
  */
-export function setApiBase(httpUrl: string | null): void {
+export function setApiBase(httpUrl: string | null, token?: string | null): void {
   apiBase = httpUrl && httpUrl.trim() ? `${normalizeBase(httpUrl)}/api` : "/api";
+  apiToken = token ? token.trim() || null : null;
+}
+
+/** The token attached to requests for the active connection, if any. */
+export function getApiToken(): string | null {
+  return apiToken;
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
   const res = await fetch(`${getApiBase()}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers,
     ...init,
   });
   if (!res.ok) {

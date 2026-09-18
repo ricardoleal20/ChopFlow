@@ -378,6 +378,14 @@
           <li><a class="nav-leaf" href="#mcp" data-page="mcp">MCP Server</a></li>
         </ul>
       </div>
+      <div class="nav-group" data-group="security">
+        <button class="nav-group-header" type="button">Security &amp; Desktop App <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <ul class="nav-group-list">
+          <li><a class="nav-leaf" href="#app" data-page="app">macOS App</a></li>
+          <li><a class="nav-leaf" href="#api-tokens" data-page="api-tokens">Broker API Tokens</a></li>
+          <li><a class="nav-leaf" href="#mcp-access" data-page="mcp-access">MCP Access Tokens</a></li>
+        </ul>
+      </div>
       <div class="nav-group" data-group="storage">
         <button class="nav-group-header" type="button">Storage Backends <svg class="chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <ul class="nav-group-list">
@@ -1973,6 +1981,83 @@ output = result.<span class="tok-fn">get</span>(timeout=<span class="tok-num">36
       </article>
 
       <!-- ===== FAQ ===== -->
+
+      <article class="doc-page" id="page-app" data-page="app">
+        <h1>macOS App</h1>
+        <p class="doc-lede">ChopFlow ships a small macOS desktop app that supervises your local stack: it starts and watches the broker, optionally runs the persistent MCP gateway, and gives you tray shortcuts and a Settings screen. The dashboard itself is the same embedded UI the broker serves.</p>
+
+        <h2>Download &amp; install</h2>
+        <p>Grab the latest <code>.dmg</code> from the <a href="https://github.com/ricardoleal20/ChopFlow/releases/latest" style="color:var(--primary)">GitHub Releases</a> page (the landing page's <em>Download the macOS App — Free!</em> button points there). The app bundles its own <code>chopflow</code> CLI sidecar, so no extra install is required. Since it is not notarized yet, first launch uses <code>right-click → Open</code> on macOS.</p>
+
+        <h2>First launch</h2>
+        <p>On a fresh install the Welcome wizard walks through four steps before the dashboard loads:</p>
+        <ol>
+          <li><strong>Environment</strong> — start the local broker or connect to a remote one you already run.</li>
+          <li><strong>MCP</strong> — optionally enable the persistent MCP gateway and decide whether it requires its own access token.</li>
+          <li><strong>Security</strong> — optionally protect the broker: turn the switch on and create the first labelled token (shown once).</li>
+          <li><strong>Learn</strong> — links to the Rust / Python / Java worker guides.</li>
+        </ol>
+        <p>&ldquo;Finish setup&rdquo; shows the loading rail, then the dashboard.</p>
+
+        <h2>Menu bar (tray)</h2>
+        <p>The app lives in the macOS menu bar: <em>Open</em> · <em>Local broker</em> (Start/Stop) · <em>MCP</em> (Start/Stop + copy endpoint) · <em>Remote brokers</em> (live status, click to switch) · <em>Quit</em>. With the window focused, the native <em>ChopFlow</em> menu offers <em>Settings…</em> (<code>⌘,</code>).</p>
+
+        <h2>Settings</h2>
+        <table>
+          <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Storage</strong></td><td>Where data lives (data folder + <code>chopflow.db</code>), change the data folder with the native picker, local ports, binary + version.</td></tr>
+            <tr><td><strong>Remote servers</strong></td><td>Add/remove brokers this app connects to (name, URL, optional Bearer token) — the browser dashboard's equivalent is an environment from <code>environments.yml</code>.</td></tr>
+            <tr><td><strong>MCP</strong></td><td>Toggle the HTTP gateway, set/generate/regenerate/remove its access token, and decide whether it's required.</td></tr>
+            <tr><td><strong>Security</strong></td><td>Set the broker's API tokens (labelled, one per client), plus the on/off switch that requires them.</td></tr>
+            <tr><td><strong>Logs</strong></td><td>Live ring buffer with Copy and Download <code>.log</code>.</td></tr>
+            <tr><td><strong>Danger zone</strong></td><td><em>Delete all local information</em> (wipes connections + database and returns to first run) and a non-destructive <em>Preview first-run welcome</em>.</td></tr>
+          </tbody>
+        </table>
+        <p class="callout callout-info"><span class="callout-title">Data privacy</span> Everything is local: connections and tokens live in the app-data folder (<code>~/Library/Application Support/io.chopflow.ops</code>), the broker database is a local SQLite file, and nothing phones home.</p>
+      </article>
+
+      <article class="doc-page" id="page-api-tokens" data-page="api-tokens">
+        <h1>Broker API Tokens</h1>
+        <p class="doc-lede">Start the broker with <code>--api-token</code> to require a Bearer token on every <code>/api/*</code> request. <code>/healthz</code> stays open so adopt-probes and load balancers keep working.</p>
+
+        <h2>CLI</h2>
+        <p>The flag is repeatable: each occurrence adds an equally valid credential. A bare <code>--api-token</code> auto-generates one (printed at startup); <code>CHOPFLOW_API_TOKEN</code> is honored when no flag is given; no flag at all means no auth.</p>
+        <pre><code># one explicit token
+chopflow broker start --api-token my-secret
+
+# several tokens (one per client) + auto-generated
+chopflow broker start --api-token alpha --api-token beta
+
+# token from the environment
+CHOPFLOW_API_TOKEN=sekret chopflow broker start</code></pre>
+        <p>Requests without a matching <code>Authorization: Bearer &lt;token&gt;</code> get <code>401</code>; <code>/api/stats</code> and <code>/api/environments</code> report <code>auth_required: true</code> so clients know.</p>
+
+        <h2>From the desktop app</h2>
+        <p><strong>Wizard (first run):</strong> the Security step asks whether to protect the broker; turning it on creates the first labelled token (identifier + value, shown once).</p>
+        <p><strong>Settings → Security:</strong> a switch turns authorization on/off (non-destructive — it never creates or deletes tokens by itself), and below it you add tokens (label + value, with Generate) and revoke them individually. Protection is enforced the moment a token exists and the switch is on.</p>
+
+        <h2>From config / files</h2>
+        <p>Vending a fleet catalog is done via <a href="#environments" style="color:var(--primary)"><code>config/environments.yml</code></a>; tokens are not stored there. Paste a generated token into the <em>Token (optional)</em> field when adding a remote in the app, and remote gates are per-broker.</p>
+      </article>
+
+      <article class="doc-page" id="page-mcp-access" data-page="mcp-access">
+        <h1>MCP Access Tokens</h1>
+        <p class="doc-lede">The <code>chopflow mcp --http</code> gateway is an AI-facing endpoint. By default anyone who can reach it can use it. Give it its own access token with <code>--access-token</code> — independent from the broker's API tokens.</p>
+
+        <h2>CLI</h2>
+        <pre><code># gateway serving the broker, requiring a token to reach /mcp
+chopflow mcp --http 127.0.0.1:8810 --broker http://127.0.0.1:8080 \
+  --access-token mcp-secret \
+  --api-token &lt;broker-token-if-protected&gt;</code></pre>
+        <p>Clients present the token via <code>Authorization: Bearer &lt;token&gt;</code> or <code>?access_token=</code>/<code>?code=</code> URL params (both are in the MCP streamable-HTTP spec). Missing/invalid values return <code>401</code>.</p>
+
+        <h2>From the desktop app</h2>
+        <p><strong>Wizard (first run):</strong> the MCP step can enable the gateway and toggle <em>Requires token to connect</em> — turning it on generates the gateway token (shown once).</p>
+        <p><strong>Settings → MCP:</strong> toggle the gateway, then use the <em>Access token</em> section: the on/off switch <em>Requires token to connect</em> (non-destructive, keeps the stored value), plus Set / Generate / Regenerate / Remove and Show/Hide.</p>
+        <p class="callout callout-success"><span class="callout-title">Note</span> <code>--api-token</code> on the MCP command authenticates the gateway <em>to</em> the broker; <code>--access-token</code> gates who can reach the gateway itself. They are orthogonal.</p>
+      </article>
+
       <article class="doc-page" id="page-faq" data-page="faq">
         <h1>FAQ</h1>
         <p class="doc-lede">Frequently asked questions about ChopFlow — the system, the model, and where it fits.</p>

@@ -42,3 +42,6 @@ app/src-tauri/gen/
 __pycache__/
 *.pyc
 bench/.venv/
+
+# CI-staged Tauri sidecar (built by the release workflow)
+app/src-tauri/bin/

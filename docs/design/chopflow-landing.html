@@ -209,6 +209,17 @@
     .copy-feedback { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 4px 8px; border-radius: 6px; background: var(--text); color: var(--surface); font: 600 11px/1 var(--font-mono); opacity: 0; pointer-events: none; transition: opacity .15s ease; white-space: nowrap; }
     .install-copy.copied .copy-feedback { opacity: 1; }
     .install-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .app-download { display: grid; gap: 8px; margin-top: 12px; }
+    .app-download-cta {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      width: fit-content; padding: 13px 26px; margin: 0;
+      border-radius: 10px; background: var(--primary, #4060ff); color: #fff;
+      font: 600 14px/1 var(--font-mono); text-decoration: none;
+      box-shadow: 0 10px 30px -8px rgba(64, 96, 255, 0.5);
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .app-download-cta:hover { transform: translateY(-2px); box-shadow: 0 14px 36px -8px rgba(64, 96, 255, 0.6); }
+    .app-download-cta svg { width: 16px; height: 16px; }
     .button svg { width: 17px; height: 17px; }
 
     .console {
@@ -572,6 +583,15 @@
               });
             })();
           </script>
+        </div>
+
+        <div class="app-download" data-od-id="hero-app-download">
+          <p class="install-label">macOS App</p>
+          <a class="app-download-cta" href="https://github.com/ricardoleal20/ChopFlow/releases/latest" target="_blank" rel="noreferrer">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+            Download the macOS App — Free!
+          </a>
+          <p class="install-note">Self-contained .dmg — the broker, MCP gateway, tray, and Settings included. Ships from GitHub Releases.</p>
         </div>
 
         <div class="console" data-od-id="hero-dashboard-preview">

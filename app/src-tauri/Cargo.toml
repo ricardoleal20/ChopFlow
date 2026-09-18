@@ -14,9 +14,23 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["process", "time", "sync", "macros", "io-util"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+# The executable is named "ChopFlow" (not "chopflow-app") so the macOS
+# menu bar / Dock show the real product name even in `tauri dev`; the
+# packaged .app's display name comes from productName in tauri.conf.json.
+[[bin]]
+name = "ChopFlow"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 # This feature is used for production builds or when a dev server is not

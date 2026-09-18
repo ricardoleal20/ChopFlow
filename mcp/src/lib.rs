@@ -22,12 +22,16 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-/// Entry point. Build the server and serve over stdio. Accepts an already-parsed
-/// [`Cli`] so the `chopflow` umbrella binary can route its `chopflow mcp`
-/// subcommand into this; the standalone `chopflow-mcp` binary just passes
-/// `Cli::parse()` through.
+/// Entry point. Build the server and serve over stdio, or over streamable
+/// HTTP when `--http` is given (a persistent MCP gateway — used by the
+/// ChopFlow desktop app so AI clients can connect by URL instead of
+/// launching a stdio child). Accepts an already-parsed [`Cli`] so the
+/// `chopflow` umbrella binary can route its `chopflow mcp` subcommand into
+/// this; the standalone `chopflow-mcp` binary just passes `Cli::parse()`
+/// through.
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
-    // Logs go to stderr — stdout is reserved for the MCP JSON-RPC protocol.
+    // Logs go to stderr — stdout is reserved for the MCP JSON-RPC protocol
+    // in stdio mode, and stderr is simply the disciplined choice for HTTP.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_ansi(false)
@@ -45,13 +49,96 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    let service = ChopFlowMcp { client, base };
-    let running = service.serve(stdio()).await?;
-    running.waiting().await?;
+    let service = ChopFlowMcp {
+        client,
+        base,
+        token: cli.api_token.filter(|t| !t.is_empty()),
+        access_token: cli.access_token.filter(|t| !t.is_empty()),
+    };
+
+    match cli.http {
+        Some(bind) => {
+            let router = http_router(service);
+            let listener = tokio::net::TcpListener::bind(&bind).await?;
+            tracing::info!(
+                "ChopFlow MCP server (streamable HTTP) at http://{}/mcp",
+                listener.local_addr()?
+            );
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await?;
+        }
+        None => {
+            let running = service.serve(stdio()).await?;
+            running.waiting().await?;
+        }
+    }
     Ok(())
 }
 
-/// CLI config. Kept minimal — the only knob is the broker HTTP URL.
+/// Build the streamable-HTTP axum router serving the MCP tool set at `/mcp`.
+/// Exposed separately from [`run`] so integration tests can drive the router
+/// directly (initialize handshake, tools/list) without spawning a process.
+pub fn http_router(service: ChopFlowMcp) -> axum::Router {
+    use rmcp::transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpService,
+    };
+
+    // One MCP service instance per HTTP session; the local session manager
+    // keeps per-client state (session ids, progress tokens).
+    let access = service.access_token.clone();
+    let session_manager = LocalSessionManager::default().into();
+    let mcp_service = StreamableHttpService::new(
+        move || Ok(service.clone()),
+        session_manager,
+        Default::default(),
+    );
+    axum::Router::new().nest_service("/mcp", mcp_service).layer(
+        axum::middleware::from_fn_with_state(access, mcp_access_auth),
+    )
+}
+
+/// Gate the MCP gateway itself behind a Bearer token when `--access-token`
+/// is configured. Accepts the token via the `Authorization: Bearer` header or
+/// an `?access_token=` / `?code=` URL param (both appear in the MCP
+/// streamable-HTTP auth spec). No token configured = gateway stays open.
+async fn mcp_access_auth(
+    axum::extract::State(expected): axum::extract::State<Option<String>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some(expected) = expected else {
+        return next.run(req).await;
+    };
+    let supplied = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_string)
+        .or_else(|| {
+            req.uri().query().and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+                    (k == "access_token" || k == "code").then(|| v.to_string())
+                })
+            })
+        })
+        .unwrap_or_default();
+    if supplied != expected {
+        use axum::response::IntoResponse;
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({"error": "invalid or missing MCP access token"})),
+        )
+            .into_response();
+    }
+    next.run(req).await
+}
+
+/// CLI config. Kept minimal — the broker HTTP URL and the optional HTTP bind.
 #[derive(Parser, Debug)]
 #[command(
     name = "chopflow-mcp",
@@ -61,13 +148,56 @@ pub struct Cli {
     /// Broker HTTP base URL (e.g. http://127.0.0.1:8080). Overrides CHOPFLOW_HTTP_URL.
     #[arg(long)]
     pub broker: Option<String>,
+
+    /// Serve MCP over streamable HTTP at this address (e.g. 127.0.0.1:8810)
+    /// instead of stdio. The MCP endpoint is `http://<addr>/mcp`. Without
+    /// this flag the server speaks stdio (spawned by an MCP client).
+    #[arg(long)]
+    pub http: Option<String>,
+
+    /// Bearer token for brokers started with `--api-token`. Sent as
+    /// `Authorization: Bearer <token>` on every broker call.
+    #[arg(long)]
+    pub api_token: Option<String>,
+
+    /// Optional token REQUIRED to reach this MCP gateway itself over HTTP.
+    /// When set, every client must send `Authorization: Bearer <token>` (or
+    /// `?access_token=` / `?code=` in the URL). Independent from the broker's
+    /// own API token — it gates access to the AI endpoint, not to the broker.
+    /// No flag = the gateway is open.
+    #[arg(long)]
+    pub access_token: Option<String>,
 }
 
-/// The MCP server. Holds a reusable HTTP client and the broker base URL.
+/// The MCP server. Holds a reusable HTTP client, the broker base URL, and the
+/// optional Bearer token for brokers started with `--api-token`.
 #[derive(Clone)]
-struct ChopFlowMcp {
+pub struct ChopFlowMcp {
     client: reqwest::Client,
     base: String,
+    token: Option<String>,
+    /// Optional Bearer required to reach the MCP endpoint itself (--access-token).
+    access_token: Option<String>,
+}
+
+impl ChopFlowMcp {
+    /// Construct a server handle pointing at a broker HTTP base URL. Public
+    /// so integration tests can build the [`http_router`] against a test
+    /// broker without spawning a process.
+    pub fn new(client: reqwest::Client, base: impl Into<String>) -> Self {
+        Self {
+            client,
+            base: base.into().trim_end_matches('/').to_string(),
+            token: None,
+            access_token: None,
+        }
+    }
+
+    /// Attach the token MCP clients must present to reach the gateway.
+    pub fn with_access_token(mut self, access_token: Option<String>) -> Self {
+        self.access_token = access_token;
+        self
+    }
 }
 
 impl ChopFlowMcp {
@@ -81,6 +211,9 @@ impl ChopFlowMcp {
     ) -> Result<String, String> {
         let url = format!("{}{}", self.base, path);
         let mut req = self.client.request(method.clone(), &url);
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
         if let Some(b) = body {
             req = req.json(&b);
         }

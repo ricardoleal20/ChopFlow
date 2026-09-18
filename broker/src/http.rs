@@ -22,6 +22,7 @@ use crate::BrokerState;
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode, Uri},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -124,6 +125,9 @@ struct StatsDto {
     env: String,
     /// This broker's region tag (e.g. `default`, `us-east-1`).
     region: String,
+    /// Whether this broker requires a Bearer token on `/api/*` (started with
+    /// `--api-token`). The app can prompt where the token goes.
+    auth_required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -223,6 +227,10 @@ type ApiError = (StatusCode, Json<ErrorResponse>);
 struct EnvironmentsResponse {
     current: Environment,
     environments: Vec<Environment>,
+    /// Whether THIS broker (the one serving the request) requires a Bearer
+    /// token on `/api/*`. `current.http_url` stays empty (same-origin), so the
+    /// dashboard reads this to know if its own `/api` calls need the token.
+    auth_required: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -349,16 +357,48 @@ pub fn router(state: BrokerState) -> Router {
         )
         .route("/environments", get(environments));
 
+    let state = Arc::new(state);
+
     // CORS: the dashboard is served by one broker but can switch to point at
     // another broker's HTTP API at runtime. That cross-origin fetch needs
-    // permissive headers. There is no auth yet (explicit trade-off); tightening
-    // this to an origin allow-list belongs with a future auth layer.
+    // permissive headers. Token auth is enforced by `api_auth` on `/api/*`
+    // only when the broker was started with `--api-token`; `/healthz` and the
+    // embedded UI stay open (adopt-probes, load balancers, first load).
     Router::new()
         .nest("/api", api)
         .route("/healthz", get(|| async { "ok" }))
         .fallback(static_handler)
+        .layer(middleware::from_fn_with_state(state.clone(), api_auth))
         .layer(CorsLayer::very_permissive())
-        .with_state(Arc::new(state))
+        .with_state(state)
+}
+
+/// Bearer-token gate for the HTTP API. No-op when the broker has no token.
+/// `/healthz` is always open (adopt-probe + LB parity), everything else is
+/// 401 without a matching `Authorization: Bearer <token>` (any of the
+/// configured tokens is accepted).
+async fn api_auth(
+    State(state): State<Arc<BrokerState>>,
+    req: axum::extract::Request,
+    next: middleware::Next,
+) -> Response {
+    let expected = state.api_tokens.clone();
+    if expected.is_empty() {
+        return next.run(req).await; // no auth configured
+    }
+    if req.uri().path() == "/healthz" {
+        return next.run(req).await;
+    }
+    let supplied = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+    if supplied.is_empty() || !expected.iter().any(|t| t == supplied) {
+        return (StatusCode::UNAUTHORIZED, r#"{"error":"unauthorized"}"#).into_response();
+    }
+    next.run(req).await
 }
 
 /// Serve the embedded SPA. Any path that isn't an API route and isn't a real
@@ -422,6 +462,7 @@ async fn environments(State(state): SharedState) -> Json<EnvironmentsResponse> {
     Json(EnvironmentsResponse {
         current,
         environments: state.catalog.clone(),
+        auth_required: !state.api_tokens.is_empty(),
     })
 }
 
@@ -466,6 +507,7 @@ async fn stats(State(state): SharedState) -> Result<Json<StatsDto>, ApiError> {
         schedules,
         env: state.env.clone(),
         region: state.region.clone(),
+        auth_required: !state.api_tokens.is_empty(),
     }))
 }
 

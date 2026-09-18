@@ -1,0 +1,51 @@
+name: macOS App (dmg)
+
+# Builds the ChopFlow desktop app (.app + .dmg) on every git tag v* and
+# attaches the DMG to the GitHub Release — that's what the landing page's
+# "Download the macOS App" button points at.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9 --activate
+      - name: Frontend deps
+        working-directory: broker/ui
+        run: pnpm install --frozen-lockfile || pnpm install
+      - name: Build the CLI (bundled sidecar)
+        run: cargo build --release -p chopflow
+      - name: Stage the sidecar
+        run: |
+          mkdir -p app/src-tauri/bin
+          cp target/release/chopflow app/src-tauri/bin/chopflow
+      - name: Build the frontend
+        working-directory: broker/ui
+        run: pnpm build
+      - name: Build the macOS app (app + dmg)
+        working-directory: app/src-tauri
+        run: npx --yes @tauri-apps/cli@2 build
+      - name: Upload DMG to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for f in app/src-tauri/target/release/bundle/dmg/*.dmg; do
+            [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber
+          done
+          for f in app/src-tauri/target/release/bundle/macos/*.app.tar.gz; do
+            [ -e "$f" ] && gh release upload "$GITHUB_REF_NAME" "$f" --clobber
+          done
+          echo "Uploaded dmg/app for v$VERSION to release $GITHUB_REF_NAME"

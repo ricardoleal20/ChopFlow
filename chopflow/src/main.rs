@@ -61,11 +61,25 @@ enum Command {
         command: BrokerCmd,
     },
 
-    /// Run the MCP server (exposes the broker as AI-friendly tools over stdio).
+    /// Run the MCP server (exposes the broker as AI-friendly tools over stdio,
+    /// or over streamable HTTP with --http).
     Mcp {
         /// Broker HTTP base URL (e.g. http://127.0.0.1:8080). Overrides CHOPFLOW_HTTP_URL.
         #[arg(long)]
         broker: Option<String>,
+
+        /// Serve MCP over streamable HTTP at this address (e.g. 127.0.0.1:8810)
+        /// instead of stdio. Endpoint: http://<addr>/mcp.
+        #[arg(long)]
+        http: Option<String>,
+
+        /// Bearer token for brokers started with --api-token.
+        #[arg(long)]
+        api_token: Option<String>,
+
+        /// Optional token required to reach the MCP gateway itself (`--access-token`).
+        #[arg(long)]
+        access_token: Option<String>,
     },
 
     /// Enqueue a task from a JSON file.
@@ -161,6 +175,22 @@ enum BrokerCmd {
         /// Path to the fleet catalog (`environments.yml`). Optional.
         #[arg(long, default_value = "config/environments.yml")]
         environments: String,
+
+        /// Watchdog: PID of a parent process. When the parent dies, the
+        /// broker self-terminates (used by the desktop app).
+        #[arg(long)]
+        parent_pid: Option<u32>,
+
+        /// Require Bearer token(s) on the HTTP API. Repeat the flag to allow
+        /// several tokens. Optional value per occurrence: pass a token or
+        /// leave bare to auto-generate (printed at startup).
+        #[arg(
+            long,
+            num_args = 0..=1,
+            default_missing_value = "",
+            action = clap::ArgAction::Append
+        )]
+        api_token: Vec<String>,
     },
 }
 
@@ -182,6 +212,8 @@ async fn main() -> anyhow::Result<()> {
                     env,
                     region,
                     environments,
+                    parent_pid,
+                    api_token,
                 },
         } => {
             let broker_cli = chopflow_broker::Cli {
@@ -196,6 +228,8 @@ async fn main() -> anyhow::Result<()> {
                     env,
                     region,
                     environments,
+                    parent_pid,
+                    api_token,
                 },
             };
             chopflow_broker::run(broker_cli)
@@ -203,8 +237,19 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
 
-        Command::Mcp { broker } => {
-            chopflow_mcp::run(chopflow_mcp::Cli { broker }).await?;
+        Command::Mcp {
+            broker,
+            http,
+            api_token,
+            access_token,
+        } => {
+            chopflow_mcp::run(chopflow_mcp::Cli {
+                broker,
+                http,
+                api_token,
+                access_token,
+            })
+            .await?;
         }
 
         Command::Enqueue {

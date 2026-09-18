@@ -1,4 +1,4 @@
-import { TasksIcon, ScheduleIcon, WorkersIcon, MoonIcon, SunIcon } from "./Icons";
+import { TasksIcon, ScheduleIcon, WorkersIcon, MoonIcon, SunIcon, GearIcon } from "./Icons";
 import brandIcon from "../assets/brand-icon.png";
 
 export type View = "tasks" | "schedules" | "workers";
@@ -12,6 +12,8 @@ interface Props {
   scheduleCount: number;
   workerCount: number;
   activeWorkers: number;
+  /** Desktop shell: open the app Settings view (full screen). */
+  onOpenSettings?: () => void;
 }
 
 // Always-dark navy rail, like Temporal's left sidebar. Holds the gradient brand
@@ -27,6 +29,7 @@ export default function Sidebar({
   scheduleCount,
   workerCount,
   activeWorkers,
+  onOpenSettings,
 }: Props) {
   const nav: { key: View; label: string; icon: typeof TasksIcon; count: number }[] = [
     { key: "tasks", label: "Tasks", icon: TasksIcon, count: taskCount },
@@ -77,8 +80,14 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Footer: theme toggle + version */}
+      {/* Footer: app settings (desktop shell) + theme toggle + version */}
       <div className="side-foot">
+        {onOpenSettings ? (
+          <button className="side-settings" onClick={onOpenSettings}>
+            <GearIcon />
+            <span>Settings</span>
+          </button>
+        ) : null}
         <button className="theme-toggle" onClick={onToggleTheme} aria-label="Toggle appearance">
           {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           <span>Appearance</span>
