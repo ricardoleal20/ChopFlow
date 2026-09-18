@@ -21,10 +21,10 @@ jobs:
         with:
           node-version: 20
       - name: Enable pnpm
-        run: corepack enable && corepack prepare pnpm@9 --activate
+        run: corepack enable && corepack prepare pnpm@11 --activate
       - name: Frontend deps
         working-directory: broker/ui
-        run: pnpm install --frozen-lockfile || pnpm install
+        run: pnpm install --no-frozen-lockfile
       - name: Build the CLI (bundled sidecar)
         run: cargo build --release -p chopflow
       - name: Stage the sidecar
