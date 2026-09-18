@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   appAddLocalToken,
   appGetLogs,
+  appPreviewWelcome,
   appRemoveLocalToken,
   appReset,
   appSetDataDir,
@@ -107,6 +108,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [confirming, setConfirming] = useState<{ kind: "revoke"; id: string } | null>(null);
   const [dirConfirm, setDirConfirm] = useState(false);
   const [dangerConfirm, setDangerConfirm] = useState(false);
+  const [previewConfirm, setPreviewConfirm] = useState(false);
 
   const loadLogs = useCallback(async () => {
     setLogs(await appGetLogs());
@@ -624,6 +626,33 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                       </Btn>
                     ) : null}
                   </div>
+                  {previewConfirm ? (
+                    <div className="sv-confirm">
+                      <span className="sv-confirm-msg">
+                        Show the first-run welcome? Nothing is deleted — “Continue” in the wizard
+                        brings you back here.
+                      </span>
+                      <Btn
+                        variant="primary"
+                        onClick={() => {
+                          void appPreviewWelcome().then(() => window.location.reload());
+                        }}
+                      >
+                        Show welcome
+                      </Btn>
+                      <Btn variant="ghost" onClick={() => setPreviewConfirm(false)}>
+                        Cancel
+                      </Btn>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="sv-add-link sv-preview-link"
+                      onClick={() => setPreviewConfirm(true)}
+                    >
+                      Preview first-run welcome
+                    </button>
+                  )}
                 </div>
               </div>
             </NeedsApp>

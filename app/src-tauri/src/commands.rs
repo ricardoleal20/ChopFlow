@@ -416,6 +416,16 @@ async fn restart_local_broker(state: &State<'_, SharedState>) -> Result<(), Stri
     Ok(())
 }
 
+/// Non-destructive preview of the first-run welcome: clears only the
+/// first_run_done flag so the frontend reloads into the same wizard a fresh
+/// install (or Delete-all) shows. Nothing is wiped; "Continue" in the wizard
+/// re-persists the flag.
+#[tauri::command]
+pub fn app_preview_welcome(state: State<'_, SharedState>) -> Result<(), String> {
+    state.with_store(|s| s.first_run_done = false);
+    state.persist()
+}
+
 #[tauri::command]
 pub fn app_reset(state: State<'_, SharedState>) -> Result<(), String> {
     state.supervisor.shutdown_blocking();

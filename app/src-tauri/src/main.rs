@@ -36,6 +36,7 @@ fn main() {
             commands::app_set_data_dir,
             commands::app_add_local_token,
             commands::app_remove_local_token,
+            commands::app_preview_welcome,
             commands::app_reset,
         ])
         .setup(|app| {

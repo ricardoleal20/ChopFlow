@@ -2351,6 +2351,14 @@ textarea.cf-input {
   gap: 6px;
   align-items: center;
 }
+.sv-preview-link {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sv-preview-link:hover {
+  color: var(--accent);
+}
 .sv-danger-final {
   font-weight: 700;
 }

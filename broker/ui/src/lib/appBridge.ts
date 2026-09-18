@@ -102,6 +102,12 @@ export async function appRemoveLocalToken(id: string): Promise<void> {
   return invoke("app_remove_local_token", { id });
 }
 
+/// Non-destructive first-run preview: clears the first-run flag so the app
+/// reloads into the Welcome wizard (nothing is wiped).
+export async function appPreviewWelcome(): Promise<void> {
+  return invoke("app_preview_welcome");
+}
+
 /// Destructive reset: wipe local data (connections + db) and restart first-run.
 export async function appReset(): Promise<void> {
   return invoke("app_reset");
