@@ -987,6 +987,12 @@ html:not(.dark) .welcome-shell {
   width: 20px;
   height: 20px;
 }
+.w-lang-icon img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+}
 .w-lang-icon:nth-child(1) {
 }
 .w-lang-body {
