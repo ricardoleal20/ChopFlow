@@ -432,12 +432,36 @@ impl Supervisor {
     }
 }
 
-/// `which chopflow` without a dependency: search PATH manually.
+/// `which chopflow` without a dependency: search PATH manually, then fall
+/// back to the bundled sidecar (Tauri renames `externalBin` next to the app
+/// with a `<name>-<triple>` suffix — inside a .app bundle that lands in
+/// Contents/Resources, not next to the executable).
 fn which_chopflow() -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join("chopflow"))
-        .find(|candidate| candidate.is_file())
+    if let Some(path) = std::env::var_os("PATH") {
+        if let Some(found) = std::env::split_paths(&path)
+            .map(|dir| dir.join("chopflow"))
+            .find(|candidate| candidate.is_file())
+        {
+            return Some(found);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let candidates = [
+        dir.join("chopflow"),
+        dir.join("chopflow.exe"),
+        dir.join("chopflow-aarch64-apple-darwin"),
+        dir.join("chopflow-x86_64-apple-darwin"),
+        dir.join("chopflow-universal-apple-darwin"),
+        dir.join("chopflow-aarch64-unknown-linux-gnu"),
+        dir.join("chopflow-x86_64-unknown-linux-gnu"),
+        dir.join("chopflow-x86_64-pc-windows-msvc.exe"),
+        // .app bundles put sidecars in Resources (not next to the binary).
+        dir.join("../Resources/chopflow-aarch64-apple-darwin"),
+        dir.join("../Resources/chopflow.x86_64-apple-darwin"),
+    ];
+    // De-reference (Resources is one level above the executable dir).
+    candidates.into_iter().find(|p| p.is_file())
 }
 
 /// Is anything listening on this localhost port?
