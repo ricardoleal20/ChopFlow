@@ -10,7 +10,7 @@ Deterministic, dependency-light (Pillow only) regeneration of:
   - every size Tauri's `icon` config lists (32..1024 PNGs, .icns via
     `iconutil`, .ico),
   - the menu bar item glyphs: Google Material Symbols (play_arrow / stop /
-    power_settings_new) rendered white-on-transparent at 8px for IconMenuItem.
+    power_settings_new) rendered white-on-transparent (16px canvas, glyph at 62%) for IconMenuItem.
 
 Run from the repo root:  uv run --with pillow python scripts/gen-app-icons.py
 """
@@ -103,7 +103,7 @@ def app_icon(size: int) -> Image.Image:
 
 # ---------------------------------------------------------------------------
 # Menu bar glyphs: Google Material Symbols (Rounded) rendered white-on-
-# transparent at 8px for the macOS IconMenuItems. The source SVGs live in
+# on a 16px canvas (glyph at 62% with padding) for the IconMenuItems. The source SVGs live in
 # app/src-tauri/icons/material/ (Copyright Google LLC, Apache-2.0).
 #
 # macOS has no Python-callable system SVG rasterizer, so we render via
@@ -114,8 +114,16 @@ def app_icon(size: int) -> Image.Image:
 MATERIAL_DIR = ICONS / "material"
 
 
-def material_glyph(svg_name: str, size: int = 8) -> Image.Image:
-    """Render icons/material/<svg_name> as a white-on-transparent icon."""
+# The menu cell renders the image at a fixed size: a smaller bitmap only gets
+# upscaled (blurrier, not smaller). To make the glyphs read smaller we keep a
+# 16px canvas and draw the glyph at GLYPH_RATIO with transparent padding.
+MENU_CANVAS = 16
+GLYPH_RATIO = 0.62
+
+
+def material_glyph(svg_name: str, size: int = 16) -> Image.Image:
+    """Render icons/material/<svg_name> as a white-on-transparent icon: a
+    `size`-px canvas with the glyph at GLYPH_RATIO and transparent padding."""
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(
             ["qlmanage", "-t", "-s", "512", "-o", tmp, str(MATERIAL_DIR / svg_name)],
@@ -128,20 +136,24 @@ def material_glyph(svg_name: str, size: int = 8) -> Image.Image:
     img.putalpha(alpha)
     img = img.crop(img.getchannel("A").getbbox())
     side = max(img.size)
-    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-    canvas.paste(img, ((side - img.width) // 2, (side - img.height) // 2), img)
-    return canvas.resize((size, size), Image.LANCZOS)
+    sq = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    sq.paste(img, ((side - img.width) // 2, (side - img.height) // 2), img)
+    target = round(size * GLYPH_RATIO)
+    small = sq.resize((target, target), Image.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.paste(small, ((size - target) // 2, (size - target) // 2), small)
+    return canvas
 
 
-def play_glyph(size: int = 8) -> Image.Image:
+def play_glyph(size: int = 16) -> Image.Image:
     return material_glyph("play_arrow.svg", size)
 
 
-def stop_glyph(size: int = 8) -> Image.Image:
+def stop_glyph(size: int = 16) -> Image.Image:
     return material_glyph("stop.svg", size)
 
 
-def power_glyph(size: int = 8) -> Image.Image:
+def power_glyph(size: int = 16) -> Image.Image:
     return material_glyph("power_settings_new.svg", size)
 
 
