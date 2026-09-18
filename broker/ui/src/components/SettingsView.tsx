@@ -45,16 +45,18 @@ const Btn = ({
   disabled,
   variant,
   type = "button",
+  className,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
-  variant?: "primary" | "ghost";
+  variant?: "primary" | "ghost" | "danger";
   type?: "button" | "submit";
+  className?: string;
 }) => (
   <button
     type={type}
-    className={`s-btn${variant === "primary" ? " s-btn-primary" : variant === "ghost" ? " s-btn-ghost" : ""}`}
+    className={`s-btn${variant === "primary" ? " s-btn-primary" : variant === "ghost" ? " s-btn-ghost" : variant === "danger" ? " s-btn-danger" : ""}${className ? ` ${className}` : ""}`}
     onClick={onClick}
     disabled={disabled}
   >
@@ -98,6 +100,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [tokValue, setTokValue] = useState("");
   const [tokBusy, setTokBusy] = useState(false);
   const [justCreated, setJustCreated] = useState<LocalTokenCreated | null>(null);
+  const [copied, setCopied] = useState(false);
   // Two-step confirmations. window.confirm is unsupported in the Tauri
   // webview (it silently returns false), so destructive actions confirm
   // inline instead.
@@ -388,11 +391,34 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                   <div className="sv-token-once-actions">
                     <Btn
                       variant="primary"
+                      className={copied ? "sv-copied" : ""}
                       onClick={() => {
-                        void navigator.clipboard?.writeText(justCreated.token);
+                        void navigator.clipboard?.writeText(justCreated.token).then(() => {
+                          setCopied(true);
+                          window.setTimeout(() => setCopied(false), 1400);
+                        });
                       }}
                     >
-                      Copy token
+                      {copied ? (
+                        <>
+                          <svg
+                            viewBox="0 0 24 24"
+                            width={13}
+                            height={13}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={3}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                          Copied!
+                        </>
+                      ) : (
+                        "Copy token"
+                      )}
                     </Btn>
                     <Btn
                       variant="ghost"
@@ -443,6 +469,7 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                     broker restarts without it.
                   </span>
                   <Btn
+                    variant="danger"
                     disabled={tokBusy}
                     onClick={() => {
                       setTokBusy(true);

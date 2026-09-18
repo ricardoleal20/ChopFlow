@@ -2262,6 +2262,16 @@ textarea.cf-input {
   gap: 6px;
   margin-top: 10px;
 }
+.sv-token-once-actions .s-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sv-token-once-actions .s-btn.sv-copied {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
 .s-add-stack {
   flex-wrap: wrap;
   margin-top: 12px;
