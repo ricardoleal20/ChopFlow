@@ -2276,6 +2276,42 @@ textarea.cf-input {
   opacity: 0.6;
   cursor: default;
 }
+.sv-danger-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--danger) 10%, transparent),
+      color-mix(in srgb, var(--danger) 3%, transparent)
+    ),
+    var(--surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.sv-danger-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--danger-fg);
+}
+.sv-danger-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--danger-fg);
+  letter-spacing: 0.01em;
+}
+.sv-danger-desc {
+  margin: 6px 0 12px;
+  max-width: 52ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
 
 .s-sec {
   padding: 14px 0 22px;

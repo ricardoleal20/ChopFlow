@@ -77,6 +77,12 @@ export async function appGetLogs(): Promise<string[]> {
   return invoke("app_get_logs");
 }
 
+/// Move the app's data (connections + broker db) to a new folder. The app
+/// reloads afterwards; the broker restarts against the new database.
+export async function appSetDataDir(path: string): Promise<string> {
+  return invoke("app_set_data_dir", { path });
+}
+
 /// Destructive reset: wipe local data (connections + db) and restart first-run.
 export async function appReset(): Promise<void> {
   return invoke("app_reset");

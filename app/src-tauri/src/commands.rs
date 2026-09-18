@@ -15,8 +15,15 @@ use crate::supervisor::{Supervisor, LOCAL_HTTP_PORT};
 pub struct SharedState {
     pub store: std::sync::Mutex<ConnectionStore>,
     pub supervisor: std::sync::Arc<Supervisor>,
-    pub data_dir: std::path::PathBuf,
+    /// The Tauri-resolved app-data dir (always the OS default). The data-dir
+    /// override pointer lives here so it survives moves of the data itself.
+    pub default_data_dir: std::path::PathBuf,
+    /// Where the app actually keeps its data today (default or user-chosen).
+    pub data_dir: std::sync::Mutex<std::path::PathBuf>,
 }
+
+/// File (in the DEFAULT app-data dir) holding the user-chosen data dir.
+pub const DATA_DIR_OVERRIDE: &str = "data-dir.txt";
 
 impl SharedState {
     pub(crate) fn with_store<R>(&self, f: impl FnOnce(&mut ConnectionStore) -> R) -> R {
@@ -24,9 +31,27 @@ impl SharedState {
         f(&mut store)
     }
 
+    /// Resolve the data dir at startup: the OS default, or the user-chosen
+    /// dir when a valid override pointer exists.
+    pub fn resolve_data_dir(default: std::path::PathBuf) -> std::path::PathBuf {
+        let raw = std::fs::read_to_string(default.join(DATA_DIR_OVERRIDE))
+            .unwrap_or_default();
+        let candidate = std::path::PathBuf::from(raw.trim());
+        if candidate.is_absolute() && candidate.is_dir() {
+            candidate
+        } else {
+            default
+        }
+    }
+
+    /// Current data dir (default or overridden).
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        self.data_dir.lock().unwrap().clone()
+    }
+
     pub(crate) fn persist(&self) -> Result<(), String> {
         let snapshot = self.store.lock().unwrap().clone();
-        snapshot.save(&self.data_dir)
+        snapshot.save(&self.data_dir())
     }
 
     /// HTTP base of the active connection ("local" or a remote name).
@@ -116,6 +141,7 @@ pub async fn app_get_state(
         None => None,
     };
     let _ = app; // reserved for future event emission
+    let data_dir = state.data_dir();
     Ok(AppStateDto {
         first_run_done,
         remotes,
@@ -126,10 +152,64 @@ pub async fn app_get_state(
         mcp_url,
         chopflow_binary,
         chopflow_version,
-        data_dir: state.data_dir.display().to_string(),
-        db_path: state.data_dir.join("chopflow.db").display().to_string(),
+        data_dir: data_dir.display().to_string(),
+        db_path: data_dir.join("chopflow.db").display().to_string(),
         local_grpc_port: grpc_port,
     })
+}
+
+/// Move the app's data (connections store + broker database) to a new folder.
+/// Stops the managed children, moves the files, records the override pointer
+/// (in the OS-default app-data dir, so it survives the move), and points the
+/// app at the new dir. The frontend reloads afterwards, which restarts the
+/// local broker against the new database.
+#[tauri::command]
+pub fn app_set_data_dir(state: State<'_, SharedState>, path: String) -> Result<String, String> {
+    let new_dir = std::path::PathBuf::from(path.trim());
+    if !new_dir.is_absolute() {
+        return Err("the data folder must be an absolute path".into());
+    }
+    std::fs::create_dir_all(&new_dir).map_err(|e| format!("create {new_dir:?}: {e}"))?;
+
+    let old_dir = state.data_dir();
+    if old_dir == new_dir {
+        return Ok(old_dir.display().to_string());
+    }
+
+    // Stop the broker before touching its database.
+    state.supervisor.shutdown_blocking();
+
+    for f in [
+        "connections.json",
+        "connections.json.tmp",
+        "chopflow.db",
+        "chopflow.db-shm",
+        "chopflow.db-wal",
+    ] {
+        let from = old_dir.join(f);
+        let to = new_dir.join(f);
+        if from.exists() {
+            move_file(&from, &to).map_err(|e| format!("move {f}: {e}"))?;
+        }
+    }
+
+    // Record the override in the OS-default dir and switch over.
+    std::fs::write(
+        state.default_data_dir.join(DATA_DIR_OVERRIDE),
+        new_dir.display().to_string(),
+    )
+    .map_err(|e| format!("write data-dir override: {e}"))?;
+    *state.data_dir.lock().unwrap() = new_dir.clone();
+    Ok(new_dir.display().to_string())
+}
+
+/// rename with a copy fallback (the two dirs may live on different volumes).
+fn move_file(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    if std::fs::rename(from, to).is_err() {
+        std::fs::copy(from, to).map_err(|e| e.to_string())?;
+        std::fs::remove_file(from).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -190,7 +270,7 @@ pub async fn app_start_local(
     app: AppHandle,
     state: State<'_, SharedState>,
 ) -> Result<crate::supervisor::LocalBrokerStatus, String> {
-    let data_dir = state.data_dir.clone();
+    let data_dir = state.data_dir();
     let supervisor = state.supervisor.clone();
     let status = supervisor
         .ensure_started(data_dir, std::process::id())
@@ -243,8 +323,8 @@ pub async fn app_get_logs(state: State<'_, SharedState>) -> Result<Vec<String>, 
 }
 
 /// Destructive: stop managed children, wipe every local data file
-/// (connections.json + chopflow.db + prisma-wal), and return to a pristine
-/// first-run state. The frontend reloads after invoking.
+/// (connections.json + chopflow.db + wal), clear the data-dir override, and
+/// return to a pristine first-run state. The frontend reloads after invoking.
 #[tauri::command]
 pub fn app_reset(state: State<'_, SharedState>) -> Result<(), String> {
     state.supervisor.shutdown_blocking();
@@ -255,7 +335,10 @@ pub fn app_reset(state: State<'_, SharedState>) -> Result<(), String> {
         "chopflow.db-shm",
         "chopflow.db-wal",
     ] {
-        let _ = std::fs::remove_file(state.data_dir.join(f));
+        let _ = std::fs::remove_file(state.data_dir().join(f));
     }
+    // Back to the OS-default data dir for the fresh first run.
+    let _ = std::fs::remove_file(state.default_data_dir.join(DATA_DIR_OVERRIDE));
+    *state.data_dir.lock().unwrap() = state.default_data_dir.clone();
     Ok(())
 }

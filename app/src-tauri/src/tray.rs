@@ -269,7 +269,7 @@ fn handle_tray_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         "local-start" => {
             let app2 = app.clone();
             let state = app.state::<SharedState>();
-            let dir = state.data_dir.clone();
+            let dir = state.data_dir();
             let sup = state.supervisor.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = sup.ensure_started(dir, std::process::id()).await;

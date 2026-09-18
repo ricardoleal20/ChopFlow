@@ -33,6 +33,7 @@ fn main() {
             commands::app_set_mcp,
             commands::app_complete_first_run,
             commands::app_get_logs,
+            commands::app_set_data_dir,
             commands::app_reset,
         ])
         .setup(|app| {
@@ -42,18 +43,22 @@ fn main() {
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
-            // App-data dir (~/Library/Application Support/io.chopflow.ops).
-            let data_dir = app
+            // App-data dir (~/Library/Application Support/io.chopflow.ops),
+            // or the user-chosen dir when a valid override pointer exists.
+            let default_data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("app data dir must resolve");
+            std::fs::create_dir_all(&default_data_dir).ok();
+            let data_dir = commands::SharedState::resolve_data_dir(default_data_dir.clone());
             std::fs::create_dir_all(&data_dir).ok();
 
             let store = connections::ConnectionStore::load(&data_dir);
             app.manage(commands::SharedState {
                 store: std::sync::Mutex::new(store),
                 supervisor: std::sync::Arc::new(supervisor::Supervisor::new()),
-                data_dir,
+                default_data_dir,
+                data_dir: std::sync::Mutex::new(data_dir),
             });
 
             // Menu bar presence. Failure is non-fatal: the app still works

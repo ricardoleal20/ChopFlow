@@ -3,10 +3,10 @@
 
 Deterministic, dependency-light (Pillow only) regeneration of:
 
-  - the macOS app icon: an indigo (#605DFF) squircle tile (corner radius
-    0.2237x, the macOS Big Sur+ canonical rounding) carrying the white
-    Shepherd mark at a restrained scale (85% of the first cut, which filled
-    ~90% of the tile and read oversized in the Dock),
+  - the macOS app icon: the whole icon (tile + background) at 85% of the
+    canvas with squircle corners (0.2237x, the macOS Big Sur+ canonical
+    rounding), a subtle near-black gradient tile (dark-app style), and the
+    white Shepherd mark,
   - every size Tauri's `icon` config lists (32..1024 PNGs, .icns via
     `iconutil`, .ico),
   - the menu bar item glyphs (play / stop / power) as SF-Symbols-style
@@ -28,11 +28,15 @@ from PIL import Image, ImageDraw
 REPO = Path(__file__).resolve().parent.parent
 ICONS = REPO / "app" / "src-auri" / "icons"
 
-TILE = (96, 93, 255, 255)  # #605DFF indigo
 WHITE = (255, 255, 255, 255)
 CORNER_RATIO = 0.2237  # macOS canonical squircle rounding
-MARK_SCALE = 0.85  # vs. the first cut (mark height ~89.6% of the tile)
 SS = 4  # supersampling factor for smooth edges
+# The whole icon (background tile included) is drawn at 85% of the canvas so
+# it does not read oversized next to other apps in the Dock; the tile is a
+# subtle near-black vertical gradient (dark-app style), not a full-bleed fill.
+ICON_SCALE = 0.85
+GRAD_TOP = (42, 42, 48)  # #2A2A30
+GRAD_BOT = (11, 11, 14)  # #0B0B0E
 
 # The canonical ChopFlow Shepherd mark (assets/icons/chopflow.svg), white-only
 # polygon paths — the same geometry Welcome.tsx renders inside the brand tile.
@@ -65,17 +69,28 @@ def app_icon(size: int) -> Image.Image:
     """Squircle tile + white Shepherd mark, supersampled then downscaled."""
     big = size * SS
     img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+
+    # Tile: 85% of the canvas, centered, near-black vertical gradient masked
+    # into the squircle.
+    tile = int(big * ICON_SCALE)
+    off = (big - tile) // 2
+    grad = Image.new("RGBA", (tile, tile))
+    gd = ImageDraw.Draw(grad)
+    for y in range(tile):
+        t = y / max(1, tile - 1)
+        c = tuple(round(GRAD_TOP[i] + (GRAD_BOT[i] - GRAD_TOP[i]) * t) for i in range(3)) + (255,)
+        gd.line([(0, y), (tile - 1, y)], fill=c)
+    mask = Image.new("L", (tile, tile), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, tile - 1, tile - 1), radius=CORNER_RATIO * tile, fill=255
+    )
+    img.paste(grad, (off, off), mask)
+
+    # White mark, same proportion of the tile as the first cut.
     d = ImageDraw.Draw(img)
-
-    radius = CORNER_RATIO * big
-    d.rounded_rectangle((0, 0, big - 1, big - 1), radius=radius, fill=TILE)
-
-    # Scale the mark so its content height is MARK_SCALE of the first cut,
-    # centered on the tile.
     bx0, by0, bx1, by1 = mark_bbox()
-    native_h = by1 - by0
-    target_h = FIRST_CUT_MARK_HEIGHT * MARK_SCALE * big
-    scale = target_h / native_h
+    target_h = FIRST_CUT_MARK_HEIGHT * tile
+    scale = target_h / (by1 - by0)
     cx = cy = big / 2
     mx = (bx0 + bx1) / 2
     my = (by0 + by1) / 2

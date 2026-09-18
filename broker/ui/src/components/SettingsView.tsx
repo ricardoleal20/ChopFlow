@@ -7,7 +7,7 @@
 // (where app-managed sections show a desktop-only notice).
 
 import { useCallback, useEffect, useState } from "react";
-import { appGetLogs, appReset, appSetMcp, type AppState } from "../lib/appBridge";
+import { appGetLogs, appReset, appSetDataDir, appSetMcp, type AppState } from "../lib/appBridge";
 import type { useAppTauri } from "../hooks/useAppTauri";
 
 type Shell = ReturnType<typeof useAppTauri>;
@@ -79,6 +79,9 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
   const [mcpBusy, setMcpBusy] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [logsTouched, setLogsTouched] = useState(false);
+  const [dirEdit, setDirEdit] = useState(false);
+  const [dirPath, setDirPath] = useState("");
+  const [dirBusy, setDirBusy] = useState(false);
 
   const loadLogs = useCallback(async () => {
     setLogs(await appGetLogs());
@@ -152,6 +155,77 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
             <h3>Storage &amp; local broker</h3>
             <NeedsApp shell={shell}>
               <Row label="Data folder" value={state?.data_dir ?? "…"} />
+              {dirEdit ? (
+                <form
+                  className="s-add"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!dirPath.trim() || dirBusy) return;
+                    if (
+                      !window.confirm(
+                        `Move all ChopFlow data to:\n${dirPath.trim()}\n\nThe local broker stops, the data moves, and the app reloads.`,
+                      )
+                    )
+                      return;
+                    setDirBusy(true);
+                    void appSetDataDir(dirPath.trim())
+                      .then(() => window.location.reload())
+                      .catch((err: unknown) => {
+                        window.alert(String(err));
+                        setDirBusy(false);
+                      });
+                  }}
+                >
+                  <input
+                    className="s-in s-monow"
+                    placeholder="/absolute/path/to/folder"
+                    value={dirPath}
+                    onChange={(e) => setDirPath(e.target.value)}
+                    aria-label="New data folder"
+                    autoFocus
+                  />
+                  <Btn variant="primary" disabled={!dirPath.trim() || dirBusy}>
+                    Move data
+                  </Btn>
+                  <Btn
+                    variant="ghost"
+                    onClick={() => {
+                      setDirEdit(false);
+                      setDirPath("");
+                    }}
+                  >
+                    Cancel
+                  </Btn>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="sv-add-link"
+                  onClick={() => {
+                    setDirPath(state?.data_dir ?? "");
+                    setDirEdit(true);
+                  }}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={13}
+                    height={13}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                  Change data folder
+                </button>
+              )}
+              <p className="s-hint">
+                Connections, tokens, and the local broker database live here. Changing it moves
+                everything and restarts the broker.
+              </p>
               <Row label="Database" value={state?.db_path ?? "…"} />
               <Row
                 label="Local ports"
@@ -265,6 +339,26 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
                   here.
                 </p>
               ) : null}
+              <hr className="s-hbar" />
+              <button
+                type="button"
+                className="s-btn s-btn-danger"
+                disabled={mcpBusy || !state?.mcp_enabled}
+                onClick={() => {
+                  setMcpBusy(true);
+                  void appSetMcp(false)
+                    .then(() => window.location.reload())
+                    .catch((err: unknown) => {
+                      window.alert(String(err));
+                      setMcpBusy(false);
+                    });
+                }}
+              >
+                Remove MCP gateway
+              </button>
+              <p className="s-hint">
+                Stops the gateway and clears its configuration — nothing stays behind.
+              </p>
             </NeedsApp>
           </section>
         ) : tab === "logs" ? (
@@ -283,28 +377,48 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
             </NeedsApp>
           </section>
         ) : (
-          <section className="s-sec s-danger">
+          <section className="s-sec">
             <h3>Danger zone</h3>
             <NeedsApp shell={shell}>
-              <button
-                type="button"
-                className="s-btn s-btn-danger"
-                onClick={async () => {
-                  if (
-                    window.confirm(
-                      "Delete ALL ChopFlow local information?\n\nThis removes your connections and the local database, then restarts the app fresh.",
-                    )
-                  ) {
-                    await appReset();
-                    window.location.reload();
-                  }
-                }}
-              >
-                Delete all local information
-              </button>
-              <p className="s-hint">
-                Wipes connections, tokens, and chopflow.db — back to first run.
-              </p>
+              <div className="sv-danger-card">
+                <svg
+                  className="sv-danger-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                  <path d="M12 9v4M12 17h.01" />
+                </svg>
+                <div className="sv-danger-body">
+                  <div className="sv-danger-title">Delete all local information</div>
+                  <p className="sv-danger-desc">
+                    Permanently wipes every connection and token, the local broker database, and the
+                    data-folder override — then restarts the app as a fresh first run. This cannot
+                    be undone.
+                  </p>
+                  <button
+                    type="button"
+                    className="s-btn s-btn-danger"
+                    onClick={async () => {
+                      if (
+                        window.confirm(
+                          "Delete ALL ChopFlow local information?\n\nThis removes your connections and the local database, then restarts the app fresh. This cannot be undone.",
+                        )
+                      ) {
+                        await appReset();
+                        window.location.reload();
+                      }
+                    }}
+                  >
+                    Delete everything
+                  </button>
+                </div>
+              </div>
             </NeedsApp>
           </section>
         )}
