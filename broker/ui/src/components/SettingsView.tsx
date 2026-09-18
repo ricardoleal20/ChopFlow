@@ -136,6 +136,52 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
         ? `failed — ${shell.local.reason}`
         : "stopped";
 
+  const secOn = (state?.local_tokens.length ?? 0) > 0;
+  const mcpAccessOn = Boolean(state?.mcp_access_token);
+
+  // Settings-level protect toggles (mirror the wizard's asks).
+  const toggleSec = async () => {
+    if (secOn) {
+      // Turning protection off clears every token so the broker runs open.
+      for (const id of state?.local_tokens ?? []) {
+        try {
+          await appRemoveLocalToken(id);
+        } catch {
+          /* best effort */
+        }
+      }
+      setJustCreated(null);
+      await shell.reloadState();
+    } else {
+      // Turning protection on with no token creates the first one (default).
+      const value = `chopflow-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+      setTokBusy(true);
+      try {
+        const created = await appAddLocalToken("default", value);
+        setJustCreated(created);
+        await shell.reloadState();
+      } finally {
+        setTokBusy(false);
+      }
+    }
+  };
+
+  const toggleMcpAccess = async () => {
+    setMcpTokBusy(true);
+    try {
+      if (mcpAccessOn) {
+        await appSetMcpAccessToken(null);
+      } else {
+        const fresh = `chopflow-mcp-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+        const kept = await appSetMcpAccessToken(fresh);
+        setMcpJustSet(kept);
+      }
+      await shell.reloadState();
+    } finally {
+      setMcpTokBusy(false);
+    }
+  };
+
   const submitRemote = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !url.trim()) return;
@@ -399,6 +445,26 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
               ) : null}
 
               <h3 style={{ marginTop: 18 }}>Access token</h3>
+              <div className="s-mcp">
+                <label className="s-toggle">
+                  <input
+                    type="checkbox"
+                    checked={mcpAccessOn}
+                    disabled={mcpTokBusy}
+                    onChange={() => void toggleMcpAccess()}
+                  />
+                  <span />
+                </label>
+                <span>
+                  {mcpAccessOn
+                    ? "Requires token to connect"
+                    : "Open — anyone that connects can use it"}
+                </span>
+              </div>
+              <p className="s-hint" style={{ marginBottom: 10 }}>
+                Protect the MCP endpoint with its own token (independent from the broker's). Toggle
+                on to generate one; clients must send it as Authorization: Bearer.
+              </p>
               {mcpJustSet ? (
                 <div className="sv-token-once" role="status">
                   <div className="sv-token-once-title">MCP access token — shown once</div>
@@ -521,6 +587,24 @@ export default function SettingsView({ shell, tab, onTab, onBack }: Props) {
           <section className="s-sec">
             <h3>Local broker tokens</h3>
             <NeedsApp shell={shell}>
+              <div className="s-mcp">
+                <label className="s-toggle">
+                  <input
+                    type="checkbox"
+                    checked={secOn}
+                    disabled={tokBusy}
+                    onChange={() => void toggleSec()}
+                  />
+                  <span />
+                </label>
+                <span>
+                  {secOn ? "Secured — a token is required to connect" : "Open — anyone can connect"}
+                </span>
+              </div>
+              <p className="s-hint" style={{ marginBottom: 10 }}>
+                Turn the toggle to protect the broker with labelled tokens, or leave it open.
+                Protection and tokens can be changed any time.
+              </p>
               {justCreated ? (
                 <div className="sv-token-once" role="status">
                   <div className="sv-token-once-title">
