@@ -27,10 +27,6 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Build the CLI (bundled sidecar)
         run: cargo build --release -p chopflow
-      - name: Stage the sidecar
-        run: |
-          mkdir -p app/src-tauri/bin
-          cp target/release/chopflow app/src-tauri/bin/chopflow
       - name: Build the frontend
         working-directory: broker/ui
         run: pnpm build

@@ -459,6 +459,9 @@ fn which_chopflow() -> Option<PathBuf> {
         // .app bundles put sidecars in Resources (not next to the binary).
         dir.join("../Resources/chopflow-aarch64-apple-darwin"),
         dir.join("../Resources/chopflow.x86_64-apple-darwin"),
+        // LaunchPackaging helper the release script injects alongside, so the
+        // packaged app is self-contained even without a tauri externalBin.
+        dir.join("../Resources/chopflow"),
     ];
     // De-reference (Resources is one level above the executable dir).
     candidates.into_iter().find(|p| p.is_file())
