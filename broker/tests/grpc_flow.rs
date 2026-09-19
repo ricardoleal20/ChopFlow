@@ -8,7 +8,8 @@
 
 use chopflow_broker::chopflow::{
     self, chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, CancelTaskRequest,
-    EnqueueTaskRequest, FetchTasksRequest, GetTaskStatusRequest, RegisterWorkerRequest,
+    EnqueueTaskRequest, FetchTasksRequest, GetCheckpointsRequest, GetTaskStatusRequest,
+    RegisterWorkerRequest, ResourceSpec, SaveCheckpointRequest,
 };
 use chopflow_broker::{build_storage, ChopFlowBrokerService, StorageBackend};
 use std::time::Duration;
@@ -36,7 +37,15 @@ async fn register_worker(client: &mut ChopFlowBrokerClient<tonic::transport::Cha
         .register_worker(Request::new(RegisterWorkerRequest {
             address: "127.0.0.1".into(),
             tags: vec!["default".into()],
-            resources: [("cpu".into(), 4)].into(),
+            resources: [(
+                "cpu".into(),
+                ResourceSpec {
+                    capacity: 4,
+                    refill_amount: 0,
+                    refill_period_secs: 0,
+                },
+            )]
+            .into(),
         }))
         .await
         .unwrap();
@@ -57,6 +66,8 @@ async fn enqueue(
             max_retries,
             resources: Default::default(),
             priority: 0,
+            stages: Vec::new(),
+            idempotency_key: String::new(),
         }))
         .await
         .unwrap();
@@ -208,4 +219,141 @@ async fn queued_task_dispatches_when_worker_joins_later() {
         .into_inner();
     assert_eq!(fetched.tasks.len(), 1);
     assert_eq!(fetched.tasks[0].id, task_id);
+}
+
+#[tokio::test]
+async fn checkpoint_save_and_fetch_roundtrip_in_order() {
+    let mut client = setup().await;
+    let task_id = enqueue(&mut client, "pipeline", 0).await;
+
+    // No checkpoints yet.
+    let cps = client
+        .get_checkpoints(Request::new(GetCheckpointsRequest {
+            task_id: task_id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(cps.checkpoints.is_empty());
+
+    // Save two stages in order. recorded_at has millisecond resolution and
+    // the store orders by recorded_at, so stage the saves apart.
+    for (stage, payload) in [("chunk", r#"{"chunks":3}"#), ("embed", r#"{"next":3}"#)] {
+        client
+            .save_checkpoint(Request::new(SaveCheckpointRequest {
+                task_id: task_id.clone(),
+                stage: stage.into(),
+                payload: payload.into(),
+            }))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    // Upserting the first stage overwrites its payload and refreshes its
+    // recorded_at, so it reorders to the end (listing is recorded_at order).
+    client
+        .save_checkpoint(Request::new(SaveCheckpointRequest {
+            task_id: task_id.clone(),
+            stage: "chunk".into(),
+            payload: r#"{"chunks":4}"#.into(),
+        }))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let cps = client
+        .get_checkpoints(Request::new(GetCheckpointsRequest {
+            task_id: task_id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(cps.checkpoints.len(), 2);
+    assert_eq!(cps.checkpoints[0].task_id, task_id);
+    assert_eq!(cps.checkpoints[0].stage, "embed");
+    assert_eq!(cps.checkpoints[1].stage, "chunk");
+    assert_eq!(cps.checkpoints[1].payload, r#"{"chunks":4}"#);
+    // recorded_at is an RFC 3339 timestamp string.
+    assert!(!cps.checkpoints[0].recorded_at.is_empty());
+    assert!(cps.checkpoints[0].recorded_at <= cps.checkpoints[1].recorded_at);
+}
+
+#[tokio::test]
+async fn checkpoint_for_unknown_task_errors() {
+    let mut client = setup().await;
+
+    let err = client
+        .save_checkpoint(Request::new(SaveCheckpointRequest {
+            task_id: "00000000-0000-0000-0000-000000000000".into(),
+            stage: "chunk".into(),
+            payload: "{}".into(),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::NotFound);
+
+    let err = client
+        .get_checkpoints(Request::new(GetCheckpointsRequest {
+            task_id: "00000000-0000-0000-0000-000000000000".into(),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::NotFound);
+
+    // Malformed task id -> invalid argument, not a lookup.
+    let err = client
+        .get_checkpoints(Request::new(GetCheckpointsRequest {
+            task_id: "not-a-uuid".into(),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn worker_registers_with_replenishing_resource_spec() {
+    let mut client = setup().await;
+
+    // `llm.rpm: 10@10/60` (capacity 10, refills 10 per 60s) plus a static cpu.
+    let resp = client
+        .register_worker(Request::new(RegisterWorkerRequest {
+            address: "127.0.0.1".into(),
+            tags: vec!["default".into()],
+            resources: [
+                (
+                    "cpu".into(),
+                    ResourceSpec {
+                        capacity: 4,
+                        refill_amount: 0,
+                        refill_period_secs: 0,
+                    },
+                ),
+                (
+                    "llm.rpm".into(),
+                    ResourceSpec {
+                        capacity: 10,
+                        refill_amount: 10,
+                        refill_period_secs: 60,
+                    },
+                ),
+            ]
+            .into(),
+        }))
+        .await
+        .unwrap();
+    assert!(!resp.into_inner().worker_id.is_empty());
+
+    // ListWorkers shows the declared availability (bucket starts full).
+    let workers = client
+        .list_workers(Request::new(()))
+        .await
+        .unwrap()
+        .into_inner()
+        .workers;
+    assert_eq!(workers.len(), 1);
+    let resources = workers[0].resources.as_ref().unwrap();
+    assert_eq!(resources.available.get("cpu"), Some(&4));
+    assert_eq!(resources.available.get("llm.rpm"), Some(&10));
+    assert_eq!(resources.total.get("llm.rpm"), Some(&10));
 }

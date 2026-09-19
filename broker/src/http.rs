@@ -9,8 +9,10 @@ visible to gRPC workers (and vice versa) because both read the same storage.
 ## Endpoints
 - `GET  /api/stats`            — queue length, processing/completed/failed counts, active workers
 - `GET  /api/tasks`            — list tasks (`?status=&limit=&offset=`)
-- `GET  /api/tasks/:id`        — single task
-- `POST /api/tasks`            — enqueue a task
+- `GET  /api/tasks/:id`        — single task, including its pipeline checkpoints
+- `POST /api/tasks`            — enqueue a task (optional `stages` / `idempotency_key`;
+                                 a same-key resubmit returns the existing task with
+                                 `deduplicated: true`)
 - `POST /api/tasks/:id/cancel` — cancel a non-terminal task
 - `GET  /api/workers`          — registered workers + liveness
 - `GET  /api/environments`     — this broker's identity + the read-only fleet catalog
@@ -65,6 +67,38 @@ struct TaskDto {
     resources: HashMap<String, u32>,
     result: Option<String>,
     schedule_id: Option<String>,
+    /// Declared pipeline stages. Omitted when the task declares none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stages: Option<Vec<String>>,
+    /// Submit-time idempotency key. Omitted when none was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idempotency_key: Option<String>,
+    /// Recorded pipeline checkpoints (`recorded_at` order). Only populated by
+    /// the single-task `GET /api/tasks/:id` (listing stays cheap); omitted
+    /// when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    checkpoints: Vec<CheckpointDto>,
+}
+
+/// A recorded pipeline-stage completion, as served with a single task.
+#[derive(Debug, Serialize)]
+struct CheckpointDto {
+    task_id: String,
+    stage: String,
+    payload: String,
+    /// Unix epoch milliseconds (same convention as `enqueue_time`).
+    recorded_at: i64,
+}
+
+impl From<chopflow_core::Checkpoint> for CheckpointDto {
+    fn from(c: chopflow_core::Checkpoint) -> Self {
+        Self {
+            task_id: c.task_id.to_string(),
+            stage: c.stage,
+            payload: c.payload,
+            recorded_at: c.recorded_at.timestamp_millis(),
+        }
+    }
 }
 
 impl From<Task> for TaskDto {
@@ -83,6 +117,9 @@ impl From<Task> for TaskDto {
             resources: t.resources,
             result: t.result,
             schedule_id: t.schedule_id.map(|u| u.to_string()),
+            stages: t.stages,
+            idempotency_key: t.idempotency_key,
+            checkpoints: Vec::new(),
         }
     }
 }
@@ -161,11 +198,22 @@ struct EnqueueBody {
     resources: HashMap<String, u32>,
     #[serde(default)]
     priority: i32,
+    /// Declared pipeline stages (durable pipelines). Empty = plain task.
+    #[serde(default)]
+    stages: Vec<String>,
+    /// Submit-time idempotency key. When present, a task already stored with
+    /// the same key is returned instead of creating a new one.
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct EnqueueResponse {
     task_id: String,
+    /// True when an existing task with the same idempotency key was returned
+    /// instead of creating a new one. Omitted on a fresh create.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    deduplicated: bool,
 }
 
 /// Body for `POST /api/tasks/batch` — enqueue many tasks in a single request,
@@ -190,6 +238,12 @@ fn build_task(body: EnqueueBody) -> Task {
     }
     for (resource, amount) in body.resources {
         task = task.with_resource(resource, amount);
+    }
+    if !body.stages.is_empty() {
+        task = task.with_stages(body.stages);
+    }
+    if let Some(key) = body.idempotency_key.filter(|k| !k.is_empty()) {
+        task = task.with_idempotency_key(key);
     }
     task = task.with_priority(body.priority);
     task.status = TaskStatus::Queued;
@@ -550,13 +604,58 @@ async fn get_task(
         .await
         .map_err(internal)?
         .ok_or_else(|| not_found(&format!("Task not found: {id}")))?;
-    Ok(Json(TaskDto::from(task)))
+    let mut dto = TaskDto::from(task);
+    // Only the single-task view pays for the checkpoint read; the list
+    // endpoint stays cheap.
+    dto.checkpoints = state
+        .storage
+        .checkpoints(&uuid)
+        .await
+        .map_err(internal)?
+        .into_iter()
+        .map(CheckpointDto::from)
+        .collect();
+    Ok(Json(dto))
 }
 
 async fn enqueue(
     State(state): SharedState,
     Json(body): Json<EnqueueBody>,
 ) -> Result<(StatusCode, Json<EnqueueResponse>), ApiError> {
+    // Idempotent submit: when a key is given, the lookup + insert pair runs
+    // under the broker-wide submit lock (the storage locks per operation, not
+    // across the pair), so two concurrent submits with the same key resolve
+    // to a single created task. A task already stored with the key (any
+    // status) is returned as-is with `deduplicated: true` and 200 OK instead
+    // of 201 Created.
+    if let Some(key) = body.idempotency_key.clone().filter(|k| !k.is_empty()) {
+        let _guard = state.submit_lock.lock().await;
+        if let Some(existing) = state
+            .storage
+            .task_by_idempotency_key(&key)
+            .await
+            .map_err(internal)?
+        {
+            return Ok((
+                StatusCode::OK,
+                Json(EnqueueResponse {
+                    task_id: existing.id.to_string(),
+                    deduplicated: true,
+                }),
+            ));
+        }
+        let task = build_task(body);
+        let task_id = task.id;
+        state.storage.insert(task).await.map_err(internal)?;
+        return Ok((
+            StatusCode::CREATED,
+            Json(EnqueueResponse {
+                task_id: task_id.to_string(),
+                deduplicated: false,
+            }),
+        ));
+    }
+
     let task = build_task(body);
     let task_id = task.id;
     state.storage.insert(task).await.map_err(internal)?;
@@ -565,6 +664,7 @@ async fn enqueue(
         StatusCode::CREATED,
         Json(EnqueueResponse {
             task_id: task_id.to_string(),
+            deduplicated: false,
         }),
     ))
 }

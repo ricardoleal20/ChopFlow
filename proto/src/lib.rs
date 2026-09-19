@@ -21,8 +21,8 @@ pub mod chopflow {
 }
 
 use chopflow::{
-    ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask,
-    TaskStatus as ProtoTaskStatus, Worker as ProtoWorker,
+    Checkpoint as ProtoCheckpoint, ResourceAvailability as ProtoResourceAvailability,
+    Task as ProtoTask, TaskStatus as ProtoTaskStatus, Worker as ProtoWorker,
 };
 use chopflow_core::dispatcher::Worker;
 use chopflow_core::task::{Task, TaskStatus};
@@ -58,6 +58,19 @@ impl From<Task> for ProtoTask {
             result: task.result.unwrap_or_default(),
             schedule_id: task.schedule_id.map(|u| u.to_string()).unwrap_or_default(),
             priority: task.priority,
+            stages: task.stages.unwrap_or_default(),
+            idempotency_key: task.idempotency_key.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<chopflow_core::Checkpoint> for ProtoCheckpoint {
+    fn from(c: chopflow_core::Checkpoint) -> Self {
+        ProtoCheckpoint {
+            task_id: c.task_id.to_string(),
+            stage: c.stage,
+            payload: c.payload,
+            recorded_at: c.recorded_at.to_rfc3339(),
         }
     }
 }
