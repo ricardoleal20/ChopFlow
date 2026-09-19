@@ -76,6 +76,7 @@ class ChopFlowWorker:
         tags: List[str],
         resources: Dict[str, int],
         *,
+        replenishing: Optional[Dict[str, "pb.ResourceSpec"]] = None,
         heartbeat_interval: float = 30.0,
         poll_interval: float = 2.0,
         max_tasks_per_poll: int = 4,
@@ -83,6 +84,7 @@ class ChopFlowWorker:
         self._broker = _strip_scheme(broker)
         self._tags = list(tags)
         self._resources = dict(resources)
+        self._replenishing = dict(replenishing or {})
         self._heartbeat_interval = heartbeat_interval
         self._poll_interval = poll_interval
         self._max_tasks_per_poll = max_tasks_per_poll
@@ -161,6 +163,17 @@ class ChopFlowWorker:
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
+    def _resource_specs(self) -> Dict[str, "pb.ResourceSpec"]:
+        """Registration resource map: static capacities become ResourceSpec
+        entries (refill_amount 0); declared replenishing buckets pass their
+        refill terms through."""
+        specs = {
+            name: pb.ResourceSpec(capacity=amount)
+            for name, amount in self._resources.items()
+        }
+        specs.update(self._replenishing)
+        return specs
+
     def _connect_and_register(self) -> None:
         backoff = 0.5
         while not self._stop.is_set():
@@ -171,7 +184,7 @@ class ChopFlowWorker:
                     pb.RegisterWorkerRequest(
                         address="localhost",
                         tags=self._tags,
-                        resources=self._resources,
+                        resources=self._resource_specs(),
                     )
                 )
                 self._channel = channel
@@ -268,6 +281,7 @@ class Builder:
         self._broker = "localhost:8000"
         self._tags: List[str] = ["default"]
         self._resources: Dict[str, int] = {}
+        self._replenishing: Dict[str, pb.ResourceSpec] = {}
         self._heartbeat_interval = 30.0
         self._poll_interval = 2.0
         self._max_tasks_per_poll = 4
@@ -283,6 +297,20 @@ class Builder:
 
     def resources(self, name: str, amount: int) -> "Builder":
         self._resources[name] = amount
+        return self
+
+    def replenishing(
+        self, name: str, capacity: int, refill_amount: int, period_secs: int
+    ) -> "Builder":
+        """Declare a replenishing (rate-limit-aware) resource, e.g. an
+        ``llm.rpm:60@60/60`` bucket becomes
+        ``replenishing("llm.rpm", 60, 60, 60)``. Consumed tokens return only
+        via time-based refill, never on task release."""
+        self._replenishing[name] = pb.ResourceSpec(
+            capacity=capacity,
+            refill_amount=refill_amount,
+            refill_period_secs=period_secs,
+        )
         return self
 
     def heartbeat_interval(self, seconds: float) -> "Builder":
@@ -303,6 +331,7 @@ class Builder:
             broker=self._broker,
             tags=self._tags,
             resources=resources,
+            replenishing=self._replenishing,
             heartbeat_interval=self._heartbeat_interval,
             poll_interval=self._poll_interval,
             max_tasks_per_poll=self._max_tasks_per_poll,

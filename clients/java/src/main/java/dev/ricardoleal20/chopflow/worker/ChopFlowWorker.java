@@ -7,6 +7,7 @@ import dev.ricardoleal20.chopflow.grpc.FetchTasksRequest;
 import dev.ricardoleal20.chopflow.grpc.FetchTasksResponse;
 import dev.ricardoleal20.chopflow.grpc.RegisterWorkerRequest;
 import dev.ricardoleal20.chopflow.grpc.ResourceAvailability;
+import dev.ricardoleal20.chopflow.grpc.ResourceSpec;
 import dev.ricardoleal20.chopflow.grpc.Task;
 import dev.ricardoleal20.chopflow.grpc.WorkerHeartbeatRequest;
 import dev.ricardoleal20.chopflow.util.Json;
@@ -53,6 +54,7 @@ public final class ChopFlowWorker {
   private final String broker;
   private final List<String> tags;
   private final Map<String, Integer> resources;
+  private final Map<String, ResourceSpec> replenishing;
   private final Duration heartbeatInterval;
   private final Duration pollInterval;
   private final int maxTasksPerPoll;
@@ -75,6 +77,7 @@ public final class ChopFlowWorker {
     this.broker = b.broker;
     this.tags = new ArrayList<>(b.tags);
     this.resources = new LinkedHashMap<>(b.resources);
+    this.replenishing = new LinkedHashMap<>(b.replenishing);
     this.heartbeatInterval = b.heartbeatInterval;
     this.pollInterval = b.pollInterval;
     this.maxTasksPerPoll = b.maxTasksPerPoll;
@@ -171,7 +174,7 @@ public final class ChopFlowWorker {
             RegisterWorkerRequest.newBuilder()
                 .setAddress("localhost")
                 .addAllTags(tags)
-                .putAllResources(resources)
+                .putAllResources(resourceSpecs())
                 .build();
         return stub.registerWorker(req).getWorkerId();
       } catch (Exception e) {
@@ -186,6 +189,20 @@ public final class ChopFlowWorker {
       }
     }
     return "";
+  }
+
+  /** Registration resource map: static capacities become {@link ResourceSpec}
+   * entries (refill 0); declared replenishing buckets pass their refill terms
+   * through unchanged. */
+  private Map<String, ResourceSpec> resourceSpecs() {
+    Map<String, ResourceSpec> specs = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : resources.entrySet()) {
+      specs.put(
+          e.getKey(),
+          ResourceSpec.newBuilder().setCapacity(e.getValue()).build());
+    }
+    specs.putAll(replenishing);
+    return specs;
   }
 
   private void heartbeat() {
@@ -272,6 +289,7 @@ public final class ChopFlowWorker {
     private String broker = "localhost:8000";
     private final List<String> tags = new ArrayList<>(List.of("default"));
     private final Map<String, Integer> resources = new LinkedHashMap<>();
+    private final Map<String, ResourceSpec> replenishing = new LinkedHashMap<>();
     private Duration heartbeatInterval = Duration.ofSeconds(30);
     private Duration pollInterval = Duration.ofSeconds(2);
     private int maxTasksPerPoll = 4;
@@ -290,6 +308,21 @@ public final class ChopFlowWorker {
     /** Declare an available resource (e.g. {@code resources("gpu", 1)}). */
     public Builder resources(String name, int amount) {
       this.resources.put(name, amount);
+      return this;
+    }
+
+    /** Declare a replenishing (rate-limit-aware) resource bucket, e.g. an
+     * {@code llm.rpm:60@60/60} worker becomes
+     * {@code replenishing("llm.rpm", 60, 60, 60)}. Consumed tokens return only
+     * via time-based refill, never on task release. */
+    public Builder replenishing(String name, int capacity, int refillAmount, int periodSecs) {
+      this.replenishing.put(
+          name,
+          ResourceSpec.newBuilder()
+              .setCapacity(capacity)
+              .setRefillAmount(refillAmount)
+              .setRefillPeriodSecs(periodSecs)
+              .build());
       return this;
     }
 

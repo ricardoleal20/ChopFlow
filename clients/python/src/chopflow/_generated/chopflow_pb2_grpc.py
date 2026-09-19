@@ -101,6 +101,16 @@ class ChopFlowBrokerStub:
                 request_serializer=chopflow__pb2.DeleteScheduleRequest.SerializeToString,
                 response_deserializer=chopflow__pb2.DeleteScheduleResponse.FromString,
                 _registered_method=True)
+        self.SaveCheckpoint = channel.unary_unary(
+                '/chopflow.ChopFlowBroker/SaveCheckpoint',
+                request_serializer=chopflow__pb2.SaveCheckpointRequest.SerializeToString,
+                response_deserializer=chopflow__pb2.SaveCheckpointResponse.FromString,
+                _registered_method=True)
+        self.GetCheckpoints = channel.unary_unary(
+                '/chopflow.ChopFlowBroker/GetCheckpoints',
+                request_serializer=chopflow__pb2.GetCheckpointsRequest.SerializeToString,
+                response_deserializer=chopflow__pb2.GetCheckpointsResponse.FromString,
+                _registered_method=True)
 
 
 class ChopFlowBrokerServicer:
@@ -192,6 +202,20 @@ class ChopFlowBrokerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SaveCheckpoint(self, request, context):
+        """Durable pipeline checkpoints: a context-aware worker persists its
+        progress per stage so a retried task resumes instead of restarting.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCheckpoints(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ChopFlowBrokerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -259,6 +283,16 @@ def add_ChopFlowBrokerServicer_to_server(servicer, server):
                     servicer.DeleteSchedule,
                     request_deserializer=chopflow__pb2.DeleteScheduleRequest.FromString,
                     response_serializer=chopflow__pb2.DeleteScheduleResponse.SerializeToString,
+            ),
+            'SaveCheckpoint': grpc.unary_unary_rpc_method_handler(
+                    servicer.SaveCheckpoint,
+                    request_deserializer=chopflow__pb2.SaveCheckpointRequest.FromString,
+                    response_serializer=chopflow__pb2.SaveCheckpointResponse.SerializeToString,
+            ),
+            'GetCheckpoints': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCheckpoints,
+                    request_deserializer=chopflow__pb2.GetCheckpointsRequest.FromString,
+                    response_serializer=chopflow__pb2.GetCheckpointsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -613,6 +647,60 @@ class ChopFlowBroker:
             '/chopflow.ChopFlowBroker/DeleteSchedule',
             chopflow__pb2.DeleteScheduleRequest.SerializeToString,
             chopflow__pb2.DeleteScheduleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SaveCheckpoint(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chopflow.ChopFlowBroker/SaveCheckpoint',
+            chopflow__pb2.SaveCheckpointRequest.SerializeToString,
+            chopflow__pb2.SaveCheckpointResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCheckpoints(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chopflow.ChopFlowBroker/GetCheckpoints',
+            chopflow__pb2.GetCheckpointsRequest.SerializeToString,
+            chopflow__pb2.GetCheckpointsResponse.FromString,
             options,
             channel_credentials,
             insecure,
