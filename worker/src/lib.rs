@@ -265,10 +265,7 @@ pub async fn start_worker(
     // Parse resources.
     let resource_map = parse_resources(&resources_str)?;
 
-    let resources = ResourceAvailability {
-        available: resource_map.clone(),
-        total: resource_map.clone(),
-    };
+    let resources = ResourceAvailability::from_capacities(resource_map.clone());
 
     let concurrency = concurrency.unwrap_or_else(|| derive_concurrency(&resources));
 
@@ -309,10 +306,7 @@ pub async fn start_worker_with_registry(
     let tags = parse_tags(&tags_str);
     let resource_map = parse_resources(&resources_str)?;
 
-    let resources = ResourceAvailability {
-        available: resource_map.clone(),
-        total: resource_map.clone(),
-    };
+    let resources = ResourceAvailability::from_capacities(resource_map.clone());
 
     let concurrency = concurrency.unwrap_or_else(|| derive_concurrency(&resources));
 

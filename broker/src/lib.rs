@@ -673,10 +673,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             id: Uuid::new_v4(),
             address: req.address,
             tags: req.tags,
-            resources: ResourceAvailability {
-                available: req.resources.clone(),
-                total: req.resources,
-            },
+            resources: ResourceAvailability::from_capacities(req.resources),
             assigned_tasks: Vec::new(),
             last_heartbeat: chrono::Utc::now(),
         };

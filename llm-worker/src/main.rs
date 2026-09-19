@@ -147,10 +147,7 @@ async fn main() -> Result<()> {
     let tags: Vec<String> = cli.tags.split(',').map(|s| s.trim().to_string()).collect();
 
     let resource_map = parse_resources(&cli.resources)?;
-    let resources = ResourceAvailability {
-        available: resource_map.clone(),
-        total: resource_map.clone(),
-    };
+    let resources = ResourceAvailability::from_capacities(resource_map.clone());
 
     info!(
         "ChopFlow LLM worker: broker={}, tags={:?}, model={}, api_base={}, concurrency={}",

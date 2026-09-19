@@ -63,10 +63,7 @@ async fn run_echo_end_to_end() -> chopflow::Task {
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
 
     // Build the worker state the way start_worker does.
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(worker_id.clone(), url.clone(), availability, tags, 4).unwrap(),
     ));
@@ -128,10 +125,7 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
     let resources: HashMap<String, u32> = [("cpu".to_string(), 1)].into_iter().collect();
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
 
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     // Remove the `default` handler so unknown tasks are acked as failure.
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(worker_id.clone(), url.clone(), availability, tags, 1).unwrap(),
@@ -227,10 +221,7 @@ async fn worker_runs_tasks_concurrently() {
     let resources: HashMap<String, u32> = [("cpu".to_string(), 4)].into_iter().collect();
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
 
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(
             worker_id.clone(),

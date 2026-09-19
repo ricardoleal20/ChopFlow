@@ -12,6 +12,7 @@ This library provides the fundamental components for building distributed task q
 - Retry policies with configurable backoff strategies
 */
 
+pub mod checkpoint;
 pub mod config;
 pub mod dispatcher;
 pub mod error;
@@ -24,9 +25,10 @@ pub mod task;
 
 pub use error::Result;
 
+pub use checkpoint::Checkpoint;
 pub use dispatcher::Dispatcher;
 pub use queue::Queue;
-pub use resources::ResourceRequirements;
+pub use resources::{parse_resources_ext, RefillSpec, ResourceRequirements};
 pub use retry::RetryPolicy;
 pub use schedule::{OverlapPolicy, Schedule, ScheduleKind, TaskTemplate};
 pub use storage::{InMemoryStorage, SqliteStorage, StatusCounts, Storage, TaskFilter};

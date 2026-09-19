@@ -40,10 +40,7 @@ async fn start_worker(url: String) {
     let tags = vec!["default".to_string()];
     let resources: HashMap<String, u32> = [("cpu".to_string(), 4)].into_iter().collect();
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(worker_id, url, availability, tags, 4).unwrap(),
     ));
