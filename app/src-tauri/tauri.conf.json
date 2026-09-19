@@ -45,8 +45,8 @@
     "category": "DeveloperTool",
     "shortDescription": "Durable task queue operations console",
     "longDescription": "ChopFlow operations console \u2014 a Temporal-style dashboard for the ChopFlow distributed task queue: live cluster stats, task ledger, workers, and resource meters.",
-    "resources": [
-      "../../target/release/chopflow"
-    ]
+    "resources": {
+      "../../target/release/chopflow": "chopflow"
+    }
   }
 }
