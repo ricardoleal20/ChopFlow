@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 
+
+## [0.1.6] - 2026-09-19
+
+### Added
 - **Checkpointed pipelines (durable stages).** Tasks may declare `stages`
   (CLI `--stages`, HTTP `stages`, MCP `enqueue_task`, proto `EnqueueTaskRequest`);
   context-aware worker handlers (`registry.register_ctx`) persist a checkpoint
@@ -80,6 +85,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refresh).
 - The active-connection "pill" (and the oversized 16px menu glyphs, since
   corrected to 62%-padded 16px) cleaned up.
+
+## [0.1.5] - 2026-09-18
+
+- **Checkpointed pipelines (durable stages).** Tasks may declare `stages`
+  (CLI `--stages`, HTTP `stages`, MCP `enqueue_task`, proto `EnqueueTaskRequest`);
+  context-aware worker handlers (`registry.register_ctx`) persist a checkpoint
+  per stage via `TaskCtx::checkpoint` (upserted per `(task_id, stage)`, new
+  `SaveCheckpoint` / `GetCheckpoints` gRPCs, `checkpoints` table in SQLite),
+  and a retried task re-fetches them and resumes from the last completed
+  stage. `GET /api/tasks/:id`, `chopflow status get`, and the MCP `get_task` /
+  `wait_for_task` outputs carry `stages`, `idempotency_key`, and `checkpoints`.
+- **Rate-limit-aware replenishing resources.** Worker `--resources` entries
+  may declare a token bucket: `llm.rpm:10@10/60` = capacity 10 refilled by 10
+  per 60s (plain `cpu:4` stays a static slot). Consuming a replenishing
+  resource never restores on release — tokens return only via lazy time-based
+  refill (capped at capacity) — so a task requiring `{"llm.rpm": 1}` waits
+  for quota instead of failing.
+- **Idempotent submits.** `POST /api/tasks` accepts `idempotency_key`; a task
+  already stored with that key (any status) is returned as-is with
+  `"deduplicated": true` and 200 OK instead of creating a duplicate. The
+  check-and-insert runs under a broker-wide submit lock, so concurrent
+  same-key submits create exactly one task.
+- **RAG ingestion demo** (`demos/rag.sh`): a checkpointed `rag.ingest`
+  pipeline (`chunk → embed → index` over a sample document, deterministic
+  16-dim pseudo-embeddings, per-chunk `embed` checkpoints for mid-flight
+  resume) requiring `{"llm.rpm": 1}` against a worker declaring a replenishing
+  `llm.rpm` bucket, seeded twice with the same idempotency key.
+- **Dashboard pipeline stages.** The task drawer polls `GET /api/tasks/:id`
+  while open and renders a "Pipeline stages" timeline (completed stages with
+  timestamps and progress, the in-flight stage pulsing, pending stages muted)
+  plus the task's idempotency key.
+### Fixed
+- The Java and Python clients now build `RegisterWorkerRequest` with the new
+  `ResourceSpec` map (the proto change left them sending `map<string, uint32>`,
+  breaking the Java compile and failing Python worker registration forever);
+  Python stubs regenerated, `replenishing(...)` builders added to both clients,
+  and pytest gained a `--timeout=180` guard so a registration regression fails
+  in minutes instead of hanging CI for hours.
 
 ## [0.1.4] - 2026-09-16
 
