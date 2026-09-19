@@ -9,7 +9,7 @@
 use chopflow_broker::chopflow::{
     self, chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, CancelTaskRequest,
     EnqueueTaskRequest, FetchTasksRequest, GetCheckpointsRequest, GetTaskStatusRequest,
-    RegisterWorkerRequest, ResourceSpec, SaveCheckpointRequest,
+    RegisterWorkerRequest, ResourceSpec, SaveCheckpointRequest, WorkerHeartbeatRequest,
 };
 use chopflow_broker::{build_storage, ChopFlowBrokerService, StorageBackend};
 use std::time::Duration;
@@ -84,6 +84,15 @@ async fn fetch_until(
 ) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
+        // Heartbeat like a real worker: under a loaded parallel test run the
+        // 3-round backoff wait can outlive the 30s liveness window and the
+        // broker would otherwise reject our fetch with "stale heartbeat".
+        let _ = client
+            .worker_heartbeat(Request::new(WorkerHeartbeatRequest {
+                worker_id: worker_id.to_string(),
+                resources: None,
+            }))
+            .await;
         let f = client
             .fetch_tasks(Request::new(FetchTasksRequest {
                 worker_id: worker_id.to_string(),
