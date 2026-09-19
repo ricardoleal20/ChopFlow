@@ -31,6 +31,10 @@
 
 ---
 
+<p align="center">
+  <img src="assets/dashboard-demo.gif" alt="ChopFlow dashboard: live task ledger, task detail drawer with lifecycle timeline, and workers view" width="880">
+</p>
+
 > **Status: experimental.** APIs may change between minor versions. Not
 > production-hardened yet — see the [roadmap](#roadmap) for what exists and
 > what's planned.
