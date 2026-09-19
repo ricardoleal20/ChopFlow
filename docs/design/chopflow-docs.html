@@ -335,6 +335,9 @@
           <li><a class="nav-leaf" href="#retry-deadletter" data-page="retry-deadletter">Retry &amp; Dead-Letter</a></li>
           <li><a class="nav-leaf" href="#priority-ordering" data-page="priority-ordering">Priority &amp; Ordering</a></li>
           <li><a class="nav-leaf" href="#resources-tags" data-page="resources-tags">Resources &amp; Tags</a></li>
+          <li><a class="nav-leaf" href="#pipelines" data-page="pipelines">Checkpointed Pipelines</a></li>
+          <li><a class="nav-leaf" href="#rate-limits" data-page="rate-limits">Rate-Limit Resources</a></li>
+          <li><a class="nav-leaf" href="#idempotency" data-page="idempotency">Idempotent Submits</a></li>
         </ul>
       </div>
       <div class="nav-group" data-group="components">
@@ -346,6 +349,7 @@
           <li><a class="nav-leaf" href="#comp-cli" data-page="comp-cli">CLI</a></li>
           <li><a class="nav-leaf" href="#comp-dashboard" data-page="comp-dashboard">Embedded Dashboard</a></li>
           <li><a class="nav-leaf" href="#comp-demos" data-page="comp-demos">Demos</a></li>
+          <li><a class="nav-leaf" href="#rag-demo" data-page="rag-demo">RAG Demo</a></li>
           <li><a class="nav-leaf" href="#comp-llm-worker" data-page="comp-llm-worker">LLM Worker</a></li>
         </ul>
       </div>
@@ -804,6 +808,139 @@ impl ResourceRequirements {
         <p>Matching tasks are atomically transitioned Queued → Running and handed to the worker, up to <code>max_tasks</code>.</p>
       </article>
 
+      <!-- ===== CHECKPOINTED PIPELINES ===== -->
+      <article class="doc-page" id="page-pipelines" data-page="pipelines">
+        <h1>Checkpointed Pipelines</h1>
+        <p class="doc-lede">A task may declare its pipeline stages. A context-aware handler persists a checkpoint per stage, and a retried task resumes from the last completed stage — Temporal-style durable execution without a workflow engine.</p>
+
+        <h2 id="pipelines-declare">Declaring stages<a class="anchor" href="#pipelines-declare">#</a></h2>
+        <p>Stages are declared at enqueue time. The CLI takes a comma-separated list; the HTTP body, the gRPC <code>EnqueueTaskRequest</code>, and the MCP <code>enqueue_task</code> tool all accept the same <code>stages</code> field.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>chopflow enqueue -f task.json -n rag.ingest -g rag \
+    --stages "chunk,embed,index" --idempotency-key "doc-42"</span>
+<span class="term-output">Broker assigned task ID: 9f4a2c1e-...</span></code></pre>
+        </div>
+        <p>The stages may also live as a top-level <code>"stages"</code> array in the task JSON file — the <code>--stages</code> flag wins when both are present. Stage names are free-form; declaring them makes the pipeline visible to the dashboard and gives the worker the ordered list to checkpoint against.</p>
+
+        <h2 id="pipelines-handler">Checkpointing from a handler<a class="anchor" href="#pipelines-handler">#</a></h2>
+        <p>Plain handlers registered with <code>registry.register(name, fn)</code> keep working unchanged. New context-aware handlers register with <code>register_ctx</code> and receive a <code>TaskCtx</code> that can persist per-stage state:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">rust · worker</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="tok-kw">use</span> chopflow_worker::TaskCtx;
+<span class="tok-kw">use</span> serde_json::{json, Value};
+
+<span class="tok-com">// async fn(TaskCtx, Value) -&gt; Result&lt;Value, String&gt;</span>
+<span class="tok-kw">async fn</span> <span class="tok-fn">ingest</span>(ctx: <span class="tok-ty">TaskCtx</span>, payload: <span class="tok-ty">Value</span>) -&gt; <span class="tok-ty">Result</span>&lt;<span class="tok-ty">Value</span>, <span class="tok-ty">String</span>&gt; {
+    <span class="tok-com">// Skip a stage a previous attempt already finished.</span>
+    <span class="tok-kw">if</span> ctx.<span class="tok-fn">stage_checkpoint</span>(<span class="tok-str">"chunk"</span>).<span class="tok-fn">is_none</span>() {
+        <span class="tok-kw">let</span> chunks = <span class="tok-fn">chunk_document</span>(&amp;payload);
+        ctx.<span class="tok-fn">checkpoint</span>(<span class="tok-str">"chunk"</span>, <span class="tok-fn">json!</span>({ <span class="tok-str">"chunks"</span>: chunks }))
+            .<span class="tok-kw">await</span>?;  <span class="tok-com">// persisted (upsert) on the broker</span>
+    }
+    <span class="tok-com">// embed / index — checkpoint progress so a retry resumes mid-pipeline</span>
+}
+
+registry.<span class="tok-fn">register_ctx</span>(<span class="tok-str">"rag.ingest"</span>, ingest);</code></pre>
+        </div>
+        <p><code>ctx.checkpoint(stage, payload)</code> serializes the payload and upserts it keyed by <code>(task_id, stage)</code> — re-saving a stage overwrites it, so each stage has at most one checkpoint. <code>ctx.stage_checkpoint(stage)</code> and <code>ctx.completed_stages()</code> read what previous attempts recorded.</p>
+
+        <h2 id="pipelines-resume">Resume on retry<a class="anchor" href="#pipelines-resume">#</a></h2>
+        <p>When a task fails mid-pipeline and retries, the worker re-fetches the task's checkpoints (a dedicated <code>GetCheckpoints</code> gRPC) before invoking the handler. The handler sees the stages that already completed and skips them, so only the unfinished tail runs again. Checkpoints are rows in the task store — with SQLite they survive broker restarts too.</p>
+
+        <h2 id="pipelines-read">Reading checkpoints back<a class="anchor" href="#pipelines-read">#</a></h2>
+        <p>Only the single-task view pays for the checkpoint read: <code>GET /api/tasks/:id</code> includes them, the list endpoint stays cheap. <code>recorded_at</code> is Unix epoch milliseconds.</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">GET /api/tasks/:id · response</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{
+  "id": "9f4a2c1e-...",
+  "name": "rag.ingest",
+  "status": "running",
+  "stages": ["chunk", "embed", "index"],
+  "idempotency_key": "doc-42",
+  "checkpoints": [
+    {
+      "task_id": "9f4a2c1e-...",
+      "stage": "chunk",
+      "payload": "{\"chunks\":[\"...\"],\"chunk_size\":64}",
+      "recorded_at": 1758172800000
+    }
+  ]
+}</code></pre>
+        </div>
+        <p>The task drawer in the dashboard renders the declared stages as a timeline — completed stages with their checkpoint timestamp, the in-flight stage pulsing, pending stages muted. <code>chopflow status get &lt;id&gt;</code> prints stages, the idempotency key, and each checkpoint (<code>stage (recorded_at): payload-preview</code>).</p>
+      </article>
+
+      <!-- ===== RATE-LIMIT RESOURCES ===== -->
+      <article class="doc-page" id="page-rate-limits" data-page="rate-limits">
+        <h1>Rate-Limit Resources</h1>
+        <p class="doc-lede">Worker resources are either static slots or replenishing token buckets. A replenishing resource models a provider quota — tokens return with time, not on release — so quota exhaustion becomes backpressure instead of a burst of failures.</p>
+
+        <h2 id="rate-syntax">Declaration syntax<a class="anchor" href="#rate-syntax">#</a></h2>
+        <p>Each <code>--resources</code> entry is <code>name:capacity</code> (static) or <code>name:capacity@refill_amount/period_secs</code> (replenishing):</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Declaration</th><th>Kind</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>cpu:4</code></td><td>Static</td><td>4 slots — allocated on claim, released on ack.</td></tr>
+              <tr><td><code>llm.rpm:10@10/60</code></td><td>Replenishing</td><td>Capacity 10, refilled by 10 tokens every 60 seconds.</td></tr>
+              <tr><td><code>llm.rpm:60@60/60</code></td><td>Replenishing</td><td>Capacity 60, refilled by 60 tokens every 60 seconds (1/sec).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>chopflow_worker start --broker http://localhost:8000 \
+    --tags demo --resources "cpu:4,llm.rpm:60@60/60"</span></code></pre>
+        </div>
+
+        <h2 id="rate-semantics">Token-bucket semantics<a class="anchor" href="#rate-semantics">#</a></h2>
+        <p>A replenishing resource is a lazy token bucket — no background timers:</p>
+        <ul>
+          <li><strong>Allocate consumes.</strong> Claiming a task that requires the resource takes tokens from the bucket.</li>
+          <li><strong>Release does not restore.</strong> When the task is acked, the tokens are <em>not</em> returned — a rate-limited call has been spent either way.</li>
+          <li><strong>Refill is time-based and lazy.</strong> Tokens accrue at <code>refill_amount / period_secs</code> and are credited (capped at capacity) the next time the bucket is consulted.</li>
+        </ul>
+        <p>Task-side requirements stay a plain map: a task requiring <code>{"llm.rpm": 1}</code> is only claimed once some worker's bucket holds at least one token, and otherwise simply waits in <code>Queued</code>.</p>
+
+        <div class="callout callout-warn">
+          <p class="callout-title">A rate-limited task needs a declaring worker</p>
+          <p>A task requiring <code>llm.rpm</code> never dispatches unless a connected worker declares a replenishing <code>llm.rpm</code> resource — the same rule as any resource requirement. With no such worker (or an empty bucket), the task waits in the queue indefinitely; it does not fail.</p>
+        </div>
+      </article>
+
+      <!-- ===== IDEMPOTENT SUBMITS ===== -->
+      <article class="doc-page" id="page-idempotency" data-page="idempotency">
+        <h1>Idempotent Submits</h1>
+        <p class="doc-lede">Give a submit an idempotency key and it becomes safe to retry: the broker returns the existing task instead of creating a duplicate — atomically, even under concurrent submits.</p>
+
+        <h2 id="idempotency-submit">Submitting with a key<a class="anchor" href="#idempotency-submit">#</a></h2>
+        <p>Pass <code>idempotency_key</code> in the <code>POST /api/tasks</code> body (or <code>--idempotency-key</code> on the CLI, or the field of the same name in the task JSON file — the flag wins):</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">request</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>POST /api/tasks
+{
+  "name": "rag.ingest",
+  "payload": { "document": "..." },
+  "stages": ["chunk", "embed", "index"],
+  "idempotency_key": "doc-42"
+}</code></pre>
+        </div>
+        <p>The first submit creates the task:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 201 Created</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{ "task_id": "9f4a2c1e-...", "deduplicated": false }</code></pre>
+        </div>
+        <p>Submitting the same key again — from any client, at any time, in any task status — returns the <em>same</em> task:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">response · 200 OK</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code>{ "task_id": "9f4a2c1e-...", "deduplicated": true }</code></pre>
+        </div>
+
+        <h2 id="idempotency-atomic">Atomic under concurrency<a class="anchor" href="#idempotency-atomic">#</a></h2>
+        <p>The lookup-and-insert pair runs under a broker-wide submit lock, so two clients racing the same key resolve to a single created task — exactly one wins the <code>201</code>, everyone else gets the existing task back. The key rides on the task (visible as <code>idempotency_key</code> in <code>GET /api/tasks/:id</code>, the CLI status output, and the dashboard's task drawer) and is unique across the store.</p>
+      </article>
+
       <!-- ===== COMPONENTS ===== -->
       <article class="doc-page" id="page-comp-core" data-page="comp-core">
         <h1>Core (Rust library)</h1>
@@ -1173,6 +1310,52 @@ pub use task::Task;</code></pre>
 }</code></pre>
         </div>
         <div class="callout callout-info"><p class="callout-title">Writing your own handler</p><p>These demos run on the Rust demo worker, but Python and Java workers can define equivalent handlers with the <code>@task</code> / <code>@ChopTask</code> decorators — see <a href="#client-python" style="color:var(--primary);text-decoration:underline">Python Client</a> and <a href="#client-java" style="color:var(--primary);text-decoration:underline">Java Client</a>. Any handler registered under the same task <code>name</code> on a connected worker will pick the task up.</p></div>
+      </article>
+
+      <!-- ===== RAG DEMO ===== -->
+      <article class="doc-page" id="page-rag-demo" data-page="rag-demo">
+        <h1>RAG Demo</h1>
+        <p class="doc-lede">The <code>rag.ingest</code> demo puts every pipeline feature on one screen: a checkpointed <code>chunk → embed → index</code> flow, a replenishing <code>llm.rpm</code> token bucket gating dispatch, and an idempotency key deduplicating the submit.</p>
+
+        <h2 id="rag-run">Run it<a class="anchor" href="#rag-run">#</a></h2>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-block-file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+          <pre><code><span class="term-line"><span class="term-prompt">$ </span>bash demos/rag.sh</span>
+<span class="term-output">   ... cargo build output ...
+ChopFlow gRPC  on 127.0.0.1:8000
+ChopFlow HTTP/ on 127.0.0.1:8080
+   ... worker startup + the four standard demo-task submits ...
+POST /tasks -> 201 Created
+POST /tasks -> 200 OK
+Idempotent submit: both rag.ingest submits returned the same task id 9f4a2c1e-... (deduplicated: true)
+Seed complete. Open the dashboard at http://localhost:8080 — tasks flowing + 2 schedules ticking.
+open http://localhost:8080 — watch the rag.ingest task's checkpoints grow chunk -> embed -> index</span></code></pre>
+        </div>
+        <p>The script builds the workspace, starts an in-memory broker, starts the demo worker with <code>--resources "cpu:4,llm.rpm:60@60/60"</code> (a static CPU pool plus a replenishing 60-per-minute LLM quota), and seeds the demo tasks. Ctrl+C stops everything.</p>
+
+        <h2 id="rag-pipeline">The rag.ingest pipeline<a class="anchor" href="#rag-pipeline">#</a></h2>
+        <p>The task declares <code>stages: ["chunk", "embed", "index"]</code>, requires <code>{"llm.rpm": 1}</code>, and carries the idempotency key <code>rag-demo-doc-1</code> — submitted twice by the seed to prove the dedup. The handler is registered with <code>register_ctx</code> and checkpoints each stage:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Stage</th><th>What it does</th><th>Checkpoint payload</th></tr></thead>
+            <tbody>
+              <tr><td><code>chunk</code></td><td>Splits the document into chunks of <code>chunk_size</code> words (default 64). Skipped entirely if a previous attempt already checkpointed it.</td><td><code>{"chunks":[...],"chunk_size":64}</code></td></tr>
+              <tr><td><code>embed</code></td><td>Produces a deterministic 16-dim pseudo-embedding per chunk (hash-based — no API calls). Checkpoints after every chunk, so a mid-flight retry resumes at chunk granularity.</td><td><code>{"next_index":i}</code></td></tr>
+              <tr><td><code>index</code></td><td>The notional vector-store write.</td><td><code>{"stored":n}</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The finished task returns <code>{"chunks":4,"dim":16,"indexed":true,"resumed_from":null}</code> for the sample document (<code>resumed_from</code> names the stage a retry resumed from, <code>null</code> on a clean first run).</p>
+
+        <h2 id="rag-watch">What to watch in the dashboard<a class="anchor" href="#rag-watch">#</a></h2>
+        <ul>
+          <li><strong>Pipeline stages timeline</strong> — open the <code>rag.ingest</code> task's drawer; as checkpoints land, <code>chunk → embed → index</code> fill in with timestamps (the embed stage even shows a <code>3/4</code>-style progress note while it walks the chunk list).</li>
+          <li><strong>Deduplication</strong> — exactly one <code>rag.ingest</code> task despite the double submit; the drawer also shows its idempotency key.</li>
+          <li><strong>Rate-limit gating</strong> — the task sits in <code>Queued</code> until the worker's <code>llm.rpm</code> bucket has a token; it waits for quota rather than failing.</li>
+        </ul>
+        <div class="callout callout-info"><p class="callout-title">Try the resume</p>
+        <p>Kill the worker mid-<code>embed</code> (or force a failure) and let the retry pick the task up: the handler skips <code>chunk</code>, resumes embedding from the last <code>next_index</code> checkpoint, and the result's <code>resumed_from</code> names the stage it resumed from.</p>
+        </div>
       </article>
 
       <article class="doc-page" id="page-comp-llm-worker" data-page="comp-llm-worker">

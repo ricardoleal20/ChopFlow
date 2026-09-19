@@ -220,17 +220,17 @@ no timers). Task requirements stay `map<string, u32>` — a task requiring
 
 ## Stage / agent dispatch order
 
-- [ ] **Stage 1 — Core** (features A1, A2, A3, plus `task_by_idempotency_key`
+- [x] **Stage 1 — Core** (features A1, A2, A3, plus `task_by_idempotency_key`
       storage method): one agent, no commit. Verify: `cargo test -p chopflow-core`.
-- [ ] **Stage 2 — Proto + broker** (feature B): one agent after Stage 1.
+- [x] **Stage 2 — Proto + broker** (feature B): one agent after Stage 1.
       Verify: `cargo test -p chopflow-proto -p chopflow-broker`.
-- [ ] **Stage 3a — Worker ctx + demos RAG** (features C + E): one agent
+- [x] **Stage 3a — Worker ctx + demos RAG** (features C + E): one agent
       after Stage 2. Verify: `cargo test -p chopflow-worker -p chopflow-demos`.
-- [ ] **Stage 3b — CLI + MCP** (feature D): one agent after Stage 2 (parallel
+- [x] **Stage 3b — CLI + MCP** (feature D): one agent after Stage 2 (parallel
       with 3a — disjoint files). Verify: `cargo test -p chopflow-cli -p chopflow-mcp`.
-- [ ] **Stage 4 — Dashboard UI + docs** (feature F): one agent after 3a+3b.
+- [x] **Stage 4 — Dashboard UI + docs** (feature F): one agent after 3a+3b.
       Verify: `pnpm build` + eslint + prettier in broker/ui.
-- [ ] **Stage 5 — Orchestrator**: full `scripts/ci-local.sh`, fix fallout,
+- [x] **Stage 5 — Orchestrator**: full `scripts/ci-local.sh`, fix fallout,
       staged commits per feature, push branch, open PR (four-section body,
       self-assigned, labeled; no merge).
 

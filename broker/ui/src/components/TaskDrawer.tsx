@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import StatusBadge from "./StatusBadge";
 import { clockTime, timeAgo } from "../lib/format";
 import { CloseIcon, CopyIcon, CheckIcon, AlertIcon } from "./Icons";
-import { useCancel } from "../hooks/useChopFlow";
-import type { Task, TaskStatus } from "../lib/api";
+import { useCancel, useTask } from "../hooks/useChopFlow";
+import type { CheckpointDto, Task, TaskStatus } from "../lib/api";
 
 interface Props {
   task: Task | null;
@@ -19,6 +19,14 @@ const EASE_IN = [0.4, 0, 1, 1] as const;
 // the 12 principles: ease-out entrance, ease-in exit, dimmed backdrop.
 export default function TaskDrawer({ task, onClose }: Props) {
   const [tab, setTab] = useState<"summary" | "lifecycle">("summary");
+
+  // The row the drawer opens from is a list-endpoint snapshot — it carries
+  // stages but never checkpoints (the listing stays cheap). While a task is
+  // open, poll GET /tasks/:id (which includes checkpoints) so the drawer
+  // stays live at the same 2s cadence as the ledger.
+  const detail = useTask(task?.id);
+  const detailData = detail.data;
+  const current = task ? (detailData && detailData.id === task.id ? detailData : task) : null;
 
   // Esc closes; reset to Summary tab whenever a new task opens.
   useEffect(() => {
@@ -51,7 +59,7 @@ export default function TaskDrawer({ task, onClose }: Props) {
             transition={{ duration: 0.22, ease: EASE_OUT }}
             className="drawer open"
           >
-            <DrawerHeader task={task} onClose={onClose} />
+            <DrawerHeader task={current ?? task} onClose={onClose} />
             <div className="dr-tabs">
               <button
                 className={`dr-tab${tab === "summary" ? " active" : ""}`}
@@ -67,7 +75,11 @@ export default function TaskDrawer({ task, onClose }: Props) {
               </button>
             </div>
             <div className="dr-body">
-              {tab === "summary" ? <Summary task={task} /> : <Lifecycle task={task} />}
+              {tab === "summary" ? (
+                <Summary task={current ?? task} />
+              ) : (
+                <Lifecycle task={current ?? task} />
+              )}
             </div>
           </motion.aside>
         </>
@@ -195,6 +207,12 @@ function Summary({ task }: { task: Task }) {
             {task.retry_count}/{task.max_retries}
           </div>
         </div>
+        {task.idempotency_key && (
+          <div className="field">
+            <div className="k">Idempotency key</div>
+            <div className="v mono">{task.idempotency_key}</div>
+          </div>
+        )}
         <div className="field">
           <div className="k">Enqueued</div>
           <div className="v mono">
@@ -223,6 +241,8 @@ function Summary({ task }: { task: Task }) {
         </div>
       </div>
 
+      {task.stages && task.stages.length > 0 && <PipelineStages task={task} />}
+
       <div className="json-block">
         <div className="json-head">
           <span className="lbl">Payload</span>
@@ -240,6 +260,82 @@ function Summary({ task }: { task: Task }) {
           className="json-pre"
           dangerouslySetInnerHTML={{ __html: highlightResult(task.result) }}
         />
+      </div>
+    </div>
+  );
+}
+
+// ---- Pipeline stages --------------------------------------------------------
+
+// Defensive parse of a checkpoint payload: stage outputs are free-form JSON
+// strings, so anything unparseable simply renders without extra detail.
+function checkpointJson(cp: CheckpointDto | undefined): Record<string, unknown> | null {
+  if (!cp) return null;
+  try {
+    const v: unknown = JSON.parse(cp.payload);
+    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Progress note for a completed stage whose checkpoint tracks a cursor (a
+// `next_index` field) over a total declared by a sibling stage's checkpoint
+// (e.g. the RAG demo's embed stage walks the chunk list the chunk stage
+// stored). Returns null when either side is unknown.
+function stageProgress(
+  stage: string,
+  stages: string[],
+  byStage: Map<string, CheckpointDto>,
+): string | null {
+  const obj = checkpointJson(byStage.get(stage));
+  if (!obj || typeof obj.next_index !== "number") return null;
+  for (const s of stages) {
+    const o = checkpointJson(byStage.get(s));
+    if (o && Array.isArray(o.chunks)) return `Progress ${obj.next_index}/${o.chunks.length}.`;
+  }
+  return null;
+}
+
+// Declared-pipeline progress: each stage is done when a checkpoint exists for
+// it (workers upsert one per stage), the first un-checkpointed stage pulses
+// while the task is running, and the rest stay muted. Reuses the Lifecycle
+// timeline styles.
+function PipelineStages({ task }: { task: Task }) {
+  const stages = task.stages ?? [];
+  const byStage = new Map((task.checkpoints ?? []).map((c) => [c.stage, c]));
+  const firstPending = stages.find((s) => !byStage.has(s));
+  const running = task.status === "running";
+
+  return (
+    <div className="json-block">
+      <div className="json-head">
+        <span className="lbl">Pipeline stages</span>
+        <span className="tag">pipeline</span>
+      </div>
+      <div className="timeline">
+        {stages.map((stage) => {
+          const cp = byStage.get(stage);
+          const cls = cp ? "done" : running && stage === firstPending ? "cur" : "pend";
+          return (
+            <div key={stage} className={`tl-node ${cls}`}>
+              <div className="tl-dot" />
+              <div className="tl-rail" />
+              <div className="tl-content">
+                <div className="tl-title">{stage}</div>
+                <div className="tl-time">{cp ? clockTime(cp.recorded_at) : "—"}</div>
+                {cp && (
+                  <div className="tl-note">
+                    {stageProgress(stage, stages, byStage) ?? "Checkpoint recorded."}
+                  </div>
+                )}
+                {!cp && running && stage === firstPending && (
+                  <div className="tl-note">Executing — checkpoint pending.</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -4,6 +4,15 @@
 export type TaskStatus =
   "created" | "queued" | "running" | "completed" | "failed" | "dead-lettered" | "cancelled";
 
+/** A recorded pipeline-stage checkpoint, as served with a single task. */
+export interface CheckpointDto {
+  task_id: string;
+  stage: string;
+  /** Serialized stage output (the state to resume from), JSON-encoded. */
+  payload: string;
+  recorded_at: number; // epoch ms
+}
+
 export interface Task {
   id: string;
   name: string;
@@ -18,6 +27,13 @@ export interface Task {
   result: string | null;
   schedule_id: string | null;
   priority: number;
+  /** Declared pipeline stages. Omitted for plain (unstaged) tasks. */
+  stages?: string[];
+  /** Submit-time idempotency key. Omitted when none was given. */
+  idempotency_key?: string;
+  /** Recorded checkpoints (`recorded_at` order). Only the GET-by-id endpoint
+   *  populates these — list responses omit them. */
+  checkpoints?: CheckpointDto[];
 }
 
 export interface TaskListResponse {
@@ -57,6 +73,11 @@ export interface EnqueueBody {
   max_retries?: number;
   resources?: Record<string, number>;
   priority?: number;
+  /** Declared pipeline stages — workers checkpoint progress per stage. */
+  stages?: string[];
+  /** Resubmitting with the same key returns the existing task instead of
+   *  creating a duplicate (`deduplicated: true`). */
+  idempotency_key?: string;
 }
 
 // ---- Schedules --------------------------------------------------------------
