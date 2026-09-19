@@ -20,7 +20,10 @@
 //! ## Configuration
 //! - `--broker` (default `http://localhost:8000`) — broker gRPC address.
 //! - `--tags` (default `llm`) — subscription tags; tasks must carry one to route here.
-//! - `--resources` (default `llm:1`) — declared resources.
+//! - `--resources` (default `llm.rpm:60@60/60`) — declared resources: static
+//!   `name:capacity` or replenishing `name:capacity@refill_amount/period_secs`
+//!   (the default is a 60-request bucket refilled 60 per 60s, i.e. a
+//!   sustained 60 requests/minute rate limit).
 //! - `--concurrency` (default `4`) — max in-flight LLM calls.
 //! - `--api-base` / `OPENAI_BASE_URL` (default `https://api.openai.com/v1`).
 //! - `--model` / `LLM_MODEL` (default `gpt-4o-mini`).
@@ -28,7 +31,7 @@
 
 use anyhow::Result;
 use chopflow_core::error::ChopFlowError;
-use chopflow_core::resources::ResourceAvailability;
+use chopflow_core::resources::{parse_resources_ext, RefillSpec, ResourceAvailability};
 use clap::Parser;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -69,8 +72,10 @@ struct Cli {
     #[arg(long, short, default_value = "llm")]
     tags: String,
 
-    /// Resources available (format: resource:amount,resource:amount).
-    #[arg(long, short, default_value = "llm:1")]
+    /// Resources available. Entries are `name:capacity` (static) or
+    /// `name:capacity@refill_amount/period_secs` (replenishing, e.g.
+    /// `llm.rpm:60@60/60` = 60 requests refilled 60 per 60s).
+    #[arg(long, short, default_value = "llm.rpm:60@60/60")]
     resources: String,
 
     /// Heartbeat interval in seconds.
@@ -146,8 +151,17 @@ async fn main() -> Result<()> {
 
     let tags: Vec<String> = cli.tags.split(',').map(|s| s.trim().to_string()).collect();
 
-    let resource_map = parse_resources(&cli.resources)?;
-    let resources = ResourceAvailability::from_capacities(resource_map.clone());
+    // Parse resources: `name:capacity` (static) or
+    // `name:capacity@refill_amount/period_secs` (replenishing). The default
+    // (`llm.rpm:60@60/60`) declares a 60-request token bucket refilled 60 per
+    // 60s — a static `llm:1` still parses and behaves exactly as before.
+    let (capacities, refills) = parse_resources_ext(&cli.resources)?;
+    let mut resources = ResourceAvailability::from_capacities(capacities.clone());
+    for (name, spec) in &refills {
+        // Every refill entry also carries a capacity in the parsed map.
+        let capacity = capacities.get(name).copied().unwrap_or(1);
+        resources.add_replenishing_resource(name.clone(), capacity, spec.amount, spec.period_secs);
+    }
 
     info!(
         "ChopFlow LLM worker: broker={}, tags={:?}, model={}, api_base={}, concurrency={}",
@@ -156,7 +170,7 @@ async fn main() -> Result<()> {
 
     // Connect + register, retrying with backoff so the worker can start before
     // the broker and survive broker restarts.
-    let worker_id = connect_and_register(&cli.broker, &tags, &resource_map).await?;
+    let worker_id = connect_and_register(&cli.broker, &tags, &capacities, &refills).await?;
     info!("Worker registered with ID: {}", worker_id);
 
     let state = Arc::new(WorkerState {
@@ -195,43 +209,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Parse `name:amount,...` into a resource map. Malformed entries are errors.
-fn parse_resources(s: &str) -> Result<HashMap<String, u32>> {
-    let mut map = HashMap::new();
-    for entry in s.split(',') {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = entry.split(':').collect();
-        if parts.len() != 2 {
-            anyhow::bail!(
-                "invalid resource '{}': expected 'name:amount' (e.g. llm:1)",
-                entry
-            );
-        }
-        let amount = parts[1]
-            .trim()
-            .parse::<u32>()
-            .map_err(|e| anyhow::anyhow!("invalid resource amount in '{}': {}", entry, e))?;
-        map.insert(parts[0].trim().to_string(), amount);
-    }
-    if map.is_empty() {
-        anyhow::bail!("a worker must declare at least one resource (e.g. -r llm:1)");
-    }
-    Ok(map)
-}
-
 /// Connect to the broker and register, retrying with backoff until success.
 async fn connect_and_register(
     broker_address: &str,
     tags: &[String],
-    resources: &HashMap<String, u32>,
+    capacities: &HashMap<String, u32>,
+    refills: &HashMap<String, RefillSpec>,
 ) -> Result<String> {
     let mut backoff = Duration::from_millis(500);
     const MAX_BACKOFF: Duration = Duration::from_secs(5);
     loop {
-        match try_connect_and_register(broker_address, tags, resources).await {
+        match try_connect_and_register(broker_address, tags, capacities, refills).await {
             Ok(id) => return Ok(id),
             Err(e) => {
                 error!(
@@ -248,7 +236,8 @@ async fn connect_and_register(
 async fn try_connect_and_register(
     broker_address: &str,
     tags: &[String],
-    resources: &HashMap<String, u32>,
+    capacities: &HashMap<String, u32>,
+    refills: &HashMap<String, RefillSpec>,
 ) -> Result<String> {
     let mut client = ChopFlowBrokerClient::connect(broker_address.to_string())
         .await
@@ -257,7 +246,22 @@ async fn try_connect_and_register(
         .register_worker(Request::new(RegisterWorkerRequest {
             address: "localhost".to_string(),
             tags: tags.to_vec(),
-            resources: resources.clone(),
+            // Static entries declare refill_amount = 0; replenishing entries
+            // carry their refill rate so the broker builds a token bucket.
+            resources: capacities
+                .iter()
+                .map(|(name, capacity)| {
+                    let refill = refills.get(name);
+                    (
+                        name.clone(),
+                        chopflow::ResourceSpec {
+                            capacity: *capacity,
+                            refill_amount: refill.map(|s| s.amount).unwrap_or(0),
+                            refill_period_secs: refill.map(|s| s.period_secs).unwrap_or(0),
+                        },
+                    )
+                })
+                .collect(),
         }))
         .await
         .map_err(|e| ChopFlowError::NetworkError(e.to_string()))?;

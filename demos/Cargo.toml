@@ -31,3 +31,8 @@ path = "src/main.rs"
 [[bin]]
 name = "chopflow_demo_seed"
 path = "src/bin/seed.rs"
+
+[dev-dependencies]
+chopflow-proto = { path = "../proto" }
+chopflow_broker = { path = "../broker" }
+tonic.workspace = true

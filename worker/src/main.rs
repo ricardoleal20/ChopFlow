@@ -25,7 +25,9 @@ enum Commands {
         #[arg(long, short, default_value = "default")]
         tags: String,
 
-        /// Resources available (format: resource:amount,resource:amount)
+        /// Resources available. Entries are `name:capacity` (static) or
+        /// `name:capacity@refill_amount/period_secs` (replenishing, e.g.
+        /// `llm.rpm:60@60/60` = 60 requests refilled 60 per 60s).
         #[arg(long, short, default_value = "cpu:1")]
         resources: String,
 

@@ -647,6 +647,8 @@ name = "chopflow_demos"
 version = "0.1.5"
 dependencies = [
  "anyhow",
+ "chopflow-proto",
+ "chopflow_broker",
  "chopflow_core",
  "chopflow_worker",
  "chrono",
@@ -658,6 +660,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -671,6 +674,7 @@ dependencies = [
  "chopflow-proto",
  "chopflow_broker",
  "chopflow_core",
+ "chrono",
  "clap",
  "config",
  "futures",
