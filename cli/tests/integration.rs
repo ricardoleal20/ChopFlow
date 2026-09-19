@@ -8,9 +8,10 @@
 
 use chopflow_broker::chopflow::{
     self, chop_flow_broker_client::ChopFlowBrokerClient, GetTaskStatusRequest,
-    ListSchedulesRequest, ListTasksRequest,
+    ListSchedulesRequest, ListTasksRequest, SaveCheckpointRequest,
 };
 use chopflow_broker::{build_storage, ChopFlowBrokerService, StorageBackend};
+use chopflow_cli::TaskOptions;
 use chopflow_core::resources::ResourceAvailability;
 use chopflow_worker::{connect_and_register, WorkerState};
 use std::collections::HashMap;
@@ -40,10 +41,7 @@ async fn start_worker(url: String) {
     let tags = vec!["default".to_string()];
     let resources: HashMap<String, u32> = [("cpu".to_string(), 4)].into_iter().collect();
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(worker_id, url, availability, tags, 4).unwrap(),
     ));
@@ -127,6 +125,7 @@ async fn cli_enqueues_task_that_completes() {
         Some("default".into()),
         None,
         0,
+        TaskOptions::default(),
     )
     .await
     .unwrap();
@@ -161,6 +160,7 @@ async fn cli_get_status_all_runs_without_error() {
         Some("default".into()),
         None,
         0,
+        TaskOptions::default(),
     )
     .await
     .unwrap();
@@ -252,4 +252,117 @@ async fn cli_schedule_create_oneshot() {
     assert_eq!(sched.overlap_policy, 2); // OVERLAP_ALLOW
     let kind = sched.kind.clone().unwrap().kind.unwrap();
     assert!(matches!(kind, chopflow::schedule_kind::Kind::Eta(_)));
+}
+
+// ---- Stages / idempotency key plumbing --------------------------------------
+
+#[tokio::test]
+async fn cli_enqueues_staged_task_with_idempotency_key() {
+    let url = broker_url().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let task_path = dir.path().join("task.json");
+    std::fs::write(&task_path, r#"{"hello":"world"}"#).unwrap();
+
+    chopflow_cli::enqueue_task(
+        url.clone(),
+        task_path,
+        Some("echo".into()),
+        Some("default".into()),
+        None,
+        0,
+        TaskOptions {
+            stages: Some(vec!["chunk".into(), "embed".into(), "index".into()]),
+            idempotency_key: Some("doc-42".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    let tasks = list_tasks(&url).await;
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(
+        tasks[0].stages,
+        vec!["chunk", "embed", "index"],
+        "stages must round-trip to the broker"
+    );
+    assert_eq!(tasks[0].idempotency_key, "doc-42");
+}
+
+#[tokio::test]
+async fn cli_enqueues_staged_task_from_file_fields() {
+    let url = broker_url().await;
+
+    // The task file declares the pipeline stages and the idempotency key at
+    // its top level; the CLI must forward them as task metadata and strip
+    // them from the payload handed to the handler.
+    let dir = tempfile::tempdir().unwrap();
+    let task_path = dir.path().join("task.json");
+    std::fs::write(
+        &task_path,
+        r#"{"hello":"world","stages":["chunk","embed"],"idempotency_key":"file-key"}"#,
+    )
+    .unwrap();
+
+    chopflow_cli::enqueue_task(
+        url.clone(),
+        task_path,
+        Some("echo".into()),
+        Some("default".into()),
+        None,
+        0,
+        TaskOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let tasks = list_tasks(&url).await;
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].stages, vec!["chunk", "embed"]);
+    assert_eq!(tasks[0].idempotency_key, "file-key");
+
+    // The reserved keys are task metadata, not handler input.
+    let payload: serde_json::Value = serde_json::from_str(&tasks[0].payload).unwrap();
+    assert_eq!(payload["hello"], "world");
+    assert!(payload.get("stages").is_none());
+    assert!(payload.get("idempotency_key").is_none());
+}
+
+#[tokio::test]
+async fn cli_status_get_prints_checkpoints_without_error() {
+    let url = broker_url().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let task_path = dir.path().join("task.json");
+    std::fs::write(&task_path, r#"{"hello":"world"}"#).unwrap();
+    chopflow_cli::enqueue_task(
+        url.clone(),
+        task_path,
+        Some("echo".into()),
+        Some("default".into()),
+        None,
+        0,
+        TaskOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    let task_id = list_tasks(&url).await.remove(0).id;
+
+    // Record a checkpoint the way a context-aware worker would.
+    let mut client = ChopFlowBrokerClient::connect(url.clone()).await.unwrap();
+    client
+        .save_checkpoint(Request::new(SaveCheckpointRequest {
+            task_id: task_id.clone(),
+            stage: "chunk".into(),
+            payload: r#"{"chunks":3}"#.into(),
+        }))
+        .await
+        .unwrap();
+
+    // `status --id` prints the task plus its checkpoints; verified to run
+    // cleanly (stdout is not captured — see the module docs).
+    chopflow_cli::get_status(url.clone(), Some(task_id), false)
+        .await
+        .unwrap();
 }

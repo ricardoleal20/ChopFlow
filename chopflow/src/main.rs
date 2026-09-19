@@ -106,6 +106,19 @@ enum Command {
         /// Dispatch priority (higher = claimed first). Default 0.
         #[arg(long, default_value_t = 0)]
         priority: i32,
+
+        /// Pipeline stage names (comma-separated), e.g. "chunk,embed,index".
+        /// May also be declared as a top-level "stages" array in the task
+        /// JSON file; this flag wins when both are present.
+        #[arg(long, value_name = "STAGES")]
+        stages: Option<String>,
+
+        /// Idempotency key: submitting the same key again returns the
+        /// existing task instead of creating a duplicate. May also be
+        /// declared as "idempotency_key" in the task JSON file; this flag
+        /// wins when both are present.
+        #[arg(long, value_name = "KEY")]
+        idempotency_key: Option<String>,
     },
 
     /// Get task status, list tasks, or show queue stats.
@@ -259,6 +272,8 @@ async fn main() -> anyhow::Result<()> {
             tags,
             eta,
             priority,
+            stages,
+            idempotency_key,
         } => {
             let cli_cli = chopflow_cli::Cli {
                 broker: opts.broker,
@@ -270,6 +285,8 @@ async fn main() -> anyhow::Result<()> {
                     tags,
                     eta,
                     priority,
+                    stages,
+                    idempotency_key,
                 },
             };
             chopflow_cli::run(cli_cli)

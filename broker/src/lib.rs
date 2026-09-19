@@ -18,6 +18,7 @@ use chopflow_core::storage::{Storage, TaskFilter};
 use chopflow_core::task::{Task, TaskStatus};
 
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -38,12 +39,14 @@ pub mod watchdog;
 
 use chopflow::{
     AcknowledgeTaskRequest, AcknowledgeTaskResponse, CancelTaskRequest, CancelTaskResponse,
-    CreateScheduleRequest, CreateScheduleResponse, DeleteScheduleRequest, DeleteScheduleResponse,
-    EnqueueTaskRequest, EnqueueTaskResponse, FetchTasksRequest, FetchTasksResponse,
+    Checkpoint as ProtoCheckpoint, CreateScheduleRequest, CreateScheduleResponse,
+    DeleteScheduleRequest, DeleteScheduleResponse, EnqueueTaskRequest, EnqueueTaskResponse,
+    FetchTasksRequest, FetchTasksResponse, GetCheckpointsRequest, GetCheckpointsResponse,
     GetQueueStatsRequest, GetQueueStatsResponse, GetTaskStatusRequest, GetTaskStatusResponse,
     ListSchedulesRequest, ListSchedulesResponse, ListTasksRequest, ListTasksResponse,
     ListWorkersResponse, OverlapPolicy as ProtoOverlapPolicy, RegisterWorkerRequest,
-    RegisterWorkerResponse, Schedule as ProtoSchedule, ScheduleKind as ProtoScheduleKind,
+    RegisterWorkerResponse, ResourceSpec as ProtoResourceSpec, SaveCheckpointRequest,
+    SaveCheckpointResponse, Schedule as ProtoSchedule, ScheduleKind as ProtoScheduleKind,
     Task as ProtoTask, TaskStatus as ProtoTaskStatus, TaskTemplate as ProtoTaskTemplate,
     Worker as ProtoWorker, WorkerHeartbeatRequest, WorkerHeartbeatResponse,
 };
@@ -149,6 +152,35 @@ pub fn build_storage(backend: &StorageBackend) -> std::result::Result<Arc<dyn St
 // Conversions between core and proto types live in the `chopflow-proto` crate
 // (the generated proto types are defined there, so the `From` impls must be
 // there to satisfy Rust's orphan rule).
+
+/// Build a worker's [`ResourceAvailability`] from the registration resource
+/// specs. A spec with `refill_amount == 0` is a static resource of
+/// `capacity` units; a non-zero `refill_amount` declares a replenishing
+/// (rate-limited) token bucket of `capacity` tokens refilled by
+/// `refill_amount` every `refill_period_secs` seconds.
+fn resource_availability_from_specs(
+    specs: HashMap<String, ProtoResourceSpec>,
+) -> ResourceAvailability {
+    let mut statics = HashMap::new();
+    let mut replenishing = Vec::new();
+    for (name, spec) in specs {
+        if spec.refill_amount == 0 {
+            statics.insert(name, spec.capacity);
+        } else {
+            replenishing.push((name, spec));
+        }
+    }
+    let mut availability = ResourceAvailability::from_capacities(statics);
+    for (name, spec) in replenishing {
+        availability.add_replenishing_resource(
+            name,
+            spec.capacity,
+            spec.refill_amount,
+            spec.refill_period_secs,
+        );
+    }
+    availability
+}
 
 /// Convert a proto `TaskTemplate` into the core type. The proto payload is a
 /// JSON string; we parse it into a `serde_json::Value` here.
@@ -270,6 +302,11 @@ pub struct BrokerState {
     /// `Authorization: Bearer <one of these>`; `/healthz` stays open so
     /// adopt-probes and load balancers keep working. Empty = no auth.
     pub api_tokens: Vec<String>,
+    /// Serializes idempotent submits. The storage backends lock per
+    /// *operation*, so an idempotency-key lookup followed by an insert is not
+    /// atomic on its own; holding this lock across the pair makes concurrent
+    /// duplicate-key submits resolve to a single created task.
+    pub submit_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl BrokerState {
@@ -302,6 +339,7 @@ impl BrokerState {
             region,
             catalog,
             api_tokens: Vec::new(),
+            submit_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -551,6 +589,13 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             task = task.with_resource(resource, amount);
         }
 
+        if !req.stages.is_empty() {
+            task = task.with_stages(req.stages);
+        }
+        if !req.idempotency_key.is_empty() {
+            task = task.with_idempotency_key(req.idempotency_key);
+        }
+
         task = task.with_priority(req.priority);
 
         // A single insert is both "store" and "enqueue": queued tasks are
@@ -673,10 +718,7 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             id: Uuid::new_v4(),
             address: req.address,
             tags: req.tags,
-            resources: ResourceAvailability {
-                available: req.resources.clone(),
-                total: req.resources,
-            },
+            resources: resource_availability_from_specs(req.resources),
             assigned_tasks: Vec::new(),
             last_heartbeat: chrono::Utc::now(),
         };
@@ -976,6 +1018,65 @@ impl ChopFlowBroker for ChopFlowBrokerService {
             .await
             .map_err(|e| Status::internal(format!("delete schedule: {}", e)))?;
         Ok(Response::new(DeleteScheduleResponse { success: true }))
+    }
+
+    async fn save_checkpoint(
+        &self,
+        request: Request<SaveCheckpointRequest>,
+    ) -> std::result::Result<Response<SaveCheckpointResponse>, Status> {
+        let req = request.into_inner();
+        let task_id = Uuid::parse_str(&req.task_id)
+            .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
+
+        // Checkpoints are only meaningful for a task the broker knows; the
+        // storage upsert itself doesn't validate the task id.
+        self.state
+            .storage
+            .get(&task_id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
+            .ok_or_else(|| Status::not_found(format!("Task not found: {}", task_id)))?;
+
+        self.state
+            .storage
+            .save_checkpoint(&task_id, &req.stage, &req.payload)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to save checkpoint: {}", e)))?;
+
+        info!(
+            "Saved checkpoint for task {} at stage {}",
+            task_id, req.stage
+        );
+
+        Ok(Response::new(SaveCheckpointResponse {}))
+    }
+
+    async fn get_checkpoints(
+        &self,
+        request: Request<GetCheckpointsRequest>,
+    ) -> std::result::Result<Response<GetCheckpointsResponse>, Status> {
+        let req = request.into_inner();
+        let task_id = Uuid::parse_str(&req.task_id)
+            .map_err(|_| Status::invalid_argument("Invalid task ID format"))?;
+
+        self.state
+            .storage
+            .get(&task_id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get task: {}", e)))?
+            .ok_or_else(|| Status::not_found(format!("Task not found: {}", task_id)))?;
+
+        let checkpoints = self
+            .state
+            .storage
+            .checkpoints(&task_id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get checkpoints: {}", e)))?;
+
+        let checkpoints: Vec<ProtoCheckpoint> =
+            checkpoints.into_iter().map(ProtoCheckpoint::from).collect();
+
+        Ok(Response::new(GetCheckpointsResponse { checkpoints }))
     }
 }
 

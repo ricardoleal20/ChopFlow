@@ -5,8 +5,9 @@ The worker executable for ChopFlow, a distributed task queue.
 
 Workers are responsible for:
 - Registering with the broker
-- Declaring their capabilities (tags) and resources
-- Executing assigned tasks
+- Declaring their capabilities (tags) and resources (static or replenishing)
+- Executing assigned tasks (plain sync handlers, or context-aware async
+  handlers that can persist pipeline checkpoints and resume on retry)
 - Reporting task results back to the broker
 - Sending regular heartbeats to indicate health
 
@@ -16,9 +17,11 @@ and integration-tested; the binary only wires up CLI parsing + tracing.
 */
 
 use chopflow_core::error::{ChopFlowError, Result};
-use chopflow_core::resources::ResourceAvailability;
+use chopflow_core::resources::{parse_resources_ext, RefillSpec, ResourceAvailability};
+use chopflow_core::Checkpoint;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -27,6 +30,7 @@ use tokio::time;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use tracing::{error, info};
+use uuid::Uuid;
 
 // Re-export the generated gRPC types from the shared `chopflow-proto` crate.
 // The proto is compiled once there (not per consumer), which keeps this crate
@@ -36,8 +40,9 @@ pub use chopflow_proto::chopflow;
 
 use chopflow::{
     chop_flow_broker_client::ChopFlowBrokerClient, AcknowledgeTaskRequest, FetchTasksRequest,
-    RegisterWorkerRequest, ResourceAvailability as ProtoResourceAvailability, Task as ProtoTask,
-    WorkerHeartbeatRequest,
+    GetCheckpointsRequest, RegisterWorkerRequest,
+    ResourceAvailability as ProtoResourceAvailability, ResourceSpec as ProtoResourceSpec,
+    SaveCheckpointRequest, Task as ProtoTask, WorkerHeartbeatRequest,
 };
 
 #[derive(Clone)]
@@ -165,6 +170,129 @@ pub fn echo_handler(payload: serde_json::Value) -> Result<serde_json::Value> {
     }))
 }
 
+/// Execution context handed to a context-aware (async) task handler.
+///
+/// A `TaskCtx` carries the task's identity, its declared pipeline stages
+/// (if any), the checkpoints recorded by previous attempts of the same task
+/// (fetched before the handler runs), and a cheap handle for saving new
+/// checkpoints: [`TaskCtx::checkpoint`] upserts a `(task_id, stage)` record on
+/// the broker, so a retried task resumes from the last completed stage
+/// instead of restarting (Temporal-style durable execution without a
+/// workflow engine).
+///
+/// The broker channel is the same persistent channel the fetch/ack loop
+/// holds; a client is cloned off it per checkpoint save, exactly like
+/// [`send_task_acknowledgment`] and [`fetch_tasks`] do.
+pub struct TaskCtx {
+    /// ID of the task being executed
+    pub task_id: String,
+
+    /// Name of the task being executed
+    pub task_name: String,
+
+    /// The task's declared pipeline stages (`None` when the task declares
+    /// none — a plain, non-checkpointed task)
+    pub stages: Option<Vec<String>>,
+
+    /// Checkpoints recorded by previous attempts of this task (empty on a
+    /// first attempt, or when the task declares no stages)
+    pub checkpoints: Vec<Checkpoint>,
+
+    /// The worker's persistent broker channel, cloned per checkpoint save
+    channel: Channel,
+}
+
+impl TaskCtx {
+    /// Persist (upsert) a checkpoint for `stage` on the broker.
+    ///
+    /// The payload is serialized to a JSON string and stored keyed by
+    /// `(task_id, stage)` — saving the same stage again overwrites it. Errors
+    /// are returned as readable strings (never panics), so a handler can
+    /// propagate them and let the broker retry the task with its checkpoints
+    /// intact.
+    pub async fn checkpoint(
+        &self,
+        stage: &str,
+        payload: serde_json::Value,
+    ) -> std::result::Result<(), String> {
+        let payload = serde_json::to_string(&payload).map_err(|e| {
+            format!("failed to serialize checkpoint payload for stage '{stage}': {e}")
+        })?;
+
+        let mut client = ChopFlowBrokerClient::new(self.channel.clone());
+
+        client
+            .save_checkpoint(Request::new(SaveCheckpointRequest {
+                task_id: self.task_id.clone(),
+                stage: stage.to_string(),
+                payload,
+            }))
+            .await
+            .map(|_| ())
+            .map_err(|e| {
+                format!(
+                    "failed to save checkpoint for stage '{}' of task {}: {e}",
+                    stage, self.task_id
+                )
+            })
+    }
+
+    /// The checkpoint recorded for `stage`, if any. Checkpoints are upserted
+    /// per stage, so at most one exists per stage name.
+    pub fn stage_checkpoint(&self, stage: &str) -> Option<&Checkpoint> {
+        self.checkpoints.iter().find(|c| c.stage == stage)
+    }
+
+    /// Distinct stage names that have a checkpoint, in pipeline order.
+    ///
+    /// When the task declares its stages, the declared order is the
+    /// authoritative one — checkpoint listing order (`recorded_at`) must not
+    /// be relied on because the broker re-orders it on upsert. Without
+    /// declared stages the first-appearance order in the checkpoint list is
+    /// used.
+    pub fn completed_stages(&self) -> Vec<String> {
+        completed_stages(self.stages.as_deref(), &self.checkpoints)
+    }
+}
+
+/// Distinct stage names that have a checkpoint, ordered by their first
+/// appearance in the declared `stages` when available (falling back to
+/// first-appearance order in `checkpoints` otherwise).
+///
+/// Free-function form of [`TaskCtx::completed_stages`] so the ordering logic
+/// is unit-testable without a broker channel.
+pub fn completed_stages(stages: Option<&[String]>, checkpoints: &[Checkpoint]) -> Vec<String> {
+    let completed: HashSet<&str> = checkpoints.iter().map(|c| c.stage.as_str()).collect();
+
+    match stages {
+        // Declared stages exist: keep their (authoritative) order.
+        Some(stages) => stages
+            .iter()
+            .filter(|stage| completed.contains(stage.as_str()))
+            .cloned()
+            .collect(),
+        // No declared stages: fall back to first-appearance order.
+        None => {
+            let mut seen = HashSet::new();
+            checkpoints
+                .iter()
+                .map(|c| c.stage.clone())
+                .filter(|stage| seen.insert(stage.clone()))
+                .collect()
+        }
+    }
+}
+
+/// The boxed future returned by a context-aware task handler.
+pub type CtxHandlerFuture =
+    futures::future::BoxFuture<'static, std::result::Result<serde_json::Value, String>>;
+
+/// A context-aware (async) task handler: receives the [`TaskCtx`] (task
+/// identity, declared stages, prior checkpoints, checkpoint sink) plus the
+/// deserialized payload, and returns the task result — or a readable error
+/// string that is acked back to the broker as a failure.
+pub type CtxHandler = Arc<dyn Fn(TaskCtx, serde_json::Value) -> CtxHandlerFuture + Send + Sync>;
+
 /// A function that can handle a task
 pub type TaskHandlerFn = fn(serde_json::Value) -> Result<serde_json::Value>;
 
@@ -172,12 +300,14 @@ pub type TaskHandlerFn = fn(serde_json::Value) -> Result<serde_json::Value>;
 #[derive(Clone)]
 pub struct TaskRegistry {
     handlers: HashMap<String, TaskHandlerFn>,
+    ctx_handlers: HashMap<String, CtxHandler>,
 }
 
 impl TaskRegistry {
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
+            ctx_handlers: HashMap::new(),
         }
     }
 
@@ -186,19 +316,44 @@ impl TaskRegistry {
         self.handlers.insert(task_name.to_string(), handler);
     }
 
+    /// Register a context-aware (async) task handler. The handler receives a
+    /// [`TaskCtx`] — task identity, declared stages, prior checkpoints, and
+    /// the [`TaskCtx::checkpoint`] sink — so it can implement durable,
+    /// resumable pipelines. A plain [`TaskRegistry::register`] handler for
+    /// the same name is unaffected: context-aware handlers take precedence
+    /// at dispatch.
+    ///
+    /// Accepts any async function/closure of `(TaskCtx, Value)`; it is boxed
+    /// into the shared [`CtxHandler`] shape internally.
+    pub fn register_ctx<F, Fut>(&mut self, task_name: &str, handler: F)
+    where
+        F: Fn(TaskCtx, serde_json::Value) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = std::result::Result<serde_json::Value, String>> + Send + 'static,
+    {
+        self.ctx_handlers.insert(
+            task_name.to_string(),
+            Arc::new(move |ctx, payload| Box::pin(handler(ctx, payload))),
+        );
+    }
+
     /// Get a handler for a task
     pub fn get(&self, task_name: &str) -> Option<&TaskHandlerFn> {
         self.handlers.get(task_name)
     }
 
-    /// Number of registered handlers.
+    /// Get a context-aware handler for a task (cloned `Arc` handle)
+    pub fn get_ctx(&self, task_name: &str) -> Option<CtxHandler> {
+        self.ctx_handlers.get(task_name).cloned()
+    }
+
+    /// Number of registered handlers (plain + context-aware).
     pub fn len(&self) -> usize {
-        self.handlers.len()
+        self.handlers.len() + self.ctx_handlers.len()
     }
 
     /// Whether any handlers are registered.
     pub fn is_empty(&self) -> bool {
-        self.handlers.is_empty()
+        self.handlers.is_empty() && self.ctx_handlers.is_empty()
     }
 }
 
@@ -252,6 +407,46 @@ pub fn parse_resources(resources_str: &str) -> Result<HashMap<String, u32>> {
     Ok(resource_map)
 }
 
+/// Build the worker's [`ResourceAvailability`] from an extended
+/// `--resources` declaration: every entry contributes its capacity, and
+/// replenishing entries (`name:capacity@refill_amount/period_secs`) declare a
+/// lazy token bucket on top.
+pub fn resources_from_declarations(
+    capacities: &HashMap<String, u32>,
+    refills: &HashMap<String, RefillSpec>,
+) -> ResourceAvailability {
+    let mut resources = ResourceAvailability::from_capacities(capacities.clone());
+    for (name, spec) in refills {
+        // Every refill entry also carries a capacity in the parsed map.
+        let capacity = capacities.get(name).copied().unwrap_or(1);
+        resources.add_replenishing_resource(name.clone(), capacity, spec.amount, spec.period_secs);
+    }
+    resources
+}
+
+/// Build the gRPC `map<String, ResourceSpec>` registration payload. A
+/// replenishing entry gets its refill fields; a static entry declares
+/// `refill_amount == 0` (the broker treats that as a plain static resource).
+pub fn resource_specs_proto(
+    capacities: &HashMap<String, u32>,
+    refills: &HashMap<String, RefillSpec>,
+) -> HashMap<String, ProtoResourceSpec> {
+    capacities
+        .iter()
+        .map(|(name, capacity)| {
+            let refill = refills.get(name);
+            (
+                name.clone(),
+                ProtoResourceSpec {
+                    capacity: *capacity,
+                    refill_amount: refill.map(|s| s.amount).unwrap_or(0),
+                    refill_period_secs: refill.map(|s| s.period_secs).unwrap_or(0),
+                },
+            )
+        })
+        .collect()
+}
+
 pub async fn start_worker(
     broker_address: String,
     tags_str: String,
@@ -262,13 +457,11 @@ pub async fn start_worker(
     // Parse tags
     let tags = parse_tags(&tags_str);
 
-    // Parse resources.
-    let resource_map = parse_resources(&resources_str)?;
+    // Parse resources: `name:capacity` (static) or
+    // `name:capacity@refill_amount/period_secs` (replenishing).
+    let (capacities, refills) = parse_resources_ext(&resources_str)?;
 
-    let resources = ResourceAvailability {
-        available: resource_map.clone(),
-        total: resource_map.clone(),
-    };
+    let resources = resources_from_declarations(&capacities, &refills);
 
     let concurrency = concurrency.unwrap_or_else(|| derive_concurrency(&resources));
 
@@ -279,7 +472,8 @@ pub async fn start_worker(
     // Connect to the broker and register. We retry with backoff so the worker
     // can be started before the broker, or survive a broker restart, instead
     // of dying on the first failed connection with a cryptic "transport error".
-    let worker_id = connect_and_register(&broker_address, &tags, &resource_map).await?;
+    let worker_id =
+        connect_and_register_with_refills(&broker_address, &tags, &capacities, &refills).await?;
 
     info!("Worker registered with ID: {}", worker_id);
 
@@ -307,12 +501,10 @@ pub async fn start_worker_with_registry(
     registry: TaskRegistry,
 ) -> Result<()> {
     let tags = parse_tags(&tags_str);
-    let resource_map = parse_resources(&resources_str)?;
 
-    let resources = ResourceAvailability {
-        available: resource_map.clone(),
-        total: resource_map.clone(),
-    };
+    let (capacities, refills) = parse_resources_ext(&resources_str)?;
+
+    let resources = resources_from_declarations(&capacities, &refills);
 
     let concurrency = concurrency.unwrap_or_else(|| derive_concurrency(&resources));
 
@@ -320,7 +512,8 @@ pub async fn start_worker_with_registry(
     info!("Worker resources: {:?}", resources);
     info!("Worker concurrency: {}", concurrency);
 
-    let worker_id = connect_and_register(&broker_address, &tags, &resource_map).await?;
+    let worker_id =
+        connect_and_register_with_refills(&broker_address, &tags, &capacities, &refills).await?;
     info!("Worker registered with ID: {}", worker_id);
 
     let worker_state = Arc::new(Mutex::new(WorkerState::with_registry(
@@ -376,13 +569,28 @@ async fn run_worker(worker_state: Arc<Mutex<WorkerState>>, heartbeat_interval: u
     Ok(())
 }
 
-/// Connect to the broker and register the worker, retrying with backoff until
-/// it succeeds. This makes startup resilient to the broker not being ready yet
-/// (or restarting) — instead of exiting with a bare "transport error".
+/// Connect to the broker and register the worker with static resources only,
+/// retrying with backoff until it succeeds. Kept for backward compatibility;
+/// see [`connect_and_register_with_refills`] for the full declaration.
 pub async fn connect_and_register(
     broker_address: &str,
     tags: &[String],
     resources: &HashMap<String, u32>,
+) -> Result<String> {
+    connect_and_register_with_refills(broker_address, tags, resources, &HashMap::new()).await
+}
+
+/// Connect to the broker and register the worker, retrying with backoff until
+/// it succeeds. This makes startup resilient to the broker not being ready yet
+/// (or restarting) — instead of exiting with a bare "transport error".
+///
+/// `capacities` holds every declared resource's capacity; `refills` holds the
+/// replenishing subset (`name:capacity@refill_amount/period_secs` entries).
+pub async fn connect_and_register_with_refills(
+    broker_address: &str,
+    tags: &[String],
+    capacities: &HashMap<String, u32>,
+    refills: &HashMap<String, RefillSpec>,
 ) -> Result<String> {
     info!("Connecting to broker at {}", broker_address);
 
@@ -390,7 +598,7 @@ pub async fn connect_and_register(
     const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
     loop {
-        match try_connect_and_register(broker_address, tags, resources).await {
+        match try_connect_and_register(broker_address, tags, capacities, refills).await {
             Ok(id) => return Ok(id),
             Err(e) => {
                 error!(
@@ -412,7 +620,8 @@ pub async fn connect_and_register(
 pub async fn try_connect_and_register(
     broker_address: &str,
     tags: &[String],
-    resources: &HashMap<String, u32>,
+    capacities: &HashMap<String, u32>,
+    refills: &HashMap<String, RefillSpec>,
 ) -> Result<String> {
     let mut client = ChopFlowBrokerClient::connect(broker_address.to_string())
         .await
@@ -421,7 +630,9 @@ pub async fn try_connect_and_register(
     let register_request = Request::new(RegisterWorkerRequest {
         address: "localhost".to_string(), // In production, this would be the actual address
         tags: tags.to_vec(),
-        resources: resources.clone(),
+        // Static entries declare refill_amount = 0; replenishing entries
+        // carry their refill rate so the broker builds a token bucket.
+        resources: resource_specs_proto(capacities, refills),
     });
 
     let response = client
@@ -457,6 +668,56 @@ pub async fn send_heartbeat(worker_state: &Arc<Mutex<WorkerState>>) -> Result<()
     Ok(())
 }
 
+/// Which kind of handler a task resolved to, and what it needs to run.
+enum HandlerKind {
+    /// A context-aware (async) handler plus the broker channel for its [`TaskCtx`].
+    Ctx(CtxHandler, Channel),
+    /// A plain (sync) `fn` pointer, executed on the blocking pool.
+    Plain(TaskHandlerFn),
+}
+
+/// Fetch a task's recorded checkpoints from the broker (recorded_at order),
+/// converting the proto records into core [`Checkpoint`]s.
+async fn fetch_checkpoints(channel: &Channel, task_id: &str) -> Result<Vec<Checkpoint>> {
+    let mut client = ChopFlowBrokerClient::new(channel.clone());
+
+    let response = client
+        .get_checkpoints(Request::new(GetCheckpointsRequest {
+            task_id: task_id.to_string(),
+        }))
+        .await
+        .map_err(|e| {
+            ChopFlowError::NetworkError(format!(
+                "failed to fetch checkpoints for task {task_id}: {e}"
+            ))
+        })?
+        .into_inner();
+
+    let mut checkpoints = Vec::with_capacity(response.checkpoints.len());
+    for cp in response.checkpoints {
+        let task_uuid = Uuid::parse_str(&cp.task_id).map_err(|e| {
+            ChopFlowError::Other(anyhow::anyhow!(
+                "invalid task id in checkpoint for task {task_id}: {e}"
+            ))
+        })?;
+        let recorded_at = chrono::DateTime::parse_from_rfc3339(&cp.recorded_at)
+            .map_err(|e| {
+                ChopFlowError::Other(anyhow::anyhow!(
+                    "invalid recorded_at in checkpoint for task {task_id}: {e}"
+                ))
+            })?
+            .with_timezone(&chrono::Utc);
+        checkpoints.push(Checkpoint {
+            task_id: task_uuid,
+            stage: cp.stage,
+            payload: cp.payload,
+            recorded_at,
+        });
+    }
+
+    Ok(checkpoints)
+}
+
 // This function would execute a task and send the result back to the broker
 pub async fn execute_task(worker_state: &Arc<Mutex<WorkerState>>, task: ProtoTask) -> Result<()> {
     let task_id = task.id.clone();
@@ -487,27 +748,29 @@ pub async fn execute_task(worker_state: &Arc<Mutex<WorkerState>>, task: ProtoTas
         }
     };
 
-    // Look up the appropriate handler for the task name
-    let handler_fn = {
+    // Look up the appropriate handler for the task name: a context-aware
+    // (async) handler registered for the exact name wins, then a plain one,
+    // then the "default" fallback of either kind.
+    let handler = {
         // Use a block to ensure the lock is released after we get the handler
         let state = worker_state.lock().await;
+        let registry = &state.task_registry;
 
-        match state
-            .task_registry
-            .get(&task_name)
-            .or_else(|| state.task_registry.get("default"))
-        {
-            Some(handler) => {
-                // Clone the function pointer so we can release the lock
-                let handler_clone = *handler;
-                Some(handler_clone)
-            }
-            None => None,
+        if let Some(ctx_handler) = registry.get_ctx(&task_name) {
+            Some(HandlerKind::Ctx(ctx_handler, state.channel.clone()))
+        } else if let Some(handler) = registry.get(&task_name) {
+            Some(HandlerKind::Plain(*handler))
+        } else if let Some(ctx_handler) = registry.get_ctx("default") {
+            Some(HandlerKind::Ctx(ctx_handler, state.channel.clone()))
+        } else {
+            registry
+                .get("default")
+                .map(|handler| HandlerKind::Plain(*handler))
         }
     };
 
     // If no handler found, acknowledge failure
-    if handler_fn.is_none() {
+    let Some(handler) = handler else {
         error!("No handler found for task: {}", task_name);
         send_task_acknowledgment(
             worker_state,
@@ -522,18 +785,52 @@ pub async fn execute_task(worker_state: &Arc<Mutex<WorkerState>>, task: ProtoTas
 
         info!("Task {} failed: no handler found", task_id);
         return Ok(());
-    }
+    };
 
-    // Safe to unwrap: we returned above when no handler was found.
-    let handler_fn = handler_fn.unwrap();
-
-    // Execute the handler on the blocking pool so a long-running or CPU-bound
-    // handler can't stall the async runtime's worker threads. The handler is a
-    // plain `fn` pointer (Send + 'static) and the payload is `Send`, so the
-    // closure is `Send + 'static` as `spawn_blocking` requires.
-    let outcome = tokio::task::spawn_blocking(move || handler_fn(payload))
-        .await
-        .map_err(|join_err| ChopFlowError::Other(anyhow::Error::new(join_err)))?;
+    // Run the handler. Plain handlers run on the blocking pool so a
+    // long-running or CPU-bound handler can't stall the async runtime's
+    // worker threads (the handler is a plain `fn` pointer and the payload is
+    // `Send`, so the closure is `Send + 'static` as `spawn_blocking`
+    // requires). Context-aware handlers are async and run on the runtime
+    // directly; before invoking one we fetch the task's prior checkpoints
+    // (only when the task declares stages — otherwise the RPC would only
+    // ever return an empty list) so the handler can resume where the
+    // previous attempt left off.
+    let outcome: std::result::Result<serde_json::Value, String> = match handler {
+        HandlerKind::Plain(handler_fn) => {
+            match tokio::task::spawn_blocking(move || {
+                handler_fn(payload).map_err(|e| e.to_string())
+            })
+            .await
+            {
+                Ok(outcome) => outcome,
+                // A panicked handler is a task failure (acked, then retried by
+                // the broker) rather than a worker error, so the task never
+                // gets stuck in Running.
+                Err(join_err) => Err(format!("handler panicked: {join_err}")),
+            }
+        }
+        HandlerKind::Ctx(ctx_handler, channel) => {
+            let checkpoints = if task.stages.is_empty() {
+                Vec::new()
+            } else {
+                fetch_checkpoints(&channel, &task_id).await?
+            };
+            let stages = if task.stages.is_empty() {
+                None
+            } else {
+                Some(task.stages.clone())
+            };
+            let ctx = TaskCtx {
+                task_id: task_id.clone(),
+                task_name: task_name.clone(),
+                stages,
+                checkpoints,
+                channel,
+            };
+            (ctx_handler)(ctx, payload).await
+        }
+    };
 
     let result = match outcome {
         Ok(result) => {

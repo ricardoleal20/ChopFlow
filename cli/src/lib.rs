@@ -4,7 +4,8 @@
 The command-line interface for ChopFlow, a distributed task queue.
 
 The CLI provides tools for:
-- Enqueueing tasks from JSON files
+- Enqueueing tasks from JSON files (optionally staged pipelines with an
+  idempotency key)
 - Checking task status and results
 - Viewing queue statistics
 - Managing schedules
@@ -22,6 +23,98 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tonic::transport::Channel;
 use tracing::{error, info};
+
+// ---- Task options (stages + idempotency key) ------------------------------
+
+/// Task-level options carried outside the payload: the declared pipeline
+/// stages and the submit-time idempotency key. Sourced from CLI flags
+/// (authoritative) or from top-level fields in the task JSON file.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct TaskOptions {
+    /// Declared pipeline stages, e.g. `["chunk", "embed", "index"]`. Workers
+    /// checkpoint per stage and resume from the last completed stage on retry.
+    pub stages: Option<Vec<String>>,
+    /// Submit-time idempotency key: submitting the same key again returns the
+    /// existing task instead of creating a duplicate.
+    pub idempotency_key: Option<String>,
+}
+
+/// Parse a comma-separated stage list (`--stages "chunk,embed,index"`),
+/// trimming whitespace around each entry. Empty entries (including an
+/// entirely empty flag value) are rejected so a typo cannot silently declare
+/// a nameless stage.
+pub fn parse_stages(stages: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for entry in stages.split(',') {
+        let stage = entry.trim();
+        if stage.is_empty() {
+            return Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+                "--stages must be a comma-separated list of non-empty stage names, got '{}'",
+                stages
+            )));
+        }
+        out.push(stage.to_string());
+    }
+    Ok(out)
+}
+
+/// Extract task-level metadata (`stages`, `idempotency_key`) from the
+/// top-level object of a task JSON file, removing the keys from the payload —
+/// they describe the task, not the handler's input. Non-object payloads carry
+/// no task options. An error is returned when a reserved key is present with
+/// the wrong shape (`stages` must be an array of strings, `idempotency_key`
+/// a string).
+pub fn extract_task_options(payload: &mut serde_json::Value) -> Result<TaskOptions> {
+    let Some(obj) = payload.as_object_mut() else {
+        return Ok(TaskOptions::default());
+    };
+
+    let stages = match obj.remove("stages") {
+        None => None,
+        Some(serde_json::Value::Array(items)) => {
+            let mut stages = Vec::with_capacity(items.len());
+            for item in items {
+                let stage = item.as_str().ok_or_else(|| {
+                    chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+                        "task file field \"stages\" must be an array of stage names"
+                    ))
+                })?;
+                stages.push(stage.to_string());
+            }
+            // An empty array declares nothing.
+            (!stages.is_empty()).then_some(stages)
+        }
+        Some(_) => {
+            return Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+                "task file field \"stages\" must be an array of stage names"
+            )))
+        }
+    };
+
+    let idempotency_key = match obj.remove("idempotency_key") {
+        None => None,
+        Some(serde_json::Value::String(key)) => (!key.is_empty()).then_some(key),
+        Some(_) => {
+            return Err(chopflow_core::error::ChopFlowError::Other(anyhow::anyhow!(
+                "task file field \"idempotency_key\" must be a string"
+            )))
+        }
+    };
+
+    Ok(TaskOptions {
+        stages,
+        idempotency_key,
+    })
+}
+
+/// Merge enqueue options: CLI flags win over values declared inside the task
+/// JSON file when both are present.
+pub fn merge_task_options(flags: TaskOptions, file: TaskOptions) -> TaskOptions {
+    TaskOptions {
+        stages: flags.stages.or(file.stages),
+        idempotency_key: flags.idempotency_key.or(file.idempotency_key),
+    }
+}
 
 // Generate code from protobuf definitions.
 // The generated gRPC methods return `Result<_, tonic::Status>` and the oneof
@@ -44,6 +137,7 @@ pub async fn enqueue_task(
     tags_str: Option<String>,
     eta_str: Option<String>,
     priority: i32,
+    options: TaskOptions,
 ) -> Result<()> {
     info!("Reading task from {:?}", task_path);
 
@@ -52,8 +146,13 @@ pub async fn enqueue_task(
         .map_err(|e| chopflow_core::error::ChopFlowError::Other(e.into()))?;
 
     // Parse task
-    let payload: serde_json::Value = serde_json::from_str(&task_json)
+    let mut payload: serde_json::Value = serde_json::from_str(&task_json)
         .map_err(|e| chopflow_core::error::ChopFlowError::SerializationError(e.to_string()))?;
+
+    // Task-level metadata declared inside the file (stripped from the
+    // payload); CLI flags win over the file when both are present.
+    let file_options = extract_task_options(&mut payload)?;
+    let options = merge_task_options(options, file_options);
 
     // Create task
     let task_name = name.unwrap_or_else(|| "default".to_string());
@@ -78,6 +177,12 @@ pub async fn enqueue_task(
     println!("Task ID: {}", task.id);
     println!("Name: {}", task.name);
     println!("Tags: {:?}", task.tags);
+    if let Some(stages) = &options.stages {
+        println!("Stages: {:?}", stages);
+    }
+    if let Some(key) = &options.idempotency_key {
+        println!("Idempotency key: {}", key);
+    }
     if let Some(eta) = task.eta {
         println!("ETA: {}", eta);
     }
@@ -95,6 +200,9 @@ pub async fn enqueue_task(
         resources: task.resources,
         eta: None,
         priority,
+        // Empty = not declared (the proto treats empty as absent).
+        stages: options.stages.unwrap_or_default(),
+        idempotency_key: options.idempotency_key.unwrap_or_default(),
     };
 
     // Add ETA if present
@@ -140,11 +248,51 @@ pub async fn get_status(broker_address: String, id: Option<String>, all: bool) -
                     println!("Status: {}", status_name(task.status));
                     println!("Tags: {:?}", task.tags);
                     println!("Retries: {}/{}", task.retry_count, task.max_retries);
+                    if !task.stages.is_empty() {
+                        println!("Stages: {:?}", task.stages);
+                    }
+                    if !task.idempotency_key.is_empty() {
+                        println!("Idempotency key: {}", task.idempotency_key);
+                    }
                     if let Some(eta) = &task.eta {
                         println!("ETA: {}s {}ns", eta.seconds, eta.nanos);
                     }
                     if !task.result.is_empty() {
                         println!("Result: {}", task.result);
+                    }
+
+                    // Pipeline checkpoints. The status `Task` message does not
+                    // carry them, so they are fetched via the dedicated
+                    // GetCheckpoints RPC on the same connection.
+                    match client
+                        .get_checkpoints(chopflow::GetCheckpointsRequest {
+                            task_id: task_id.clone(),
+                        })
+                        .await
+                    {
+                        Ok(checkpoints) => {
+                            let checkpoints = &checkpoints.get_ref().checkpoints;
+                            if !checkpoints.is_empty() {
+                                println!("Checkpoints:");
+                                for checkpoint in checkpoints {
+                                    println!(
+                                        "  {} ({}): {}",
+                                        checkpoint.stage,
+                                        checkpoint.recorded_at,
+                                        checkpoint_payload_preview(&checkpoint.payload, 80)
+                                    );
+                                }
+                            }
+                        }
+                        // The status output above is already complete; a
+                        // checkpoint fetch failure degrades to a warning
+                        // rather than failing the whole command.
+                        Err(status) => {
+                            error!(
+                                "Failed to fetch checkpoints for task {}: {}",
+                                task_id, status
+                            );
+                        }
                     }
                 } else {
                     println!("Task not found: {}", task_id);
@@ -456,6 +604,26 @@ pub fn status_name(status: i32) -> &'static str {
     }
 }
 
+/// One-line preview of a checkpoint payload for `status get`: collapses all
+/// whitespace and elides to at most `max_chars` characters (on a char
+/// boundary), appending an ellipsis when truncated. Empty payloads render as
+/// `(empty)`.
+pub fn checkpoint_payload_preview(payload: &str, max_chars: usize) -> String {
+    let collapsed = payload.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return "(empty)".to_string();
+    }
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut preview: String = collapsed.chars().take(max_chars - 1).collect();
+    preview.push('…');
+    preview
+}
+
 // ---- CLI definition + entry point ----------------------------------------
 //
 // The clap structs live in the library (not `main.rs`) so the `chopflow`
@@ -489,7 +657,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Enqueue a task
+    /// Enqueue a task, optionally as a staged pipeline with an idempotency key
     Enqueue {
         /// Path to task JSON file
         #[arg(long, short = 'f')]
@@ -510,6 +678,21 @@ pub enum Commands {
         /// Dispatch priority (higher = claimed first). Default 0.
         #[arg(long, default_value_t = 0)]
         priority: i32,
+
+        /// Pipeline stage names (comma-separated), e.g. "chunk,embed,index".
+        /// Workers checkpoint progress per stage and resume from the last
+        /// completed stage on retry. May also be declared as a top-level
+        /// "stages" array in the task JSON file; this flag wins when both
+        /// are present.
+        #[arg(long, value_name = "STAGES")]
+        stages: Option<String>,
+
+        /// Idempotency key: submitting the same key again returns the
+        /// existing task instead of creating a duplicate. May also be
+        /// declared as "idempotency_key" in the task JSON file; this flag
+        /// wins when both are present.
+        #[arg(long, value_name = "KEY")]
+        idempotency_key: Option<String>,
     },
 
     /// Get task status
@@ -579,8 +762,14 @@ pub async fn run(cli: Cli) -> Result<()> {
             tags,
             eta,
             priority,
+            stages,
+            idempotency_key,
         } => {
-            enqueue_task(broker, task, name, tags, eta, priority).await?;
+            let options = TaskOptions {
+                stages: stages.map(|s| parse_stages(&s)).transpose()?,
+                idempotency_key: idempotency_key.filter(|k| !k.trim().is_empty()),
+            };
+            enqueue_task(broker, task, name, tags, eta, priority, options).await?;
         }
         Commands::Status { id, all } => {
             get_status(broker, id, all).await?;

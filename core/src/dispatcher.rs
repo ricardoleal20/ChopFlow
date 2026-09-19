@@ -85,6 +85,11 @@ impl Worker {
     }
 
     /// Check if worker can handle a task based on tags and resources
+    ///
+    /// Refill-aware: for replenishing (rate-limited) resources any pending
+    /// lazy-refill tokens are applied first (see
+    /// `ResourceAvailability::effective_available`), so a rate-limited task
+    /// becomes claimable as soon as its bucket has accrued enough tokens.
     pub fn can_handle(&self, task: &Task) -> bool {
         // Check if worker has any of the required tags
         let has_matching_tag = if task.tags.is_empty() {
@@ -242,7 +247,9 @@ impl Dispatcher for InMemoryDispatcher {
             return Ok(());
         };
 
-        // Release the resources the task had reserved.
+        // Release the resources the task had reserved. Static resources are
+        // restored; replenishing (rate-limited) ones are not — their tokens
+        // return only via time-based refill.
         let requirements = ResourceRequirements {
             resources: task.resources.clone(),
         };
@@ -255,5 +262,86 @@ impl Dispatcher for InMemoryDispatcher {
 
         debug!("Released task {} from worker {}", task.id, worker_id);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn rate_limited_task() -> Task {
+        let mut t = Task::new("llm.call".into(), serde_json::json!({}));
+        t.resources.insert("llm.rpm".into(), 1);
+        t
+    }
+
+    #[tokio::test]
+    async fn replenishing_task_waits_when_empty_and_proceeds_after_refill() {
+        let mut d = InMemoryDispatcher::new();
+        let mut worker = Worker::new("w1");
+        // Rate limit: 1 request per minute.
+        worker
+            .resources
+            .add_replenishing_resource("llm.rpm", 1, 1, 60);
+        let worker_id = worker.id;
+        d.register_worker(worker).await.unwrap();
+
+        let task = rate_limited_task();
+
+        // The bucket starts full (capacity 1): the first assign succeeds and
+        // drains it.
+        d.assign_task(&worker_id, &task).await.unwrap();
+        let w = d.get_worker(&worker_id).await.unwrap().unwrap();
+        assert!(!w.can_handle(&task), "empty bucket -> task must wait");
+
+        // Releasing the finished task must NOT give rate-limit tokens back.
+        d.release_task(&worker_id, &task).await.unwrap();
+        let w = d.get_worker(&worker_id).await.unwrap().unwrap();
+        assert!(!w.can_handle(&task));
+        assert!(d.assign_task(&worker_id, &task).await.is_err());
+
+        // Simulate a full refill period on the registered worker's bucket
+        // (the test module can reach the dispatcher's private worker map)
+        // -> the task becomes claimable again.
+        {
+            let mut workers = d.workers.lock().await;
+            for w in workers.values_mut() {
+                w.resources.refill(Duration::from_secs(60));
+            }
+        }
+        let w = d.get_worker(&worker_id).await.unwrap().unwrap();
+        assert!(w.can_handle(&task), "refilled bucket -> task claimable");
+        d.assign_task(&worker_id, &task).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn static_resource_path_regression() {
+        let mut d = InMemoryDispatcher::new();
+        let mut worker = Worker::new("w1");
+        worker.resources.add_resource("cpu", 4);
+        let worker_id = worker.id;
+        d.register_worker(worker).await.unwrap();
+
+        let mut task = Task::new("train".into(), serde_json::json!({}));
+        task.resources.insert("cpu".into(), 3);
+
+        assert!(d
+            .get_worker(&worker_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .can_handle(&task));
+        d.assign_task(&worker_id, &task).await.unwrap();
+        let w = d.get_worker(&worker_id).await.unwrap().unwrap();
+        assert_eq!(w.resources.available.get("cpu"), Some(&1));
+        // Only 1 cpu left: a task needing 3 cannot be handled.
+        assert!(!w.can_handle(&task));
+
+        // Static release restores the tokens, unlike replenishing ones.
+        d.release_task(&worker_id, &task).await.unwrap();
+        let w = d.get_worker(&worker_id).await.unwrap().unwrap();
+        assert_eq!(w.resources.available.get("cpu"), Some(&4));
+        assert!(w.can_handle(&task));
     }
 }

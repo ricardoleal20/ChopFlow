@@ -38,6 +38,11 @@ service ChopFlowBroker {
   rpc CreateSchedule (CreateScheduleRequest) returns (CreateScheduleResponse);
   rpc ListSchedules (ListSchedulesRequest) returns (ListSchedulesResponse);
   rpc DeleteSchedule (DeleteScheduleRequest) returns (DeleteScheduleResponse);
+
+  // Durable pipeline checkpoints: a context-aware worker persists its
+  // progress per stage so a retried task resumes instead of restarting.
+  rpc SaveCheckpoint (SaveCheckpointRequest) returns (SaveCheckpointResponse);
+  rpc GetCheckpoints (GetCheckpointsRequest) returns (GetCheckpointsResponse);
 }
 
 // Task object definition
@@ -59,6 +64,11 @@ message Task {
   string schedule_id = 12;
   // Dispatch priority. Higher values are claimed before lower ones. Default 0.
   int32 priority = 13;
+  // Declared pipeline stages (durable pipelines). Empty when the task is not
+  // a staged pipeline.
+  repeated string stages = 14;
+  // Idempotency key the task was submitted with. Empty when none was given.
+  string idempotency_key = 15;
 }
 
 // Worker definition
@@ -98,6 +108,12 @@ message EnqueueTaskRequest {
   map<string, uint32> resources = 6; // Resource requirements
   // Dispatch priority (higher = claimed first). Default 0.
   int32 priority = 7;
+  // Declared pipeline stages for durable (checkpointed) execution. Empty for
+  // plain tasks.
+  repeated string stages = 8;
+  // Submit-time idempotency key: submitting the same key again via the HTTP
+  // API deduplicates to the original task. Empty = no key.
+  string idempotency_key = 9;
 }
 
 message EnqueueTaskResponse {
@@ -126,7 +142,10 @@ message CancelTaskResponse {
 message RegisterWorkerRequest {
   string address = 1;
   repeated string tags = 2;
-  map<string, uint32> resources = 3;
+  // Worker resource capacities. `refill_amount == 0` means a static resource
+  // of `capacity` units (allocate decrements, release restores); a non-zero
+  // `refill_amount` declares a replenishing (rate-limited) token bucket.
+  map<string, ResourceSpec> resources = 3;
 }
 
 message RegisterWorkerResponse {
@@ -234,3 +253,42 @@ message ListSchedulesRequest {}
 message ListSchedulesResponse { repeated Schedule schedules = 1; }
 message DeleteScheduleRequest { string id = 1; }
 message DeleteScheduleResponse { bool success = 1; }
+
+// Durable pipeline checkpoints
+
+// A recorded completion of one pipeline stage of a task. Upserted per
+// (task_id, stage); listed per task ordered by `recorded_at` ascending.
+// `recorded_at` is an RFC 3339 timestamp string.
+message Checkpoint {
+  string task_id = 1;
+  string stage = 2;
+  string payload = 3;
+  string recorded_at = 4;
+}
+
+// SaveCheckpoint RPC — persist (upsert) a stage checkpoint for a task.
+message SaveCheckpointRequest {
+  string task_id = 1;
+  string stage = 2;
+  string payload = 3; // JSON serialized stage output
+}
+
+message SaveCheckpointResponse {}
+
+// GetCheckpoints RPC — list a task's checkpoints in recorded_at order.
+message GetCheckpointsRequest {
+  string task_id = 1;
+}
+
+message GetCheckpointsResponse {
+  repeated Checkpoint checkpoints = 1;
+}
+
+// Worker resource declaration. `refill_amount == 0` => a static resource of
+// `capacity` units; otherwise a replenishing token bucket of `capacity`
+// tokens refilled by `refill_amount` every `refill_period_secs` seconds.
+message ResourceSpec {
+  uint32 capacity = 1;
+  uint32 refill_amount = 2;
+  uint32 refill_period_secs = 3;
+}

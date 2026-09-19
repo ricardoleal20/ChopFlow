@@ -274,6 +274,15 @@ plus a cron and a one-shot schedule. See [Demo handlers](#demo-handlers).
   with exponential backoff, then dead-letter
 - **Resource Tracking**: CPU, GPU, and memory allocation and live utilization
   per worker; a worker only claims a task whose requirements it can satisfy
+- **Checkpointed Pipelines**: tasks declare stages (`--stages
+  "chunk,embed,index"`); context-aware handlers checkpoint progress per stage
+  and retries resume from the last completed stage instead of restarting
+- **Rate-Limit-Aware Resources**: workers declare static (`cpu:4`) or
+  replenishing (`llm.rpm:10@10/60`, token-bucket) resources; a task requiring
+  a rate-limited resource waits for tokens instead of failing
+- **Idempotent Submits**: enqueue with an idempotency key; resubmitting the
+  same key returns the existing task, atomically — no duplicates even under
+  concurrent submits
 - **Scheduling**: cron (5-field) and one-shot schedules with overlap policies
   (`skip` / `coalesce` / `allow`)
 - **Durability & Reconciliation**: SQLite persistence; on broker restart,
@@ -477,6 +486,82 @@ dashboard's Schedules view lists every schedule, lets you enable/disable, run
 now (which enqueues a one-off task from the template without disturbing the
 schedule's overlap accounting), and delete.
 
+## Checkpointed pipelines
+
+A multi-stage job shouldn't restart from zero when a worker dies mid-flight.
+A task can declare its pipeline stages, and a context-aware worker handler
+persists a checkpoint per stage — on retry, execution resumes from the last
+completed stage. Temporal-style durable execution without a workflow engine:
+checkpoints are plain rows in the task store (upserted per stage) and survive
+broker restarts with SQLite storage.
+
+Declare the stages at enqueue time (both fields may also live as top-level
+`"stages"` / `"idempotency_key"` in the task JSON file; the flags win):
+
+```bash
+chopflow enqueue -f task.json -n rag.ingest -g rag \
+    --stages "chunk,embed,index" --idempotency-key "doc-42"
+```
+
+In the worker, register a context-aware handler and checkpoint each stage:
+
+```rust
+registry.register_ctx("rag.ingest", ingest);
+
+async fn ingest(ctx: TaskCtx, payload: Value) -> Result<Value, String> {
+    // Skip stages a previous attempt already finished.
+    if ctx.stage_checkpoint("chunk").is_none() {
+        let chunks = chunk_document(&payload);
+        ctx.checkpoint("chunk", json!({ "chunks": chunks })).await?;
+    }
+    // embed / index — checkpoint progress so a retry resumes mid-pipeline
+}
+```
+
+On retry the worker re-fetches the task's checkpoints and hands them to the
+handler (`ctx.stage_checkpoint("embed")`, `ctx.completed_stages()`), so only
+the unfinished tail runs again. `GET /api/tasks/:id` returns the checkpoints
+(`stage`, `payload`, `recorded_at`), and the dashboard's task drawer renders
+the stage list with per-stage completion. `chopflow status get <id>` prints
+them too.
+
+## Rate-limit-aware resources
+
+Worker `--resources` entries are either static or replenishing:
+
+| Declaration         | Meaning                                                       |
+|---------------------|---------------------------------------------------------------|
+| `cpu:4`             | Static — 4 slots, allocated on claim and released on ack.     |
+| `llm.rpm:10@10/60`  | Replenishing — capacity 10, refills 10 tokens per 60 seconds. |
+
+Replenishing resources are a lazy token bucket: claiming a task consumes
+tokens, releasing does **not** restore them, and tokens return only with time
+(capped at capacity). A task requiring `{"llm.rpm": 1}` simply waits in the
+queue until a worker's bucket has a token — provider quota exhaustion becomes
+backpressure instead of a burst of failures.
+
+```bash
+chopflow_worker start --broker http://localhost:8000 \
+    --tags demo --resources "cpu:4,llm.rpm:60@60/60"
+```
+
+## Idempotent submits
+
+Submits are safe to retry: pass an idempotency key and the broker returns the
+existing task instead of creating a duplicate. The check-and-insert pair runs
+under a broker-wide submit lock, so concurrent submits with the same key
+create exactly one task.
+
+```bash
+curl -X POST http://localhost:8080/api/tasks \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"rag.ingest","payload":{"document":"..."},"stages":["chunk","embed","index"],"idempotency_key":"doc-42"}'
+```
+
+First submit returns `201 Created` with `{"task_id": "<uuid>"}`; submitting the
+same key again returns `200 OK` with the same task id and
+`"deduplicated": true`.
+
 ## Demo handlers
 
 The `demos` workspace crate ships a drop-in demo worker plus a seeding tool so
@@ -516,6 +601,34 @@ cargo run -p chopflow_demos --bin chopflow_demo_seed -- [broker_base_url]
 # broker_base_url defaults to http://localhost:8080
 ```
 
+### RAG ingestion demo
+
+```bash
+bash demos/rag.sh
+```
+
+The durable-pipeline showcase: it starts an in-memory broker, a demo worker
+declaring a static `cpu:4` plus a replenishing `llm.rpm:60@60/60` token
+bucket, and seeds the `rag.ingest` pipeline — a checkpointed
+`chunk → embed → index` flow over a sample document that requires
+`{"llm.rpm": 1}` (so the rate-limit path is visible) and is submitted twice
+with the same idempotency key. The seed prints that both submits returned the
+same task id.
+
+What to watch:
+
+- **Checkpoints grow** `chunk → embed → index` — open the `rag.ingest` task in
+  the dashboard and watch the Pipeline stages timeline fill in.
+- **Deduplication** — one `rag.ingest` task, not two, despite the double
+  submit.
+- **Rate-limit gating** — the task waits for an `llm.rpm` token before the
+  worker claims it.
+
+The `embed` stage produces deterministic 16-dim pseudo-embeddings (no API
+needed) and checkpoints after every chunk, so a mid-flight retry resumes at
+chunk granularity. The finished task returns
+`{"chunks":4,"dim":16,"indexed":true,"resumed_from":null}`.
+
 ### More demos
 
 A few focused scripts live in `demos/` to exercise specific behaviors — see
@@ -524,6 +637,7 @@ A few focused scripts live in `demos/` to exercise specific behaviors — see
 - **Multi-worker dispatch** — two workers with different tags/resources share the queue.
 - **Worker failure & retry** — kill a worker mid-task and watch the broker
   requeue and re-dispatch the work.
+- **RAG ingestion** — the durable-pipeline showcase above (`demos/rag.sh`).
 
 ## Benchmarks
 

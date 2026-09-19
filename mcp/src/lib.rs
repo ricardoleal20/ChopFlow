@@ -277,6 +277,17 @@ struct EnqueueTaskParams {
     /// Dispatch priority (higher = claimed first). Default 0.
     #[serde(default)]
     priority: Option<i32>,
+    /// Declared pipeline stages, e.g. ["chunk", "embed", "index"]. Workers
+    /// checkpoint progress per stage and resume from the last completed
+    /// stage on retry; recorded checkpoints are visible on the task JSON
+    /// (`checkpoints`).
+    #[serde(default)]
+    stages: Vec<String>,
+    /// Submit-time idempotency key. Resubmitting with the same key returns
+    /// the already-stored task (response carries "deduplicated": true)
+    /// instead of creating a duplicate.
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -407,7 +418,7 @@ impl ChopFlowMcp {
     }
 
     #[tool(
-        description = "Fetch a single task by its UUID, including status, retries, result, and schedule lineage."
+        description = "Fetch a single task by its UUID, including status, retries, result, schedule lineage, and — for staged pipelines — its declared `stages` and recorded `checkpoints` (per-stage progress with payloads and timestamps)."
     )]
     async fn get_task(&self, Parameters(p): Parameters<IdParams>) -> Result<String, String> {
         self.http(
@@ -419,7 +430,7 @@ impl ChopFlowMcp {
     }
 
     #[tool(
-        description = "Enqueue a task for asynchronous execution. Workers subscribed to the task's tags pick it up. Returns the new task UUID."
+        description = "Enqueue a task for asynchronous execution. Workers subscribed to the task's tags pick it up. Returns the new task UUID. Optionally a checkpointed pipeline: pass `stages` (e.g. [\"chunk\",\"embed\",\"index\"]) and workers persist per-stage checkpoints and resume from the last completed stage on retry. Optionally idempotent: pass `idempotency_key` and resubmitting the same key returns the existing task (\"deduplicated\": true) instead of creating a duplicate."
     )]
     async fn enqueue_task(
         &self,
@@ -438,6 +449,12 @@ impl ChopFlowMcp {
         }
         if let Some(pr) = p.priority {
             body["priority"] = json!(pr);
+        }
+        if !p.stages.is_empty() {
+            body["stages"] = json!(p.stages);
+        }
+        if let Some(key) = p.idempotency_key.filter(|k| !k.is_empty()) {
+            body["idempotency_key"] = json!(key);
         }
         self.http(reqwest::Method::POST, "/api/tasks", Some(body))
             .await
@@ -846,7 +863,8 @@ const TASK_GUIDE: &str = "\
 ChopFlow task guide
 ===================
 
-A task is enqueued with: name, payload (JSON), tags[], and optional max_retries/resources.
+A task is enqueued with: name, payload (JSON), tags[], and optional max_retries/resources,
+stages[], and idempotency_key.
 Workers subscribe by tag and pick up tasks whose tags they match (empty tags = default routing).
 
 Common task names (depend on which workers are running):
@@ -857,6 +875,19 @@ Common task names (depend on which workers are running):
   - llm.complete         payload {\"prompt\":\"...\", \"model\"?, \"temperature\"?, \"max_tokens\"?}
                          -> {text, model, usage}  (LLM worker, tag: llm)
   - llm.chat             payload {\"messages\":[{\"role\",\"content\"}]} -> {text, model, usage}
+
+Checkpointed pipelines (durable stages):
+  - Submit with stages (e.g. [\"chunk\",\"embed\",\"index\"]) to declare a pipeline.
+  - Workers checkpoint progress per stage; on retry they resume from the last
+    completed stage instead of restarting.
+  - The task JSON (get_task / wait_for_task) carries `stages`, `idempotency_key`,
+    and `checkpoints` (each: stage, payload, recorded_at) so you can watch
+    per-stage progress.
+
+Idempotent submits:
+  - Submit with idempotency_key to make submits safe to retry.
+  - Resubmitting the same key returns the already-stored task (the response
+    carries \"deduplicated\": true) instead of creating a duplicate.
 
 Tips:
   - To get a synchronous LLM answer, use the `run_llm_task` tool (it enqueues llm.complete and waits).

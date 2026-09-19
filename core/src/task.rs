@@ -86,6 +86,18 @@ pub struct Task {
     /// the same ready/ETA tier). Defaults to `0`, preserving FIFO order among
     /// unprioritized tasks. See `claim_ready` ordering.
     pub priority: i32,
+
+    /// Declared pipeline stages (e.g. `["chunk", "embed", "index"]`).
+    /// `None` for plain single-stage tasks. A context-aware handler reports
+    /// progress per stage via checkpoints; see `Storage::save_checkpoint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stages: Option<Vec<String>>,
+
+    /// Idempotency key for deduplicated submits. If a task with this key
+    /// already exists (any status), enqueueing again returns the existing
+    /// task instead of creating a duplicate. `None` for regular submits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 impl Task {
@@ -105,6 +117,8 @@ impl Task {
             result: None,
             schedule_id: None,
             priority: 0,
+            stages: None,
+            idempotency_key: None,
         }
     }
 
@@ -141,6 +155,22 @@ impl Task {
     /// Set the dispatch priority. Higher values are claimed before lower ones.
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.priority = priority;
+        self
+    }
+
+    /// Set the declared pipeline stages. A context-aware handler checkpoints
+    /// its progress per stage and resumes from the last completed one on
+    /// retry.
+    pub fn with_stages(mut self, stages: Vec<String>) -> Self {
+        self.stages = Some(stages);
+        self
+    }
+
+    /// Set the idempotency key. Enqueueing a task whose key already exists
+    /// (in any status) returns the existing task instead of creating a
+    /// duplicate.
+    pub fn with_idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
         self
     }
 
@@ -315,5 +345,72 @@ mod tests {
         let json = serde_json::to_string(&task).unwrap();
         let back: Task = serde_json::from_str(&json).unwrap();
         assert_eq!(back.schedule_id, Some(sid));
+    }
+
+    #[test]
+    fn new_task_has_no_stages_or_idempotency_key() {
+        let task = Task::new("train".into(), serde_json::json!({}));
+        assert!(task.stages.is_none());
+        assert!(task.idempotency_key.is_none());
+    }
+
+    #[test]
+    fn with_stages_and_idempotency_key_are_chainable() {
+        let task = Task::new("rag.ingest".into(), serde_json::json!({}))
+            .with_stages(vec!["chunk".into(), "embed".into(), "index".into()])
+            .with_idempotency_key("doc-42-ingest");
+        assert_eq!(
+            task.stages.as_deref(),
+            Some(
+                [
+                    "chunk".to_string(),
+                    "embed".to_string(),
+                    "index".to_string()
+                ]
+                .as_slice()
+            )
+        );
+        assert_eq!(task.idempotency_key.as_deref(), Some("doc-42-ingest"));
+    }
+
+    #[test]
+    fn stages_and_idempotency_key_round_trip_through_serde() {
+        let task = Task::new("rag.ingest".into(), serde_json::json!({}))
+            .with_stages(vec!["chunk".into(), "embed".into()])
+            .with_idempotency_key("doc-42-ingest");
+        let json = serde_json::to_string(&task).unwrap();
+        let back: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.stages, task.stages);
+        assert_eq!(back.idempotency_key, task.idempotency_key);
+    }
+
+    #[test]
+    fn serde_omits_stages_and_idempotency_key_when_none() {
+        // Old JSON (stored SQLite rows) stays byte-compatible: unset optional
+        // fields are neither serialized nor required on deserialize.
+        let task = Task::new("train".into(), serde_json::json!({}));
+        let json = serde_json::to_string(&task).unwrap();
+        assert!(!json.contains("stages"));
+        assert!(!json.contains("idempotency_key"));
+
+        // A legacy JSON body without the new fields deserializes to None.
+        let legacy = serde_json::json!({
+            "id": task.id.to_string(),
+            "name": "train",
+            "payload": {},
+            "tags": [],
+            "enqueue_time": Utc::now().to_rfc3339(),
+            "eta": null,
+            "retry_count": 0,
+            "max_retries": 3,
+            "status": "Created",
+            "resources": {},
+            "result": null,
+            "schedule_id": null,
+            "priority": 0,
+        });
+        let back: Task = serde_json::from_value(legacy).unwrap();
+        assert!(back.stages.is_none());
+        assert!(back.idempotency_key.is_none());
     }
 }

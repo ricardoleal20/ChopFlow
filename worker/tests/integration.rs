@@ -6,7 +6,8 @@
 //! on the gRPC contract end to end.
 
 use chopflow_broker::chopflow::{
-    self, chop_flow_broker_client::ChopFlowBrokerClient, EnqueueTaskRequest, GetTaskStatusRequest,
+    self, chop_flow_broker_client::ChopFlowBrokerClient, EnqueueTaskRequest, GetCheckpointsRequest,
+    GetTaskStatusRequest,
 };
 use chopflow_broker::{build_storage, ChopFlowBrokerService, StorageBackend};
 use chopflow_core::error::Result;
@@ -63,10 +64,7 @@ async fn run_echo_end_to_end() -> chopflow::Task {
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
 
     // Build the worker state the way start_worker does.
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(worker_id.clone(), url.clone(), availability, tags, 4).unwrap(),
     ));
@@ -82,6 +80,8 @@ async fn run_echo_end_to_end() -> chopflow::Task {
             max_retries: 3,
             resources: Default::default(),
             priority: 0,
+            stages: Vec::new(),
+            idempotency_key: String::new(),
         }))
         .await
         .unwrap();
@@ -128,10 +128,7 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
     let resources: HashMap<String, u32> = [("cpu".to_string(), 1)].into_iter().collect();
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
 
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     // Remove the `default` handler so unknown tasks are acked as failure.
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(worker_id.clone(), url.clone(), availability, tags, 1).unwrap(),
@@ -151,6 +148,8 @@ async fn worker_acks_unknown_task_as_failure_via_default_handler() {
             max_retries: 1,
             resources: Default::default(),
             priority: 0,
+            stages: Vec::new(),
+            idempotency_key: String::new(),
         }))
         .await
         .unwrap();
@@ -227,10 +226,7 @@ async fn worker_runs_tasks_concurrently() {
     let resources: HashMap<String, u32> = [("cpu".to_string(), 4)].into_iter().collect();
     let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
 
-    let availability = ResourceAvailability {
-        available: resources.clone(),
-        total: resources.clone(),
-    };
+    let availability = ResourceAvailability::from_capacities(resources.clone());
     let worker_state = Arc::new(Mutex::new(
         WorkerState::new(
             worker_id.clone(),
@@ -262,6 +258,8 @@ async fn worker_runs_tasks_concurrently() {
                 max_retries: 0,
                 resources: Default::default(),
                 priority: 0,
+                stages: Vec::new(),
+                idempotency_key: String::new(),
             }))
             .await
             .unwrap();
@@ -305,4 +303,174 @@ async fn worker_runs_tasks_concurrently() {
         "expected at least 2 concurrent tasks, but max in-flight was {} (worker may be sequential)",
         max
     );
+}
+
+// --- Context-aware handler (durable pipelines) --------------------------------
+
+#[tokio::test]
+async fn ctx_handler_receives_prior_checkpoints_and_resumes_on_retry() {
+    let url = broker_url().await;
+
+    let tags = vec!["pipeline".to_string()];
+    let resources: HashMap<String, u32> = [("cpu".to_string(), 4)].into_iter().collect();
+    let worker_id = connect_and_register(&url, &tags, &resources).await.unwrap();
+    let availability = ResourceAvailability::from_capacities(resources.clone());
+
+    // Shared observation state: what checkpoints + completed stages each
+    // attempt saw on entry, so the assertions can inspect both runs.
+    let runs = Arc::new(AtomicUsize::new(0));
+    let seen_checkpoints: Arc<std::sync::Mutex<Vec<Vec<String>>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_completed: Arc<std::sync::Mutex<Vec<Vec<String>>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let mut registry = chopflow_worker::TaskRegistry::new();
+    {
+        let runs = runs.clone();
+        let seen_checkpoints = seen_checkpoints.clone();
+        let seen_completed = seen_completed.clone();
+        registry.register_ctx("resume.me", move |ctx, _payload| {
+            let runs = runs.clone();
+            let seen_checkpoints = seen_checkpoints.clone();
+            let seen_completed = seen_completed.clone();
+            async move {
+                let run = runs.fetch_add(1, Ordering::SeqCst) + 1;
+                {
+                    let mut seen = seen_checkpoints.lock().unwrap();
+                    seen.push(ctx.checkpoints.iter().map(|c| c.stage.clone()).collect());
+                }
+                {
+                    let mut seen = seen_completed.lock().unwrap();
+                    seen.push(ctx.completed_stages());
+                }
+
+                if run == 1 {
+                    // First attempt: complete stage "a", then fail as if the
+                    // worker crashed mid-pipeline.
+                    ctx.checkpoint("a", json!({ "a_payload": "done" })).await?;
+                    Err("simulated crash after checkpointing 'a'".to_string())
+                } else {
+                    // Retry: must see the "a" checkpoint from the previous
+                    // attempt, resume from it, and finish the pipeline.
+                    let a = ctx
+                        .stage_checkpoint("a")
+                        .expect("retry must see the prior 'a' checkpoint");
+                    let a_payload: serde_json::Value = serde_json::from_str(&a.payload).unwrap();
+                    ctx.checkpoint("b", json!({ "b_from": a_payload["a_payload"] }))
+                        .await?;
+                    Ok(json!({ "status": "ok", "resumed_with": a_payload["a_payload"] }))
+                }
+            }
+        });
+    }
+
+    let worker_state = Arc::new(Mutex::new(
+        WorkerState::with_registry(
+            worker_id,
+            url.clone(),
+            availability,
+            tags.clone(),
+            4,
+            registry,
+        )
+        .unwrap(),
+    ));
+
+    let mut client = ChopFlowBrokerClient::connect(url.clone()).await.unwrap();
+    let resp = client
+        .enqueue_task(Request::new(EnqueueTaskRequest {
+            name: "resume.me".into(),
+            payload: "{}".into(),
+            tags: tags.clone(),
+            eta: None,
+            max_retries: 3,
+            resources: Default::default(),
+            priority: 0,
+            // Declaring stages is what makes the worker fetch prior
+            // checkpoints before invoking the ctx handler.
+            stages: vec!["a".into(), "b".into()],
+            idempotency_key: String::new(),
+        }))
+        .await
+        .unwrap();
+    let task_id = resp.into_inner().task_id;
+
+    // Run the real processing loop until the task reaches a terminal status
+    // (first attempt fails, the broker re-queues it, the retry resumes).
+    let loop_state = worker_state.clone();
+    let handle = tokio::spawn(async move { start_task_processing(&loop_state).await });
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let task = loop {
+        let t = status_of(&mut client, &task_id).await;
+        // COMPLETED=3, FAILED=4, DEADLETTERED=5, CANCELLED=6
+        if t.status >= 3 {
+            break t;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            handle.abort();
+            panic!("resume.me task did not reach a terminal status within 20s");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    handle.abort();
+
+    // The retry must have completed the pipeline.
+    assert_eq!(task.status, chopflow::TaskStatus::Completed as i32);
+    let result: serde_json::Value = serde_json::from_str(&task.result).unwrap();
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["resumed_with"], "done");
+
+    // Attempt 1 started with no checkpoints; attempt 2 saw the "a"
+    // checkpoint from attempt 1 (and completed_stages ordered by the task's
+    // declared stage order).
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        2,
+        "handler must run exactly twice"
+    );
+    {
+        let seen = seen_checkpoints.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[0].is_empty(), "first attempt sees no checkpoints");
+        assert_eq!(
+            seen[1],
+            vec!["a".to_string()],
+            "retry sees the prior checkpoint"
+        );
+    }
+    {
+        let seen = seen_completed.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[0].is_empty());
+        assert_eq!(seen[1], vec!["a".to_string()]);
+    }
+
+    // ctx.checkpoint() persisted: both stages are visible through the
+    // broker's GetCheckpoints, with the payloads the handler saved.
+    let checkpoints = client
+        .get_checkpoints(Request::new(GetCheckpointsRequest {
+            task_id: task_id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .checkpoints;
+    let stages: Vec<&str> = checkpoints.iter().map(|c| c.stage.as_str()).collect();
+    assert!(
+        stages.contains(&"a"),
+        "missing 'a' checkpoint: {:?}",
+        stages
+    );
+    assert!(
+        stages.contains(&"b"),
+        "missing 'b' checkpoint: {:?}",
+        stages
+    );
+
+    let a = checkpoints.iter().find(|c| c.stage == "a").unwrap();
+    assert_eq!(a.payload, r#"{"a_payload":"done"}"#);
+    let b = checkpoints.iter().find(|c| c.stage == "b").unwrap();
+    let b_payload: serde_json::Value = serde_json::from_str(&b.payload).unwrap();
+    assert_eq!(b_payload["b_from"], "done");
 }

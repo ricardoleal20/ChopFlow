@@ -1,8 +1,9 @@
 //! Unit tests for pure CLI helpers (no broker needed).
 
 use chopflow_cli::{
-    build_schedule, build_schedule_kind, parse_overlap, parse_resource_map, resolve_broker,
-    status_name,
+    build_schedule, build_schedule_kind, checkpoint_payload_preview, extract_task_options,
+    merge_task_options, parse_overlap, parse_resource_map, parse_stages, resolve_broker,
+    status_name, TaskOptions,
 };
 
 #[test]
@@ -222,4 +223,159 @@ fn resolve_broker_errors_when_grpc_url_missing() {
     )
     .unwrap_err();
     assert!(format!("{err}").contains("no grpc_url"));
+}
+
+// ---- Task options: --stages / --idempotency-key ----------------------------
+
+#[test]
+fn parse_stages_splits_and_trims() {
+    assert_eq!(
+        parse_stages("chunk,embed,index").unwrap(),
+        vec!["chunk", "embed", "index"]
+    );
+    assert_eq!(
+        parse_stages(" chunk , embed ").unwrap(),
+        vec!["chunk", "embed"]
+    );
+    assert_eq!(parse_stages("single").unwrap(), vec!["single"]);
+}
+
+#[test]
+fn parse_stages_rejects_empty_entries() {
+    for bad in ["", " ", "chunk,,embed", "chunk,", ",chunk", "chunk, ,embed"] {
+        let err = parse_stages(bad).unwrap_err();
+        assert!(
+            format!("{err}").contains("non-empty stage names"),
+            "input {bad:?} should be rejected, got {err}"
+        );
+    }
+}
+
+#[test]
+fn extract_task_options_reads_and_strips_file_fields() {
+    let mut payload: serde_json::Value = serde_json::from_str(
+        r#"{"document":"text","stages":["chunk","embed"],"idempotency_key":"file-key"}"#,
+    )
+    .unwrap();
+    let options = extract_task_options(&mut payload).unwrap();
+    assert_eq!(
+        options,
+        TaskOptions {
+            stages: Some(vec!["chunk".into(), "embed".into()]),
+            idempotency_key: Some("file-key".into()),
+        }
+    );
+    // The reserved keys describe the task, not the handler input.
+    assert_eq!(payload["document"], "text");
+    assert!(payload.get("stages").is_none());
+    assert!(payload.get("idempotency_key").is_none());
+}
+
+#[test]
+fn extract_task_options_ignores_non_object_payloads() {
+    let mut payload: serde_json::Value = serde_json::from_str("[1,2,3]").unwrap();
+    assert_eq!(
+        extract_task_options(&mut payload).unwrap(),
+        TaskOptions::default()
+    );
+    assert_eq!(payload, serde_json::json!([1, 2, 3]));
+}
+
+#[test]
+fn extract_task_options_normalizes_empty_declarations() {
+    // An empty stages array or empty key string declares nothing.
+    let mut payload: serde_json::Value =
+        serde_json::from_str(r#"{"stages":[],"idempotency_key":""}"#).unwrap();
+    assert_eq!(
+        extract_task_options(&mut payload).unwrap(),
+        TaskOptions::default()
+    );
+}
+
+#[test]
+fn extract_task_options_rejects_wrong_shapes() {
+    let mut payload: serde_json::Value =
+        serde_json::from_str(r#"{"stages":"chunk,embed"}"#).unwrap();
+    let err = extract_task_options(&mut payload).unwrap_err();
+    assert!(format!("{err}").contains(r#""stages" must be an array"#));
+
+    let mut payload: serde_json::Value = serde_json::from_str(r#"{"stages":[1,2]}"#).unwrap();
+    assert!(extract_task_options(&mut payload).is_err());
+
+    let mut payload: serde_json::Value = serde_json::from_str(r#"{"idempotency_key":42}"#).unwrap();
+    let err = extract_task_options(&mut payload).unwrap_err();
+    assert!(format!("{err}").contains(r#""idempotency_key" must be a string"#));
+}
+
+#[test]
+fn merge_task_options_flags_win_over_file_fields() {
+    let flags = TaskOptions {
+        stages: Some(vec!["a".into(), "b".into()]),
+        idempotency_key: Some("flag-key".into()),
+    };
+    let file = TaskOptions {
+        stages: Some(vec!["c".into()]),
+        idempotency_key: Some("file-key".into()),
+    };
+    let merged = merge_task_options(flags, file);
+    assert_eq!(merged.stages, Some(vec!["a".into(), "b".into()]));
+    assert_eq!(merged.idempotency_key, Some("flag-key".into()));
+}
+
+#[test]
+fn merge_task_options_falls_back_to_file_fields() {
+    let merged = merge_task_options(
+        TaskOptions::default(),
+        TaskOptions {
+            stages: Some(vec!["c".into()]),
+            idempotency_key: Some("file-key".into()),
+        },
+    );
+    assert_eq!(merged.stages, Some(vec!["c".into()]));
+    assert_eq!(merged.idempotency_key, Some("file-key".into()));
+}
+
+#[test]
+fn merge_task_options_default_when_neither_declares() {
+    assert_eq!(
+        merge_task_options(TaskOptions::default(), TaskOptions::default()),
+        TaskOptions::default()
+    );
+}
+
+// ---- Checkpoint payload preview ---------------------------------------------
+
+#[test]
+fn checkpoint_payload_preview_passthrough_when_short() {
+    assert_eq!(
+        checkpoint_payload_preview(r#"{"chunks":3}"#, 80),
+        r#"{"chunks":3}"#
+    );
+}
+
+#[test]
+fn checkpoint_payload_preview_elides_long_payloads() {
+    let preview = checkpoint_payload_preview(&"x".repeat(100), 80);
+    assert_eq!(preview.chars().count(), 80);
+    assert!(preview.ends_with('…'));
+}
+
+#[test]
+fn checkpoint_payload_preview_collapses_whitespace() {
+    // All whitespace runs collapse to single spaces.
+    assert_eq!(
+        checkpoint_payload_preview("{\n  \"chunks\":\n 3\n}\n", 80),
+        "{ \"chunks\": 3 }"
+    );
+}
+
+#[test]
+fn checkpoint_payload_preview_empty_payload() {
+    assert_eq!(checkpoint_payload_preview("", 80), "(empty)");
+    assert_eq!(checkpoint_payload_preview("   \n ", 80), "(empty)");
+}
+
+#[test]
+fn checkpoint_payload_preview_zero_max_is_empty() {
+    assert_eq!(checkpoint_payload_preview("abc", 0), "");
 }

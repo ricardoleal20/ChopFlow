@@ -15,6 +15,7 @@ const REFETCH_MS = 2000;
 export const qk = {
   stats: ["stats"] as const,
   tasks: (status?: TaskStatus) => ["tasks", status ?? "all"] as const,
+  task: (id: string) => ["task", id] as const,
   workers: ["workers"] as const,
   schedules: ["schedules"] as const,
   environments: ["environments"] as const,
@@ -32,6 +33,18 @@ export function useTasks(status?: TaskStatus) {
   return useQuery({
     queryKey: qk.tasks(status),
     queryFn: () => api.listTasks(status),
+    refetchInterval: REFETCH_MS,
+  });
+}
+
+// Single-task detail: unlike the list endpoint, GET /tasks/:id carries the
+// task's recorded checkpoints (and stages / idempotency key), so the task
+// drawer polls this while open to stay live at the same 2s cadence.
+export function useTask(id?: string) {
+  return useQuery({
+    queryKey: qk.task(id ?? ""),
+    queryFn: () => api.getTask(id ?? ""),
+    enabled: id != null && id !== "",
     refetchInterval: REFETCH_MS,
   });
 }

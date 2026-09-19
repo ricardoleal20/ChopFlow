@@ -3,10 +3,11 @@
 
 A drop-in worker that registers the four demo handlers (`resize_image`,
 `batch_compute`, `simulate_pipeline`, `flaky_handler`) plus an `echo` and a
-`default` fallback. The worker loop, concurrency, heartbeats, and gRPC wiring
-all come from the [`chopflow_worker`] crate — this binary only wires up CLI
-parsing and the demo handler registry, so demos get bounded concurrency for
-free and stay in lock-step with the generic worker.
+`default` fallback, and the context-aware `rag.ingest` durable pipeline
+(chunk → embed → index, checkpointed per stage). The worker loop, concurrency,
+heartbeats, and gRPC wiring all come from the [`chopflow_worker`] crate — this
+binary only wires up CLI parsing and the demo handler registry, so demos get
+bounded concurrency for free and stay in lock-step with the generic worker.
 
 Run it against a broker:
 
@@ -22,6 +23,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 
 mod handlers;
+mod rag;
 
 /// ChopFlow Demo Worker - Task Executor
 #[derive(Parser)]
@@ -43,8 +45,10 @@ enum Commands {
         #[arg(long, short, default_value = "demo")]
         tags: String,
 
-        /// Resources available (format: resource:amount,resource:amount)
-        #[arg(long, short, default_value = "cpu:1")]
+        /// Resources available. Entries are `name:capacity` (static) or
+        /// `name:capacity@refill_amount/period_secs` (replenishing, e.g.
+        /// `llm.rpm:60@60/60` = 60 requests refilled 60 per 60s).
+        #[arg(long, short, default_value = "cpu:4,llm.rpm:60@60/60")]
         resources: String,
 
         /// Heartbeat interval in seconds
@@ -65,6 +69,9 @@ fn build_registry() -> TaskRegistry {
     for (name, handler) in handlers::registry() {
         registry.register(name, handler);
     }
+    // The durable-pipeline showcase: a context-aware handler that checkpoints
+    // chunk → embed → index and resumes from prior checkpoints on retry.
+    registry.register_ctx("rag.ingest", rag::ingest);
     registry
 }
 

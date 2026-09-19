@@ -23,6 +23,7 @@ All `Storage` methods are `async`; the SQLite implementation offloads its
 synchronous database work to `tokio::task::spawn_blocking`.
 */
 
+use crate::checkpoint::Checkpoint;
 use crate::error::{ChopFlowError, Result};
 use crate::schedule::Schedule;
 use crate::task::{Task, TaskStatus};
@@ -106,6 +107,19 @@ pub trait Storage: Send + Sync + 'static {
 
     /// Tasks spawned by `schedule_id` still in flight (Queued or Running).
     async fn in_flight_for_schedule(&self, schedule_id: &Uuid) -> Result<Vec<Task>>;
+
+    /// Persist (upsert) a [`Checkpoint`] for a task's pipeline stage. Saving
+    /// the same `(task_id, stage)` again overwrites `payload` and
+    /// `recorded_at`.
+    async fn save_checkpoint(&self, task_id: &Uuid, stage: &str, payload: &str) -> Result<()>;
+
+    /// All checkpoints recorded for a task, ordered by `recorded_at`
+    /// ascending.
+    async fn checkpoints(&self, task_id: &Uuid) -> Result<Vec<Checkpoint>>;
+
+    /// The task carrying this idempotency key, if any (in any status). Used
+    /// by the enqueue path to deduplicate submits.
+    async fn task_by_idempotency_key(&self, key: &str) -> Result<Option<Task>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +232,9 @@ pub struct InMemoryStorage {
     tasks: Arc<Mutex<HashMap<Uuid, Task>>>,
     ready: Arc<Mutex<BTreeMap<ReadyKey, Uuid>>>,
     schedules: Arc<Mutex<HashMap<Uuid, Schedule>>>,
+    /// Pipeline checkpoints per task, kept sorted by `recorded_at` (upserts
+    /// re-sort in place; the per-task vecs are tiny).
+    checkpoints: Arc<Mutex<HashMap<Uuid, Vec<Checkpoint>>>>,
     stats: StatusCounters,
 }
 
@@ -227,6 +244,7 @@ impl InMemoryStorage {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             ready: Arc::new(Mutex::new(BTreeMap::new())),
             schedules: Arc::new(Mutex::new(HashMap::new())),
+            checkpoints: Arc::new(Mutex::new(HashMap::new())),
             stats: StatusCounters::default(),
         }
     }
@@ -439,6 +457,44 @@ impl Storage for InMemoryStorage {
             .cloned()
             .collect())
     }
+
+    async fn save_checkpoint(&self, task_id: &Uuid, stage: &str, payload: &str) -> Result<()> {
+        let mut checkpoints = self.checkpoints.lock().await;
+        let task_checkpoints = checkpoints.entry(*task_id).or_default();
+
+        let recorded_at = chrono::Utc::now();
+        if let Some(existing) = task_checkpoints.iter_mut().find(|c| c.stage == stage) {
+            // Upsert: overwrite payload + recorded_at for the same stage.
+            existing.payload = payload.to_string();
+            existing.recorded_at = recorded_at;
+        } else {
+            task_checkpoints.push(Checkpoint {
+                task_id: *task_id,
+                stage: stage.to_string(),
+                payload: payload.to_string(),
+                recorded_at,
+            });
+        }
+        task_checkpoints.sort_by_key(|c| c.recorded_at);
+        Ok(())
+    }
+
+    async fn checkpoints(&self, task_id: &Uuid) -> Result<Vec<Checkpoint>> {
+        let checkpoints = self.checkpoints.lock().await;
+        Ok(checkpoints.get(task_id).cloned().unwrap_or_default())
+    }
+
+    async fn task_by_idempotency_key(&self, key: &str) -> Result<Option<Task>> {
+        // Linear scan under the task lock rather than a maintained index
+        // map: idempotency lookups happen on the (low-frequency) submit
+        // path, and an index would have to be reconciled on every upsert
+        // in `insert` (the hot path).
+        let tasks = self.tasks.lock().await;
+        Ok(tasks
+            .values()
+            .find(|t| t.idempotency_key.as_deref() == Some(key))
+            .cloned())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,11 +523,20 @@ impl SqliteStorage {
                  eta_ms      INTEGER,
                  enqueue_ms  INTEGER NOT NULL,
                  priority    INTEGER NOT NULL DEFAULT 0,
+                 stages      TEXT,
+                 idempotency_key TEXT,
                  task_json   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
              CREATE INDEX IF NOT EXISTS tasks_eta ON tasks(eta_ms);
              CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);
+             CREATE TABLE IF NOT EXISTS checkpoints (
+                 task_id     TEXT NOT NULL,
+                 stage       TEXT NOT NULL,
+                 payload     TEXT NOT NULL,
+                 recorded_at TEXT NOT NULL,
+                 PRIMARY KEY (task_id, stage)
+             );
              CREATE TABLE IF NOT EXISTS schedules (
                  id              TEXT PRIMARY KEY,
                  next_fire_ms    INTEGER NOT NULL,
@@ -491,8 +556,20 @@ impl SqliteStorage {
             "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Same pattern for the pipeline-stages and idempotency-key columns
+        // (DBs created before durable pipelines existed have neither).
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN stages TEXT", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT", []);
         conn.execute(
             "CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority)",
+            [],
+        )
+        .map_err(rusqlite_err)?;
+        // Partial index: most tasks carry no idempotency key, so only the
+        // keyed rows are indexed. Must run after the ALTER above for the same
+        // reason as tasks_priority.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS tasks_idempotency_key ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL",
             [],
         )
         .map_err(rusqlite_err)?;
@@ -512,12 +589,22 @@ impl SqliteStorage {
                  eta_ms      INTEGER,
                  enqueue_ms  INTEGER NOT NULL,
                  priority    INTEGER NOT NULL DEFAULT 0,
+                 stages      TEXT,
+                 idempotency_key TEXT,
                  task_json   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
              CREATE INDEX IF NOT EXISTS tasks_eta ON tasks(eta_ms);
              CREATE INDEX IF NOT EXISTS tasks_enqueue ON tasks(enqueue_ms);
              CREATE INDEX IF NOT EXISTS tasks_priority ON tasks(status, priority);
+             CREATE INDEX IF NOT EXISTS tasks_idempotency_key ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL;
+             CREATE TABLE IF NOT EXISTS checkpoints (
+                 task_id     TEXT NOT NULL,
+                 stage       TEXT NOT NULL,
+                 payload     TEXT NOT NULL,
+                 recorded_at TEXT NOT NULL,
+                 PRIMARY KEY (task_id, stage)
+             );
              CREATE TABLE IF NOT EXISTS schedules (
                  id              TEXT PRIMARY KEY,
                  next_fire_ms    INTEGER NOT NULL,
@@ -533,16 +620,50 @@ impl SqliteStorage {
     }
 
     /// Serialize a task to its JSON blob and extract the indexed columns.
-    fn marshal(task: &Task) -> Result<(String, i64, Option<i64>, i64, i64, String)> {
+    /// `stages` is the stage list serialized as a JSON array (NULL when the
+    /// task declares none); `idempotency_key` is NULL for regular submits.
+    /// Both exist only as queryable index columns — the authoritative values
+    /// live inside `task_json`.
+    #[allow(clippy::type_complexity)]
+    fn marshal(
+        task: &Task,
+    ) -> Result<(
+        String,
+        i64,
+        Option<i64>,
+        i64,
+        i64,
+        Option<String>,
+        Option<String>,
+        String,
+    )> {
         let id = task.id.to_string();
         let status = task.status as i64;
         let eta_ms = task.eta.map(|eta| eta.timestamp_millis());
         let enqueue_ms = task.enqueue_time.timestamp_millis();
         let priority = task.priority as i64;
+        let stages = task
+            .stages
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| {
+                ChopFlowError::SerializationError(format!("failed to serialize stages: {}", e))
+            })?;
+        let idempotency_key = task.idempotency_key.clone();
         let json = serde_json::to_string(task).map_err(|e| {
             ChopFlowError::SerializationError(format!("failed to serialize task: {}", e))
         })?;
-        Ok((id, status, eta_ms, enqueue_ms, priority, json))
+        Ok((
+            id,
+            status,
+            eta_ms,
+            enqueue_ms,
+            priority,
+            stages,
+            idempotency_key,
+            json,
+        ))
     }
 
     /// Deserialize a row into a `Task`.
@@ -584,11 +705,12 @@ impl Storage for SqliteStorage {
     async fn insert(&self, task: Task) -> Result<()> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let (id, status, eta_ms, enqueue_ms, priority, json) = Self::marshal(&task)?;
+            let (id, status, eta_ms, enqueue_ms, priority, stages, idempotency_key, json) =
+                Self::marshal(&task)?;
             let conn = lock_conn(&conn)?;
             conn.execute(
-                "INSERT OR REPLACE INTO tasks (id, status, eta_ms, enqueue_ms, priority, task_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![id, status, eta_ms, enqueue_ms, priority, json],
+                "INSERT OR REPLACE INTO tasks (id, status, eta_ms, enqueue_ms, priority, stages, idempotency_key, task_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![id, status, eta_ms, enqueue_ms, priority, stages, idempotency_key, json],
             )
             .map_err(rusqlite_err)?;
             Ok(())
@@ -761,10 +883,11 @@ impl Storage for SqliteStorage {
             // Mark the chosen tasks Running.
             for task in &mut claimed {
                 task.mark_running();
-                let (id, status, eta_ms, enqueue_ms, priority, json) = Self::marshal(task)?;
+                let (id, status, eta_ms, enqueue_ms, priority, stages, idempotency_key, json) =
+                    Self::marshal(task)?;
                 conn.execute(
-                    "UPDATE tasks SET status = ?2, eta_ms = ?3, enqueue_ms = ?4, priority = ?5, task_json = ?6 WHERE id = ?1",
-                    rusqlite::params![id, status, eta_ms, enqueue_ms, priority, json],
+                    "UPDATE tasks SET status = ?2, eta_ms = ?3, enqueue_ms = ?4, priority = ?5, stages = ?6, idempotency_key = ?7, task_json = ?8 WHERE id = ?1",
+                    rusqlite::params![id, status, eta_ms, enqueue_ms, priority, stages, idempotency_key, json],
                 )
                 .map_err(rusqlite_err)?;
             }
@@ -799,7 +922,8 @@ impl Storage for SqliteStorage {
 
             for task in &mut running {
                 task.status = TaskStatus::Queued;
-                let (id, status, _eta_ms, _enqueue_ms, _priority, json) = Self::marshal(task)?;
+                let (id, status, _eta_ms, _enqueue_ms, _priority, _stages, _idem, json) =
+                    Self::marshal(task)?;
                 conn.execute(
                     "UPDATE tasks SET status = ?2, task_json = ?3 WHERE id = ?1",
                     rusqlite::params![id, status, json],
@@ -958,6 +1082,97 @@ impl Storage for SqliteStorage {
         .await
         .map_err(|e| ChopFlowError::Other(e.into()))??;
         Ok(tasks)
+    }
+
+    async fn save_checkpoint(&self, task_id: &Uuid, stage: &str, payload: &str) -> Result<()> {
+        let conn = self.conn.clone();
+        let task_id = task_id.to_string();
+        let stage = stage.to_string();
+        let payload = payload.to_string();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let conn = lock_conn(&conn)?;
+            // Upsert keyed by (task_id, stage): a re-saved stage overwrites
+            // payload + recorded_at.
+            conn.execute(
+                "INSERT INTO checkpoints (task_id, stage, payload, recorded_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(task_id, stage) DO UPDATE
+                 SET payload = excluded.payload, recorded_at = excluded.recorded_at",
+                rusqlite::params![task_id, stage, payload, chrono::Utc::now().to_rfc3339()],
+            )
+            .map_err(rusqlite_err)?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(())
+    }
+
+    async fn checkpoints(&self, task_id: &Uuid) -> Result<Vec<Checkpoint>> {
+        let conn = self.conn.clone();
+        let task_id = task_id.to_string();
+        let checkpoints = tokio::task::spawn_blocking(move || -> Result<Vec<Checkpoint>> {
+            let conn = lock_conn(&conn)?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT task_id, stage, payload, recorded_at
+                     FROM checkpoints WHERE task_id = ?1 ORDER BY recorded_at ASC",
+                )
+                .map_err(rusqlite_err)?;
+            let rows: rusqlite::Result<Vec<Checkpoint>> = stmt
+                .query_map(rusqlite::params![task_id], |row| {
+                    let task_id: String = row.get(0)?;
+                    let recorded_at: String = row.get(3)?;
+                    Ok(Checkpoint {
+                        task_id: Uuid::parse_str(&task_id).map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                0,
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })?,
+                        stage: row.get(1)?,
+                        payload: row.get(2)?,
+                        recorded_at: chrono::DateTime::parse_from_rfc3339(&recorded_at)
+                            .map_err(|e| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    3,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(e),
+                                )
+                            })?
+                            .with_timezone(&chrono::Utc),
+                    })
+                })
+                .map_err(rusqlite_err)?
+                .collect();
+            rows.map_err(rusqlite_err)
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(checkpoints)
+    }
+
+    async fn task_by_idempotency_key(&self, key: &str) -> Result<Option<Task>> {
+        let conn = self.conn.clone();
+        let key = key.to_string();
+        let task = tokio::task::spawn_blocking(move || -> Result<Option<Task>> {
+            let conn = lock_conn(&conn)?;
+            // The partial index on idempotency_key backs this lookup. LIMIT 1
+            // guards against legacy duplicate keys (the enqueue path is
+            // expected to prevent them going forward).
+            let mut stmt = conn
+                .prepare("SELECT * FROM tasks WHERE idempotency_key = ?1 LIMIT 1")
+                .map_err(rusqlite_err)?;
+            let mut rows = stmt.query(rusqlite::params![key]).map_err(rusqlite_err)?;
+            match rows.next().map_err(rusqlite_err)? {
+                Some(row) => Ok(Some(Self::unmarshal(row).map_err(rusqlite_err)?)),
+                None => Ok(None),
+            }
+        })
+        .await
+        .map_err(|e| ChopFlowError::Other(e.into()))??;
+        Ok(task)
     }
 }
 
@@ -1339,5 +1554,185 @@ mod tests {
         let s = SqliteStorage::open(path.to_str().unwrap()).unwrap();
         let got = s.get(&id).await.unwrap().unwrap();
         assert_eq!(got.priority, 0, "legacy row should default to priority 0");
+    }
+
+    // ------------------------------------------------------------------
+    // Checkpoints + idempotency keys (both backends)
+    // ------------------------------------------------------------------
+
+    /// Save three checkpoints in order and read them back: the list must
+    /// contain one entry per stage, in insertion (= recorded_at) order.
+    async fn checkpoint_roundtrip_and_ordering<S: Storage>(s: &S) {
+        let t = queued("rag.ingest", &[]);
+        s.insert(t.clone()).await.unwrap();
+
+        for (stage, payload) in [
+            ("chunk", r#"{"chunks":3}"#),
+            ("embed", r#"{"next":3}"#),
+            ("index", r#"{"stored":3}"#),
+        ] {
+            s.save_checkpoint(&t.id, stage, payload).await.unwrap();
+        }
+
+        let cps = s.checkpoints(&t.id).await.unwrap();
+        let stages: Vec<&str> = cps.iter().map(|c| c.stage.as_str()).collect();
+        assert_eq!(stages, vec!["chunk", "embed", "index"]);
+        assert!(cps.iter().all(|c| c.task_id == t.id));
+        assert_eq!(cps[0].payload, r#"{"chunks":3}"#);
+        // Ascending recorded_at is the storage contract.
+        assert!(
+            cps.windows(2).all(|w| w[0].recorded_at <= w[1].recorded_at),
+            "checkpoints must be ordered by recorded_at ascending"
+        );
+
+        // Unknown task -> empty list, not an error.
+        assert!(s.checkpoints(&Uuid::new_v4()).await.unwrap().is_empty());
+    }
+
+    /// Re-saving the same (task_id, stage) overwrites payload + recorded_at
+    /// instead of appending a duplicate.
+    async fn checkpoint_upsert_overwrites<S: Storage>(s: &S) {
+        let t = queued("rag.ingest", &[]);
+        s.insert(t.clone()).await.unwrap();
+
+        s.save_checkpoint(&t.id, "chunk", r#"{"chunks":3}"#)
+            .await
+            .unwrap();
+        let before = s.checkpoints(&t.id).await.unwrap();
+
+        s.save_checkpoint(&t.id, "chunk", r#"{"chunks":5}"#)
+            .await
+            .unwrap();
+        let after = s.checkpoints(&t.id).await.unwrap();
+
+        assert_eq!(after.len(), 1, "upsert must not duplicate the stage");
+        assert_eq!(after[0].payload, r#"{"chunks":5}"#);
+        assert!(after[0].recorded_at >= before[0].recorded_at);
+    }
+
+    /// A task carrying an idempotency key is found by it; unknown keys and
+    /// keyless tasks are not.
+    async fn task_by_idempotency_key_finds_tasks<S: Storage>(s: &S) {
+        let mut keyed = queued("rag.ingest", &[]);
+        keyed.idempotency_key = Some("doc-42".into());
+        keyed.stages = Some(vec!["chunk".into()]);
+        let plain = queued("train", &[]);
+        s.insert(keyed.clone()).await.unwrap();
+        s.insert(plain).await.unwrap();
+
+        let got = s.task_by_idempotency_key("doc-42").await.unwrap();
+        assert_eq!(got.as_ref().map(|t| t.id), Some(keyed.id));
+        assert_eq!(got.unwrap().stages, Some(vec!["chunk".to_string()]));
+
+        assert!(s
+            .task_by_idempotency_key("missing")
+            .await
+            .unwrap()
+            .is_none());
+        // A keyless task must never match (its key is None, not "").
+        assert!(s.task_by_idempotency_key("").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn in_memory_checkpoint_roundtrip_and_ordering() {
+        checkpoint_roundtrip_and_ordering(&InMemoryStorage::new()).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_checkpoint_roundtrip_and_ordering() {
+        checkpoint_roundtrip_and_ordering(&SqliteStorage::open_in_memory().unwrap()).await;
+    }
+
+    #[tokio::test]
+    async fn in_memory_checkpoint_upsert_overwrites() {
+        checkpoint_upsert_overwrites(&InMemoryStorage::new()).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_checkpoint_upsert_overwrites() {
+        checkpoint_upsert_overwrites(&SqliteStorage::open_in_memory().unwrap()).await;
+    }
+
+    #[tokio::test]
+    async fn in_memory_task_by_idempotency_key() {
+        task_by_idempotency_key_finds_tasks(&InMemoryStorage::new()).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_task_by_idempotency_key() {
+        task_by_idempotency_key_finds_tasks(&SqliteStorage::open_in_memory().unwrap()).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_checkpoints_survive_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cp.db");
+        let p = path.to_str().unwrap().to_string();
+
+        let t = queued("rag.ingest", &[]);
+        let id = t.id;
+        {
+            let s = SqliteStorage::open(&p).unwrap();
+            s.insert(t).await.unwrap();
+            s.save_checkpoint(&id, "chunk", r#"{"chunks":3}"#)
+                .await
+                .unwrap();
+        }
+
+        // Reopen the same file — checkpoints must survive the restart.
+        let s = SqliteStorage::open(&p).unwrap();
+        let cps = s.checkpoints(&id).await.unwrap();
+        assert_eq!(cps.len(), 1);
+        assert_eq!(cps[0].stage, "chunk");
+        assert_eq!(cps[0].payload, r#"{"chunks":3}"#);
+    }
+
+    #[tokio::test]
+    async fn sqlite_migrates_pre_existing_db_without_stages_and_idempotency_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.db");
+
+        // A task serialized before durable pipelines existed (no stages /
+        // idempotency_key in JSON is fine — serde defaults them to None).
+        let t = priority_task("legacy", 3);
+        let id = t.id;
+        let json = serde_json::to_string(&t).unwrap();
+        let enqueue_ms = t.enqueue_time.timestamp_millis();
+
+        // Build a DB with the pre-feature schema (priority present, but no
+        // stages / idempotency_key columns and no checkpoints table).
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, status INTEGER, eta_ms INTEGER, enqueue_ms INTEGER, priority INTEGER NOT NULL DEFAULT 0, task_json TEXT);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, status, eta_ms, enqueue_ms, priority, task_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![t.id.to_string(), t.status as i64, Option::<i64>::None, enqueue_ms, 3, json],
+        )
+        .unwrap();
+        drop(conn);
+
+        // Opening via SqliteStorage must add the new columns + the checkpoints
+        // table idempotently, and the legacy row must read back unchanged.
+        let s = SqliteStorage::open(path.to_str().unwrap()).unwrap();
+        let got = s.get(&id).await.unwrap().unwrap();
+        assert_eq!(got.priority, 3);
+        assert!(got.stages.is_none(), "legacy row has no stages");
+        assert!(got.idempotency_key.is_none(), "legacy row has no key");
+
+        // The new columns are usable: a keyed task is found by its key, and a
+        // legacy task can gain checkpoints.
+        let mut keyed = queued("keyed", &[]);
+        keyed.idempotency_key = Some("k1".into());
+        keyed.stages = Some(vec!["a".into(), "b".into()]);
+        s.insert(keyed.clone()).await.unwrap();
+        let found = s.task_by_idempotency_key("k1").await.unwrap();
+        assert_eq!(found.map(|t| t.id), Some(keyed.id));
+
+        s.save_checkpoint(&id, "chunk", r#"{"chunks":1}"#)
+            .await
+            .unwrap();
+        assert_eq!(s.checkpoints(&id).await.unwrap().len(), 1);
     }
 }

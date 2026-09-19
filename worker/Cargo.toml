@@ -19,6 +19,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 config.workspace = true
 tonic.workspace = true
+chrono.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 futures.workspace = true
 

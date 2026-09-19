@@ -187,3 +187,155 @@ async fn post_authed(router: axum::Router, body: String, auth: &str) -> StatusCo
         .unwrap();
     resp.status()
 }
+
+// ---- Tool plumbing: stages / idempotency_key / checkpoints -----------------
+
+use std::sync::{Arc, Mutex};
+
+/// Spin up a tiny capture broker on an ephemeral port: `POST /api/tasks`
+/// records the request body and answers with a canned enqueue response;
+/// `GET /api/tasks/:id` serves a canned staged-pipeline task JSON (with
+/// `stages`, `idempotency_key`, and `checkpoints`). Returns the broker's
+/// base URL and the captured request bodies, so the MCP tool layer can be
+/// tested end-to-end without the real broker.
+async fn capture_broker() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
+    let captured: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = captured.clone();
+
+    let app = axum::Router::new()
+        .route(
+            "/api/tasks",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().unwrap().push(body);
+                    axum::Json(serde_json::json!({"task_id": "t-1"}))
+                }
+            }),
+        )
+        .route(
+            "/api/tasks/:id",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "id": "t-1",
+                    "name": "rag.ingest",
+                    "status": "running",
+                    "stages": ["chunk", "embed", "index"],
+                    "idempotency_key": "k-1",
+                    "checkpoints": [
+                        {
+                            "task_id": "t-1",
+                            "stage": "chunk",
+                            "payload": "{\"chunks\":3}",
+                            "recorded_at": 1758163200000i64
+                        }
+                    ]
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{addr}"), captured)
+}
+
+/// MCP router pointing at the capture broker, sharing one session manager.
+fn broker_router(base: String) -> axum::Router {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap();
+    chopflow_mcp::http_router(chopflow_mcp::ChopFlowMcp::new(client, base))
+}
+
+/// Initialize an MCP session on `router` and return the assigned session id.
+async fn initialized_session(router: axum::Router) -> String {
+    let (status, session, body) =
+        post_on(router, jsonrpc("initialize", INIT_PARAMS, 1), None).await;
+    assert_eq!(status, StatusCode::OK, "initialize body: {body}");
+    session.expect("server must assign an mcp-session-id")
+}
+
+#[tokio::test]
+async fn enqueue_task_forwards_stages_and_idempotency_key() {
+    let (base, captured) = capture_broker().await;
+    let router = broker_router(base);
+    let session = initialized_session(router.clone()).await;
+
+    let call = jsonrpc(
+        "tools/call",
+        r#"{"name":"enqueue_task","arguments":{"name":"rag.ingest","payload":{"document":"..."},"tags":["rag"],"stages":["chunk","embed","index"],"idempotency_key":"doc-42"}}"#,
+        2,
+    );
+    let (status, _, body) = post_on(router, call, Some(&session)).await;
+    assert_eq!(status, StatusCode::OK, "tools/call body: {body}");
+
+    let bodies = captured.lock().unwrap();
+    assert_eq!(bodies.len(), 1, "exactly one POST /api/tasks expected");
+    assert_eq!(bodies[0]["name"], "rag.ingest");
+    assert_eq!(
+        bodies[0]["stages"],
+        serde_json::json!(["chunk", "embed", "index"]),
+        "stages must be forwarded in the HTTP body"
+    );
+    assert_eq!(
+        bodies[0]["idempotency_key"], "doc-42",
+        "idempotency_key must be forwarded in the HTTP body"
+    );
+}
+
+#[tokio::test]
+async fn enqueue_task_omits_stages_and_key_when_not_given() {
+    let (base, captured) = capture_broker().await;
+    let router = broker_router(base);
+    let session = initialized_session(router.clone()).await;
+
+    let call = jsonrpc(
+        "tools/call",
+        r#"{"name":"enqueue_task","arguments":{"name":"echo","payload":{"x":1}}}"#,
+        2,
+    );
+    let (status, _, body) = post_on(router, call, Some(&session)).await;
+    assert_eq!(status, StatusCode::OK, "tools/call body: {body}");
+
+    let bodies = captured.lock().unwrap();
+    assert_eq!(bodies.len(), 1);
+    assert!(
+        bodies[0].get("stages").is_none(),
+        "plain submits must not declare stages: {}",
+        bodies[0]
+    );
+    assert!(
+        bodies[0].get("idempotency_key").is_none(),
+        "plain submits must not send an idempotency key: {}",
+        bodies[0]
+    );
+}
+
+#[tokio::test]
+async fn get_task_returns_stages_and_checkpoints_verbatim() {
+    let (base, _captured) = capture_broker().await;
+    let router = broker_router(base);
+    let session = initialized_session(router.clone()).await;
+
+    let call = jsonrpc(
+        "tools/call",
+        r#"{"name":"get_task","arguments":{"id":"t-1"}}"#,
+        2,
+    );
+    let (status, _, body) = post_on(router, call, Some(&session)).await;
+    assert_eq!(status, StatusCode::OK, "tools/call body: {body}");
+
+    // The tool proxies the broker's task JSON untouched: stages,
+    // idempotency_key, and checkpoints must all survive the round trip. (The
+    // response may be SSE-wrapped with the JSON escaped, so assert on plain
+    // substrings rather than quoted keys.)
+    for expected in ["stages", "idempotency_key", "checkpoints", "chunk", "embed"] {
+        assert!(
+            body.contains(expected),
+            "task JSON missing {expected}: {body}"
+        );
+    }
+}
