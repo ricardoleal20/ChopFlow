@@ -37,9 +37,47 @@ jobs:
       - name: Build the frontend
         working-directory: broker/ui
         run: pnpm build
+      # When the Apple notarization secrets are configured, the DMG is signed
+      # with your Developer ID and notarized+stapled so a fresh download from
+      # the page opens without the Gatekeeper "damaged" warning. Without the
+      # secrets this stays the current unsigned build (Open-anyway needed).
+      - name: Import Developer ID certificate
+        if: ${{ secrets.APPLE_CERT_BASE64 != '' }}
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          echo "$APPLE_CERT_BASE64" | base64 --decode > "/tmp/chopflow_cert.p12"
+          security import "/tmp/chopflow_cert.p12" -P "$APPLE_CERT_PASSWORD" -A
+          security find-identity -v -p codesigning | grep -i "Developer ID Application"
       - name: Build the macOS app (app + dmg)
+        if: ${{ secrets.APPLE_CERT_BASE64 == '' }}
         working-directory: app/src-tauri
         run: npx --yes @tauri-apps/cli@2 build
+      - name: Build the macOS app (app + dmg) — signed + notarized
+        if: ${{ secrets.APPLE_CERT_BASE64 != '' }}
+        working-directory: app/src-tauri
+        env:
+          TAURI_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          TAURI_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          TAURI_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          # Notarization secrets may be the app-specific-password trio or an
+          # App Store Connect API key. Tauri's bundler notarizes + staples
+          # automatically when either set is present.
+          if [ -n "$TAURI_API_ISSUER_ID" ] && [ -n "$TAURI_API_KEY_ID" ] && [ -n "$TAURI_API_KEY" ]; then
+            echo "$TAURI_API_KEY" > /tmp/asc_api_key.p8
+            chmod 600 /tmp/asc_api_key.p8
+            export APPLE_API_KEY=/tmp/asc_api_key.p8
+            export APPLE_API_KEY_ID="$TAURI_API_KEY_ID"
+            export APPLE_API_ISSUER_ID="$TAURI_API_ISSUER_ID"
+          else
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_PASSWORD="${{ secrets.APPLE_APP_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+          npx --yes @tauri-apps/cli@2 build
       - name: Upload DMG to the release
         env:
           GH_TOKEN: ${{ github.token }}
