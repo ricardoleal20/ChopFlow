@@ -34,8 +34,31 @@ set -euo pipefail
 echo "Looking for a 'Developer ID Application' identity in your keychain…"
 IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null | grep -i "Developer ID Application" || true)
 if [ -z "$IDENTITIES" ]; then
-  echo "No Developer ID Application identity found." >&2
-  echo "Install the certificate first (see header of this script), then re-run." >&2
+  echo "No 'Developer ID Application' identity found." >&2
+  echo >&2
+  echo "All codesigning identities in your keychain (if any):" >&2
+  security find-identity -v -p codesigning 2>/dev/null || true
+  echo >&2
+  cat >&2 <<'HELP'
+To sign + notarize the DMG you need this EXACT certificate type. Create it at:
+
+  1. Enroll in the Apple Developer Program (paid): https://developer.apple.com/programs
+  2. https://developer.apple.com/account  ->  Certificates, Identifiers & Profiles
+     ->  Certificates  ->  "+"  ->  "Developer ID Application"  (type: Distribution)
+  3. Generate the request file first:  Keychain Access  ->  Keychain Access menu
+     ->  Certificate Assistant  ->  Request a Certificate From a Certificate
+     Authority  ->  your email + Common Name (your name), "Saved to disk".
+  4. Upload that .certSigningRequest, download the issued .cer, DOUBLE-CLICK it
+     to install into your login keychain.
+  5. Verify:  security find-identity -v -p codesigning
+     ->  must list  'Developer ID Application: Your Name (TEAMID)'
+  6. Re-run this script.
+
+NOTE: a plain Xcode "Apple Development" / "Mac Development" certificate is
+NOT enough - you must request the Developer ID type explicitly. Without the
+paid program, developer ID certs are not issued (the unsigned-DMG
+right-click > Open workaround stays in effect).
+HELP
   exit 1
 fi
 echo "$IDENTITIES"
